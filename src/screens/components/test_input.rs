@@ -16,6 +16,8 @@ pub enum LogicalButton {
     Down,
     Left,
     Right,
+    MenuUp,
+    MenuDown,
     MenuLeft,
     MenuRight,
     Start,
@@ -93,28 +95,32 @@ pub fn clear(state: &mut State) {
 
 const fn player_from_action(act: VirtualAction) -> Option<PlayerSlot> {
     use VirtualAction::{
-        p1_down, p1_left, p1_menu_left, p1_menu_right, p1_right, p1_select, p1_start, p1_up,
-        p2_down, p2_left, p2_menu_left, p2_menu_right, p2_right, p2_select, p2_start, p2_up,
+        p1_down, p1_left, p1_menu_down, p1_menu_left, p1_menu_right, p1_menu_up, p1_right,
+        p1_select, p1_start, p1_up, p2_down, p2_left, p2_menu_down, p2_menu_left,
+        p2_menu_right, p2_menu_up, p2_right, p2_select, p2_start, p2_up,
     };
     match act {
-        p1_up | p1_down | p1_left | p1_right | p1_menu_left | p1_menu_right | p1_start
-        | p1_select => Some(PlayerSlot::P1),
-        p2_up | p2_down | p2_left | p2_right | p2_menu_left | p2_menu_right | p2_start
-        | p2_select => Some(PlayerSlot::P2),
+        p1_up | p1_down | p1_left | p1_right | p1_menu_up | p1_menu_down | p1_menu_left
+        | p1_menu_right | p1_start | p1_select => Some(PlayerSlot::P1),
+        p2_up | p2_down | p2_left | p2_right | p2_menu_up | p2_menu_down | p2_menu_left
+        | p2_menu_right | p2_start | p2_select => Some(PlayerSlot::P2),
         _ => None,
     }
 }
 
 const fn logical_button_from_action(act: VirtualAction) -> Option<LogicalButton> {
     use VirtualAction::{
-        p1_down, p1_left, p1_menu_left, p1_menu_right, p1_right, p1_select, p1_start, p1_up,
-        p2_down, p2_left, p2_menu_left, p2_menu_right, p2_right, p2_select, p2_start, p2_up,
+        p1_down, p1_left, p1_menu_down, p1_menu_left, p1_menu_right, p1_menu_up, p1_right,
+        p1_select, p1_start, p1_up, p2_down, p2_left, p2_menu_down, p2_menu_left,
+        p2_menu_right, p2_menu_up, p2_right, p2_select, p2_start, p2_up,
     };
     match act {
         p1_up | p2_up => Some(LogicalButton::Up),
         p1_down | p2_down => Some(LogicalButton::Down),
         p1_left | p2_left => Some(LogicalButton::Left),
         p1_right | p2_right => Some(LogicalButton::Right),
+        p1_menu_up | p2_menu_up => Some(LogicalButton::MenuUp),
+        p1_menu_down | p2_menu_down => Some(LogicalButton::MenuDown),
         p1_menu_left | p2_menu_left => Some(LogicalButton::MenuLeft),
         p1_menu_right | p2_menu_right => Some(LogicalButton::MenuRight),
         p1_start | p2_start => Some(LogicalButton::Start),
@@ -314,6 +320,22 @@ fn push_pad(
         xy(pad_x + menu_x_offset, menu_y):
         zoom(0.5):
         diffuse(1.0, 1.0, 1.0, held_alpha(state, slot, LogicalButton::MenuRight)):
+        z(z + 1.0)
+    ));
+    actors.push(act!(sprite("test_input/highlightarrow.png"):
+        align(0.5, 0.5):
+        xy(pad_x, start_y):
+        zoom(0.5):
+        rotationz(270.0):
+        diffuse(1.0, 1.0, 1.0, held_alpha(state, slot, LogicalButton::MenuUp)):
+        z(z + 1.0)
+    ));
+    actors.push(act!(sprite("test_input/highlightarrow.png"):
+        align(0.5, 0.5):
+        xy(pad_x, select_y):
+        zoom(0.5):
+        rotationz(90.0):
+        diffuse(1.0, 1.0, 1.0, held_alpha(state, slot, LogicalButton::MenuDown)):
         z(z + 1.0)
     ));
 }
