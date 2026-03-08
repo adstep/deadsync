@@ -3009,69 +3009,37 @@ fn music_wheel_scroll_speed_from_choice(idx: usize) -> u8 {
 }
 
 #[inline(always)]
-const fn scorebox_cycle_mask(itg: bool, ex: bool, hard_ex: bool, tournaments: bool) -> u8 {
-    (itg as u8) | ((ex as u8) << 1) | ((hard_ex as u8) << 2) | ((tournaments as u8) << 3)
+const fn scorebox_cycle_flag_from_choice(idx: usize) -> config::ScoreboxCycleFlags {
+    if idx < config::SB_CYCLE_NUM_FLAGS {
+        config::ScoreboxCycleFlags::from_bits_truncate(1u8 << idx)
+    } else {
+        config::ScoreboxCycleFlags::empty()
+    }
 }
 
 #[inline(always)]
-const fn scorebox_cycle_cursor_index(
-    itg: bool,
-    ex: bool,
-    hard_ex: bool,
-    tournaments: bool,
-) -> usize {
-    if itg {
+const fn scorebox_cycle_cursor_index(flags: config::ScoreboxCycleFlags) -> usize {
+    if flags.contains(config::ScoreboxCycleFlags::ITG) {
         0
-    } else if ex {
+    } else if flags.contains(config::ScoreboxCycleFlags::EX) {
         1
-    } else if hard_ex {
+    } else if flags.contains(config::ScoreboxCycleFlags::HARD_EX) {
         2
-    } else if tournaments {
+    } else if flags.contains(config::ScoreboxCycleFlags::TOURNAMENTS) {
         3
     } else {
         0
     }
 }
 
-#[inline(always)]
-const fn scorebox_cycle_bit_from_choice(idx: usize) -> u8 {
-    if idx < SELECT_MUSIC_SCOREBOX_CYCLE_NUM_CHOICES {
-        1u8 << (idx as u8)
-    } else {
-        0
-    }
-}
-
-#[inline(always)]
-const fn scorebox_cycle_mask_from_config(cfg: &config::Config) -> u8 {
-    scorebox_cycle_mask(
-        cfg.select_music_scorebox_cycle_itg,
-        cfg.select_music_scorebox_cycle_ex,
-        cfg.select_music_scorebox_cycle_hard_ex,
-        cfg.select_music_scorebox_cycle_tournaments,
-    )
-}
-
-#[inline(always)]
-fn apply_scorebox_cycle_mask(mask: u8) {
-    config::update_select_music_scorebox_cycle_itg((mask & (1u8 << 0)) != 0);
-    config::update_select_music_scorebox_cycle_ex((mask & (1u8 << 1)) != 0);
-    config::update_select_music_scorebox_cycle_hard_ex((mask & (1u8 << 2)) != 0);
-    config::update_select_music_scorebox_cycle_tournaments((mask & (1u8 << 3)) != 0);
-}
-
 fn toggle_select_music_scorebox_cycle_option(state: &mut State, choice_idx: usize) {
-    let bit = scorebox_cycle_bit_from_choice(choice_idx);
-    if bit == 0 {
+    let flag = scorebox_cycle_flag_from_choice(choice_idx);
+    if flag.is_empty() {
         return;
     }
-    let mut mask = scorebox_cycle_mask_from_config(&config::get());
-    if (mask & bit) != 0 {
-        mask &= !bit;
-    } else {
-        mask |= bit;
-    }
-    apply_scorebox_cycle_mask(mask);
+    let mut flags = config::get().scorebox_cycle;
+    flags.toggle(flag);
+    config::update_scorebox_cycle(flags);
 
     let clamped = choice_idx.min(SELECT_MUSIC_SCOREBOX_CYCLE_NUM_CHOICES.saturating_sub(1));
     if let Some(slot) = state
@@ -3090,8 +3058,8 @@ fn toggle_select_music_scorebox_cycle_option(state: &mut State, choice_idx: usiz
 }
 
 #[inline(always)]
-fn select_music_scorebox_cycle_enabled_mask() -> u8 {
-    scorebox_cycle_mask_from_config(&config::get())
+fn select_music_scorebox_cycle_enabled_flags() -> config::ScoreboxCycleFlags {
+    config::get().scorebox_cycle
 }
 
 const fn breakdown_style_choice_index(style: BreakdownStyle) -> usize {
@@ -3124,7 +3092,7 @@ const fn default_fail_type_from_choice(idx: usize) -> DefaultFailType {
 
 const fn auto_screenshot_flag_from_choice(idx: usize) -> config::AutoScreenshotFlags {
     if idx < config::AUTO_SS_NUM_FLAGS {
-        config::AUTO_SS_FLAG_LIST[idx]
+        config::AutoScreenshotFlags::from_bits_truncate(1u8 << idx)
     } else {
         config::AutoScreenshotFlags::empty()
     }
@@ -3159,24 +3127,6 @@ fn toggle_auto_screenshot_option(state: &mut State, choice_idx: usize) {
     audio::play_sfx("assets/sounds/change_value.ogg");
 }
 
-#[inline(always)]
-fn multi_toggle_enabled(
-    is_scorebox: bool,
-    is_auto_screenshot: bool,
-    scorebox_mask: u8,
-    auto_ss_flags: config::AutoScreenshotFlags,
-    idx: usize,
-) -> bool {
-    if is_scorebox {
-        let bit = scorebox_cycle_bit_from_choice(idx);
-        bit != 0 && (scorebox_mask & bit) != 0
-    } else if is_auto_screenshot {
-        let flag = auto_screenshot_flag_from_choice(idx);
-        !flag.is_empty() && auto_ss_flags.contains(flag)
-    } else {
-        false
-    }
-}
 
 const fn yes_no_choice_index(enabled: bool) -> usize {
     if enabled { 1 } else { 0 }
@@ -3858,12 +3808,7 @@ pub fn init() -> State {
         &mut state.sub_choice_indices_select_music,
         SELECT_MUSIC_OPTIONS_ROWS,
         SELECT_MUSIC_ROW_SCOREBOX_CYCLE,
-        scorebox_cycle_cursor_index(
-            cfg.select_music_scorebox_cycle_itg,
-            cfg.select_music_scorebox_cycle_ex,
-            cfg.select_music_scorebox_cycle_hard_ex,
-            cfg.select_music_scorebox_cycle_tournaments,
-        ),
+        scorebox_cycle_cursor_index(cfg.scorebox_cycle),
     );
     set_choice_by_label(
         &mut state.sub_choice_indices_groovestats,
@@ -6858,10 +6803,10 @@ pub fn get_actors(
                                 && row.label == GAMEPLAY_ROW_AUTO_SCREENSHOT;
                             let is_multi_toggle_row =
                                 is_scorebox_cycle_row || is_auto_screenshot_row;
-                            let scorebox_mask = if is_scorebox_cycle_row {
-                                select_music_scorebox_cycle_enabled_mask()
+                            let scorebox_flags = if is_scorebox_cycle_row {
+                                select_music_scorebox_cycle_enabled_flags()
                             } else {
-                                0
+                                config::ScoreboxCycleFlags::empty()
                             };
                             let auto_ss_flags = if is_auto_screenshot_row {
                                 auto_screenshot_enabled_flags()
@@ -6889,8 +6834,15 @@ pub fn get_actors(
                                     if is_choice_selected {
                                         selected_left_x = Some(x);
                                     }
-                                    let is_choice_enabled = is_multi_toggle_row
-                                        && multi_toggle_enabled(is_scorebox_cycle_row, is_auto_screenshot_row, scorebox_mask, auto_ss_flags, idx);
+                                    let is_choice_enabled = if is_scorebox_cycle_row {
+                                        let flag = scorebox_cycle_flag_from_choice(idx);
+                                        !flag.is_empty() && scorebox_flags.contains(flag)
+                                    } else if is_auto_screenshot_row {
+                                        let flag = auto_screenshot_flag_from_choice(idx);
+                                        !flag.is_empty() && auto_ss_flags.contains(flag)
+                                    } else {
+                                        false
+                                    };
                                     let mut choice_color = if is_disabled && !is_choice_selected {
                                         sl_gray
                                     } else if is_multi_toggle_row {
@@ -6948,7 +6900,16 @@ pub fn get_actors(
                                             color::decorative_rgba(state.active_color_index);
                                         line_color[3] *= row_alpha;
                                         for idx in 0..choice_texts.len() {
-                                            if !multi_toggle_enabled(is_scorebox_cycle_row, is_auto_screenshot_row, scorebox_mask, auto_ss_flags, idx) {
+                                            let is_flag_enabled = if is_scorebox_cycle_row {
+                                                let flag = scorebox_cycle_flag_from_choice(idx);
+                                                !flag.is_empty() && scorebox_flags.contains(flag)
+                                            } else if is_auto_screenshot_row {
+                                                let flag = auto_screenshot_flag_from_choice(idx);
+                                                !flag.is_empty() && auto_ss_flags.contains(flag)
+                                            } else {
+                                                false
+                                            };
+                                            if !is_flag_enabled {
                                                 continue;
                                             }
                                             let Some(underline_left_x) = x_positions.get(idx).copied()
