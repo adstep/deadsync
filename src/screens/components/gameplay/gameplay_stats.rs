@@ -2237,32 +2237,36 @@ pub fn build_live_timing_stats(
     let value_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
     let row_spacing = 16.0 * zoom;
     let text_zoom = zoom;
-    // Width needed to clear the longest label ("Mean Abs [64n]").
+    // Width needed to clear the longest label ("Mean Abs [72n]").
     let value_x = if show_labels { 125.0 * text_zoom } else { 0.0 };
     let block_width = value_x + 65.0 * text_zoom; // label col + value col
     let block_height = 3.0 * row_spacing;
 
-    // Compute 64n and All values.
-    let mean_64n = accum.recent_mean_ms();
+    // Lookback window from player profile.
+    let lookback = state.player_profiles[player_idx].live_timing_lookback;
+
+    // Compute recent and All values.
+    let mean_recent = accum.recent_mean_ms(lookback);
     let mean_all = accum.mean_ms();
-    let mean_abs_64n = accum.recent_mean_abs_ms();
+    let mean_abs_recent = accum.recent_mean_abs_ms(lookback);
     let mean_abs_all = accum.mean_abs_ms();
     let max_err = accum.max_abs;
 
-    let mean_64n_text = cached_live_ms_text(mean_64n.to_bits());
+    let mean_recent_text = cached_live_ms_text(mean_recent.to_bits());
     let mean_all_text = cached_live_ms_text(mean_all.to_bits());
-    let mean_abs_64n_text = cached_live_ms_text(mean_abs_64n.to_bits());
+    let mean_abs_recent_text = cached_live_ms_text(mean_abs_recent.to_bits());
     let mean_abs_all_text = cached_live_ms_text(mean_abs_all.to_bits());
     let max_err_text = cached_live_ms_text(max_err.to_bits());
 
-    let labels: [&str; 3] = [
-        "Mean [64n]",
-        "Mean Abs [64n]",
-        "Max Error",
+    let window_label: Arc<str> = Arc::from(format!("{}n", lookback));
+    let labels: [Arc<str>; 3] = [
+        Arc::from(format!("Mean [{}]", window_label)),
+        Arc::from(format!("Mean Abs [{}]", window_label)),
+        Arc::from("Max Error"),
     ];
     let values: [Arc<str>; 3] = [
-        Arc::from(format!("{}/{}", mean_64n_text, mean_all_text)),
-        Arc::from(format!("{}/{}", mean_abs_64n_text, mean_abs_all_text)),
+        Arc::from(format!("{}/{}", mean_recent_text, mean_all_text)),
+        Arc::from(format!("{}/{}", mean_abs_recent_text, mean_abs_all_text)),
         max_err_text,
     ];
 
@@ -2272,7 +2276,7 @@ pub fn build_live_timing_stats(
 
         if show_labels {
             children.push(act!(text:
-                font("miso"): settext(labels[i]):
+                font("miso"): settext(labels[i].clone()):
                 align(0.0, 0.5): horizalign(left):
                 xy(0.0, y):
                 zoom(text_zoom):

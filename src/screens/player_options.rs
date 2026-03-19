@@ -1236,6 +1236,13 @@ fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             choice_difficulty_indices: None,
         },
         Row {
+            name: "Live Timing Lookback".to_string(),
+            choices: vec!["16".to_string(), "32".to_string(), "48".to_string(), "64".to_string(), "72".to_string()],
+            selected_choice_index: [0; PLAYER_SLOTS],
+            help: vec!["Number of recent notes used for the rolling mean in live timing stats.".to_string()],
+            choice_difficulty_indices: None,
+        },
+        Row {
             name: "Error Bar".to_string(),
             choices: vec![
                 "Colorful".to_string(),
@@ -1794,6 +1801,16 @@ fn apply_profile_defaults(
     }
     if let Some(row) = rows.iter_mut().find(|r| r.name == "Live Timing Stats") {
         row.selected_choice_index[player_idx] = if profile.show_live_timing_stats { 1 } else { 0 };
+    }
+    if let Some(row) = rows.iter_mut().find(|r| r.name == "Live Timing Lookback") {
+        row.selected_choice_index[player_idx] = match profile.live_timing_lookback {
+            16 => 0,
+            32 => 1,
+            48 => 2,
+            64 => 3,
+            72 => 4,
+            _ => 3,
+        };
     }
     if let Some(row) = rows.iter_mut().find(|r| r.name == "Error Bar") {
         if error_bar_active_mask != 0 {
@@ -3826,6 +3843,19 @@ fn change_choice_for_player(
         state.player_profiles[player_idx].show_live_timing_stats = enabled;
         if should_persist {
             crate::game::profile::update_live_timing_stats_for_side(persist_side, enabled);
+        }
+    } else if row_name == "Live Timing Lookback" {
+        let lookback = match row.selected_choice_index[player_idx] {
+            0 => 16u8,
+            1 => 32,
+            2 => 48,
+            3 => 64,
+            4 => 72,
+            _ => 64,
+        };
+        state.player_profiles[player_idx].live_timing_lookback = lookback;
+        if should_persist {
+            crate::game::profile::update_live_timing_lookback_for_side(persist_side, lookback);
         }
     } else if row_name == "Error Bar" {
         // Multi-select row toggled with Start; Left/Right only moves cursor.

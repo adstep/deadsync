@@ -3670,13 +3670,13 @@ pub struct LiveTimingAccum {
     pub sum_abs: f32,
     pub max_abs: f32,
     pub count: u32,
-    /// Ring buffer of the last 64 signed offsets for the "64n" window.
-    pub recent: [f32; 64],
-    /// Ring buffer of the last 64 absolute offsets for the "64n" window.
-    pub recent_abs: [f32; 64],
+    /// Ring buffer of the last 72 signed offsets for the recent window.
+    pub recent: [f32; 72],
+    /// Ring buffer of the last 72 absolute offsets for the recent window.
+    pub recent_abs: [f32; 72],
     /// Next write index into `recent`/`recent_abs`.
     pub recent_next: u8,
-    /// How many entries have been written (saturates at 64).
+    /// How many entries have been written (saturates at 72).
     pub recent_len: u8,
 }
 
@@ -3687,8 +3687,8 @@ impl Default for LiveTimingAccum {
             sum_abs: 0.0,
             max_abs: 0.0,
             count: 0,
-            recent: [0.0; 64],
-            recent_abs: [0.0; 64],
+            recent: [0.0; 72],
+            recent_abs: [0.0; 72],
             recent_next: 0,
             recent_len: 0,
         }
@@ -3704,20 +3704,36 @@ impl LiveTimingAccum {
     pub fn mean_abs_ms(&self) -> f32 {
         if self.count == 0 { 0.0 } else { self.sum_abs / self.count as f32 }
     }
-    /// Mean of the last N (up to 64) signed offsets.
+    /// Mean of the last `window` (up to 72) signed offsets.
     #[inline]
-    pub fn recent_mean_ms(&self) -> f32 {
-        let n = self.recent_len as usize;
+    pub fn recent_mean_ms(&self, window: u8) -> f32 {
+        let n = (self.recent_len as usize).min(window as usize);
         if n == 0 { return 0.0; }
-        let sum: f32 = self.recent[..n].iter().sum();
+        let start = if self.recent_len <= window {
+            0
+        } else {
+            (self.recent_next as usize + 72 - n) % 72
+        };
+        let mut sum = 0.0f32;
+        for i in 0..n {
+            sum += self.recent[(start + i) % 72];
+        }
         sum / n as f32
     }
-    /// Mean of the last N (up to 64) absolute offsets.
+    /// Mean of the last `window` (up to 72) absolute offsets.
     #[inline]
-    pub fn recent_mean_abs_ms(&self) -> f32 {
-        let n = self.recent_len as usize;
+    pub fn recent_mean_abs_ms(&self, window: u8) -> f32 {
+        let n = (self.recent_len as usize).min(window as usize);
         if n == 0 { return 0.0; }
-        let sum: f32 = self.recent_abs[..n].iter().sum();
+        let start = if self.recent_len <= window {
+            0
+        } else {
+            (self.recent_next as usize + 72 - n) % 72
+        };
+        let mut sum = 0.0f32;
+        for i in 0..n {
+            sum += self.recent_abs[(start + i) % 72];
+        }
         sum / n as f32
     }
     /// Record one non-miss tap judgment.
@@ -3731,8 +3747,8 @@ impl LiveTimingAccum {
         let idx = self.recent_next as usize;
         self.recent[idx] = time_error_ms;
         self.recent_abs[idx] = a;
-        self.recent_next = ((self.recent_next as usize + 1) % 64) as u8;
-        if self.recent_len < 64 { self.recent_len += 1; }
+        self.recent_next = ((self.recent_next as usize + 1) % 72) as u8;
+        if self.recent_len < 72 { self.recent_len += 1; }
     }
 }
 

@@ -1253,6 +1253,8 @@ pub struct Profile {
     pub error_ms_display: bool,
     /// Show live mean / mean-abs / max-error timing stats during gameplay.
     pub show_live_timing_stats: bool,
+    /// Lookback window for recent-mean in live timing stats (16/32/48/64/72).
+    pub live_timing_lookback: u8,
     pub display_scorebox: bool,
     // zmod LifeBarOptions (Arrow Cloud semantics).
     pub rainbow_max: bool,
@@ -1368,6 +1370,7 @@ impl Default for Profile {
             judgment_back: false,
             error_ms_display: false,
             show_live_timing_stats: false,
+            live_timing_lookback: 64,
             display_scorebox: true,
             rainbow_max: false,
             responsive_colors: false,
@@ -1836,6 +1839,10 @@ fn ensure_local_profile_files(id: &str) -> Result<(), std::io::Error> {
             i32::from(default_profile.show_live_timing_stats)
         ));
         content.push_str(&format!(
+            "LiveTimingLookback = {}\n",
+            default_profile.live_timing_lookback
+        ));
+        content.push_str(&format!(
             "DisplayScorebox = {}\n",
             i32::from(default_profile.display_scorebox)
         ));
@@ -2156,6 +2163,10 @@ fn save_profile_ini_for_side(side: PlayerSide) {
     content.push_str(&format!(
         "LiveTimingStats={}\n",
         i32::from(profile.show_live_timing_stats)
+    ));
+    content.push_str(&format!(
+        "LiveTimingLookback={}\n",
+        profile.live_timing_lookback
     ));
     content.push_str(&format!(
         "DisplayScorebox={}\n",
@@ -2598,6 +2609,11 @@ fn load_for_side(side: PlayerSide) {
                 .get("PlayerOptions", "LiveTimingStats")
                 .and_then(|s| s.parse::<u8>().ok())
                 .map_or(default_profile.show_live_timing_stats, |v| v != 0);
+            profile.live_timing_lookback = profile_conf
+                .get("PlayerOptions", "LiveTimingLookback")
+                .and_then(|s| s.parse::<u8>().ok())
+                .filter(|v| matches!(v, 16 | 32 | 48 | 64 | 72))
+                .unwrap_or(default_profile.live_timing_lookback);
             profile.display_scorebox = profile_conf
                 .get("PlayerOptions", "DisplayScorebox")
                 .and_then(|s| s.parse::<u8>().ok())
@@ -4197,6 +4213,18 @@ pub fn update_live_timing_stats_for_side(side: PlayerSide, enabled: bool) {
             return;
         }
         profile.show_live_timing_stats = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_live_timing_lookback_for_side(side: PlayerSide, lookback: u8) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.live_timing_lookback == lookback {
+            return;
+        }
+        profile.live_timing_lookback = lookback;
     }
     save_profile_ini_for_side(side);
 }
