@@ -333,6 +333,15 @@ pub fn build(
     build_side_pane(&mut actors, state, asset_manager, layout, wide, player_side);
     build_holds_mines_rolls_pane(&mut actors, state, asset_manager, layout, wide, player_side);
     build_scorebox_pane(&mut actors, state, layout, wide, player_side);
+    if wide {
+        let player_idx = match (state.num_players, player_side) {
+            (2, profile::PlayerSide::P2) => 1,
+            _ => 0,
+        };
+        if state.player_profiles[player_idx].show_live_timing_stats {
+            build_live_timing_pane(&mut actors, state, layout, player_side, player_idx);
+        }
+    }
     actors
 }
 
@@ -2117,4 +2126,144 @@ fn build_side_pane(
             z(200)
         ));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Live Timing Stats Overlay
+// ---------------------------------------------------------------------------
+
+/// Place live timing stats to the right of the time display,
+/// above the Song/Artist/Pack/Desc section.
+fn build_live_timing_pane(
+    actors: &mut Vec<Actor>,
+    state: &State,
+    layout: StepStatsPaneLayout,
+    player_side: profile::PlayerSide,
+    player_idx: usize,
+) {
+    // Match step info zoom.
+    let zoom = layout.banner_data_zoom;
+    let text_zoom = if layout.note_field_is_centered {
+        let ar = screen_width() / screen_height().max(1.0);
+        if ar > 1.7 { 0.9 * zoom } else { 0.95 * zoom }
+    } else {
+        0.75 * zoom
+    };
+
+    // Y: align with the time display area (remaining time is at -47, song time at -27
+    // relative to sidepane_center_y). Place our top row at the remaining time Y.
+    let anchor_y = layout.sidepane_center_y + (-40.0 * zoom) - 7.0;
+
+    // X: right-align at Peak NPS position.
+    let anchor_x = match player_side {
+        profile::PlayerSide::P1 => screen_width() - 59.0,
+        profile::PlayerSide::P2 => widescale(6.0, 130.0),
+    };
+
+    actors.extend(build_live_timing_stats(
+        state,
+        player_idx,
+        anchor_x,
+        anchor_y,
+        text_zoom,
+        [1.0, 0.0], // right-align: top-right corner at anchor
+    ));
+}
+
+thread_local! {
+    static LIVE_TIMING_CACHE: RefCell<TextCache<u32>> = RefCell::new(HashMap::with_capacity(256));
+}
+
+/// Format a signed millisecond value to 1 decimal place, caching the result.
+#[inline]
+fn cached_live_ms_text(raw_bits: u32) -> Arc<str> {
+    cached_text(&LIVE_TIMING_CACHE, raw_bits, 512, || {
+        let v = f32::from_bits(raw_bits);
+        format!("{:.1}", v)
+    })
+}
+
+/// Build a live timing stats frame positioned at (`anchor_x`, `anchor_y`).
+///
+/// The frame's `align` controls how the block is anchored:
+/// - `[0.0, 0.0]` = top-left corner at anchor (left-aligned)
+/// - `[1.0, 0.0]` = top-right corner at anchor (right-aligned)
+///
+/// Internally, children are always left-aligned in local coordinates.
+pub fn build_live_timing_stats(
+    state: &State,
+    player_idx: usize,
+    anchor_x: f32,
+    anchor_y: f32,
+    zoom: f32,
+    frame_align: [f32; 2],
+) -> Vec<Actor> {
+    let accum = &state.players[player_idx].live_timing;
+    if accum.count == 0 {
+        return vec![];
+    }
+
+    let label_color: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
+    let value_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let row_spacing = 16.0 * zoom;
+    let text_zoom = zoom;
+    // Width needed to clear the longest label ("Mean Abs [64n]").
+    let value_x = 125.0 * text_zoom;
+    let block_width = value_x + 65.0 * text_zoom; // label col + value col
+    let block_height = 3.0 * row_spacing;
+
+    // Compute 64n and All values.
+    let mean_64n = accum.recent_mean_ms();
+    let mean_all = accum.mean_ms();
+    let mean_abs_64n = accum.recent_mean_abs_ms();
+    let mean_abs_all = accum.mean_abs_ms();
+    let max_err = accum.max_abs;
+
+    let mean_64n_text = cached_live_ms_text(mean_64n.to_bits());
+    let mean_all_text = cached_live_ms_text(mean_all.to_bits());
+    let mean_abs_64n_text = cached_live_ms_text(mean_abs_64n.to_bits());
+    let mean_abs_all_text = cached_live_ms_text(mean_abs_all.to_bits());
+    let max_err_text = cached_live_ms_text(max_err.to_bits());
+
+    let labels: [&str; 3] = [
+        "Mean [64n]",
+        "Mean Abs [64n]",
+        "Max Error",
+    ];
+    let values: [Arc<str>; 3] = [
+        Arc::from(format!("{}/{}", mean_64n_text, mean_all_text)),
+        Arc::from(format!("{}/{}", mean_abs_64n_text, mean_abs_all_text)),
+        max_err_text,
+    ];
+
+    let mut children = Vec::with_capacity(6);
+    for i in 0..3 {
+        let y = i as f32 * row_spacing;
+
+        children.push(act!(text:
+            font("miso"): settext(labels[i]):
+            align(0.0, 0.5): horizalign(left):
+            xy(0.0, y):
+            zoom(text_zoom):
+            diffuse(label_color[0], label_color[1], label_color[2], label_color[3]):
+            z(0)
+        ));
+        children.push(act!(text:
+            font("miso"): settext(values[i].clone()):
+            align(0.0, 0.5): horizalign(left):
+            xy(value_x, y):
+            zoom(text_zoom):
+            diffuse(value_color[0], value_color[1], value_color[2], value_color[3]):
+            z(0)
+        ));
+    }
+
+    vec![Actor::Frame {
+        align: frame_align,
+        offset: [anchor_x, anchor_y],
+        size: [SizeSpec::Px(block_width), SizeSpec::Px(block_height)],
+        children,
+        background: None,
+        z: 71,
+    }]
 }

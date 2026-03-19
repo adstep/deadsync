@@ -3657,6 +3657,83 @@ pub struct PlayerRuntime {
     pub error_bar_avg_next: usize,
     pub error_bar_avg_bar_started_at: Option<f32>,
     pub error_bar_avg_samples: VecDeque<(f32, f32)>,
+
+    pub live_timing: LiveTimingAccum,
+}
+
+/// Incrementally-updated timing statistics for the live stats overlay.
+/// Mirrors the formulas in `timing::compute_note_timing_stats` but
+/// accumulates per-tap so no full-note-scan is needed each frame.
+#[derive(Clone, Copy, Debug)]
+pub struct LiveTimingAccum {
+    pub sum_signed: f32,
+    pub sum_abs: f32,
+    pub max_abs: f32,
+    pub count: u32,
+    /// Ring buffer of the last 64 signed offsets for the "64n" window.
+    pub recent: [f32; 64],
+    /// Ring buffer of the last 64 absolute offsets for the "64n" window.
+    pub recent_abs: [f32; 64],
+    /// Next write index into `recent`/`recent_abs`.
+    pub recent_next: u8,
+    /// How many entries have been written (saturates at 64).
+    pub recent_len: u8,
+}
+
+impl Default for LiveTimingAccum {
+    fn default() -> Self {
+        Self {
+            sum_signed: 0.0,
+            sum_abs: 0.0,
+            max_abs: 0.0,
+            count: 0,
+            recent: [0.0; 64],
+            recent_abs: [0.0; 64],
+            recent_next: 0,
+            recent_len: 0,
+        }
+    }
+}
+
+impl LiveTimingAccum {
+    #[inline]
+    pub fn mean_ms(&self) -> f32 {
+        if self.count == 0 { 0.0 } else { self.sum_signed / self.count as f32 }
+    }
+    #[inline]
+    pub fn mean_abs_ms(&self) -> f32 {
+        if self.count == 0 { 0.0 } else { self.sum_abs / self.count as f32 }
+    }
+    /// Mean of the last N (up to 64) signed offsets.
+    #[inline]
+    pub fn recent_mean_ms(&self) -> f32 {
+        let n = self.recent_len as usize;
+        if n == 0 { return 0.0; }
+        let sum: f32 = self.recent[..n].iter().sum();
+        sum / n as f32
+    }
+    /// Mean of the last N (up to 64) absolute offsets.
+    #[inline]
+    pub fn recent_mean_abs_ms(&self) -> f32 {
+        let n = self.recent_len as usize;
+        if n == 0 { return 0.0; }
+        let sum: f32 = self.recent_abs[..n].iter().sum();
+        sum / n as f32
+    }
+    /// Record one non-miss tap judgment.
+    #[inline]
+    pub fn record(&mut self, time_error_ms: f32) {
+        let a = time_error_ms.abs();
+        self.sum_signed += time_error_ms;
+        self.sum_abs += a;
+        if a > self.max_abs { self.max_abs = a; }
+        self.count += 1;
+        let idx = self.recent_next as usize;
+        self.recent[idx] = time_error_ms;
+        self.recent_abs[idx] = a;
+        self.recent_next = ((self.recent_next as usize + 1) % 64) as u8;
+        if self.recent_len < 64 { self.recent_len += 1; }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -3743,6 +3820,7 @@ fn init_player_runtime() -> PlayerRuntime {
         error_bar_avg_next: 0,
         error_bar_avg_bar_started_at: None,
         error_bar_avg_samples: VecDeque::with_capacity(64),
+        live_timing: LiveTimingAccum::default(),
     }
 }
 
@@ -7934,6 +8012,11 @@ fn error_bar_register_tap(
     let now = state.total_elapsed_in_screen;
     let offset_s = judgment.time_error_ms / 1000.0;
     let p = &mut state.players[player];
+
+    // Accumulate live timing stats (skip misses, matching evaluation semantics).
+    if judgment.grade != JudgeGrade::Miss {
+        p.live_timing.record(judgment.time_error_ms);
+    }
 
     if error_ms_display {
         p.offset_indicator_text = Some(OffsetIndicatorText {

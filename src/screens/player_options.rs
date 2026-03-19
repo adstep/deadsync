@@ -1229,6 +1229,13 @@ fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             choice_difficulty_indices: None,
         },
         Row {
+            name: "Live Timing Stats".to_string(),
+            choices: vec!["Off".to_string(), "On".to_string()],
+            selected_choice_index: [0; PLAYER_SLOTS],
+            help: vec!["Show live mean, mean abs error, and max error during gameplay.".to_string()],
+            choice_difficulty_indices: None,
+        },
+        Row {
             name: "Error Bar".to_string(),
             choices: vec![
                 "Colorful".to_string(),
@@ -1784,6 +1791,9 @@ fn apply_profile_defaults(
     // Initialize Error Bar rows from profile (Simply Love semantics).
     if let Some(row) = rows.iter_mut().find(|r| r.name == "Offset Indicator") {
         row.selected_choice_index[player_idx] = if profile.error_ms_display { 1 } else { 0 };
+    }
+    if let Some(row) = rows.iter_mut().find(|r| r.name == "Live Timing Stats") {
+        row.selected_choice_index[player_idx] = if profile.show_live_timing_stats { 1 } else { 0 };
     }
     if let Some(row) = rows.iter_mut().find(|r| r.name == "Error Bar") {
         if error_bar_active_mask != 0 {
@@ -3810,6 +3820,12 @@ fn change_choice_for_player(
         state.player_profiles[player_idx].error_ms_display = enabled;
         if should_persist {
             crate::game::profile::update_error_ms_display_for_side(persist_side, enabled);
+        }
+    } else if row_name == "Live Timing Stats" {
+        let enabled = row.selected_choice_index[player_idx] != 0;
+        state.player_profiles[player_idx].show_live_timing_stats = enabled;
+        if should_persist {
+            crate::game::profile::update_live_timing_stats_for_side(persist_side, enabled);
         }
     } else if row_name == "Error Bar" {
         // Multi-select row toggled with Start; Left/Right only moves cursor.

@@ -1251,6 +1251,8 @@ pub struct Profile {
     pub judgment_back: bool,
     // zmod ExtraAesthetics: offset indicator (ErrorMSDisplay).
     pub error_ms_display: bool,
+    /// Show live mean / mean-abs / max-error timing stats during gameplay.
+    pub show_live_timing_stats: bool,
     pub display_scorebox: bool,
     // zmod LifeBarOptions (Arrow Cloud semantics).
     pub rainbow_max: bool,
@@ -1365,6 +1367,7 @@ impl Default for Profile {
             column_cues: false,
             judgment_back: false,
             error_ms_display: false,
+            show_live_timing_stats: false,
             display_scorebox: true,
             rainbow_max: false,
             responsive_colors: false,
@@ -1829,6 +1832,10 @@ fn ensure_local_profile_files(id: &str) -> Result<(), std::io::Error> {
             i32::from(default_profile.error_ms_display)
         ));
         content.push_str(&format!(
+            "LiveTimingStats = {}\n",
+            i32::from(default_profile.show_live_timing_stats)
+        ));
+        content.push_str(&format!(
             "DisplayScorebox = {}\n",
             i32::from(default_profile.display_scorebox)
         ));
@@ -2145,6 +2152,10 @@ fn save_profile_ini_for_side(side: PlayerSide) {
     content.push_str(&format!(
         "ErrorMSDisplay={}\n",
         i32::from(profile.error_ms_display)
+    ));
+    content.push_str(&format!(
+        "LiveTimingStats={}\n",
+        i32::from(profile.show_live_timing_stats)
     ));
     content.push_str(&format!(
         "DisplayScorebox={}\n",
@@ -2583,6 +2594,10 @@ fn load_for_side(side: PlayerSide) {
                 .get("PlayerOptions", "ErrorMSDisplay")
                 .and_then(|s| s.parse::<u8>().ok())
                 .map_or(default_profile.error_ms_display, |v| v != 0);
+            profile.show_live_timing_stats = profile_conf
+                .get("PlayerOptions", "LiveTimingStats")
+                .and_then(|s| s.parse::<u8>().ok())
+                .map_or(default_profile.show_live_timing_stats, |v| v != 0);
             profile.display_scorebox = profile_conf
                 .get("PlayerOptions", "DisplayScorebox")
                 .and_then(|s| s.parse::<u8>().ok())
@@ -4170,6 +4185,18 @@ pub fn update_error_ms_display_for_side(side: PlayerSide, enabled: bool) {
             return;
         }
         profile.error_ms_display = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_live_timing_stats_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.show_live_timing_stats == enabled {
+            return;
+        }
+        profile.show_live_timing_stats = enabled;
     }
     save_profile_ini_for_side(side);
 }

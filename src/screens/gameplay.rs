@@ -1470,5 +1470,24 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
             ));
         }
     }
+
+    // Live timing stats overlay — fallback for when StepStatistics pane is not
+    // shown (the pane builders already handle it when StepStatistics is active).
+    if !show_step_stats {
+        let sw = screen_width();
+        for pidx in 0..state.num_players {
+            if !state.player_profiles[pidx].show_live_timing_stats {
+                continue;
+            }
+            // Place in the right half of the screen, to the right of the notefield,
+            // vertically centered near the song info area.
+            let x = if pidx == 0 { sw * 0.75 } else { sw * 0.25 };
+            let y = screen_center_y() + 80.0;
+            actors.extend(gameplay_stats::build_live_timing_stats(
+                state, pidx, x, y, 0.75, [0.0, 0.0],
+            ));
+        }
+    }
+
     actors
 }
