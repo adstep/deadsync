@@ -598,7 +598,7 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
     // Banner: setsize(418,164) zoom(0.3) → half-width = 62.7, half-height = 24.6
     let banner_half_w = 418.0 * 0.3 * 0.5;
     let banner_half_h = 164.0 * 0.3 * 0.5;
-    let banner_bottom_y = screen_center_y() + 70.0 + banner_half_h + 16.0;
+    let banner_bottom_y = screen_center_y() + 70.0 + banner_half_h + 12.0;
     for pidx in 0..2usize {
         if !state.player_profiles[pidx].show_live_timing_stats {
             continue;
@@ -2235,7 +2235,7 @@ pub fn build_live_timing_stats(
 
     let label_color: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
     let value_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    let row_spacing = 16.0 * zoom;
+    let row_spacing = if show_labels { 16.0 * zoom } else { 20.0 * zoom };
     let text_zoom = zoom;
     // Width needed to clear the longest label ("Mean Abs [72n]").
     let value_x = if show_labels { 125.0 * text_zoom } else { 0.0 };
