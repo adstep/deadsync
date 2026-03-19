@@ -594,6 +594,32 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
         ));
     }
 
+    // Live timing stats below the banner for each player.
+    // Banner: setsize(418,164) zoom(0.3) → half-width = 62.7, half-height = 24.6
+    let banner_half_w = 418.0 * 0.3 * 0.5;
+    let banner_half_h = 164.0 * 0.3 * 0.5;
+    let banner_bottom_y = screen_center_y() + 70.0 + banner_half_h + 16.0;
+    for pidx in 0..2usize {
+        if !state.player_profiles[pidx].show_live_timing_stats {
+            continue;
+        }
+        let (anchor_x, align) = if pidx == 0 {
+            (center_x - banner_half_w, [0.0, 0.0]) // P1 left edge of poster
+        } else {
+            (center_x + banner_half_w, [1.0, 0.0]) // P2 right edge of poster
+        };
+        actors.extend(build_live_timing_stats(
+            state,
+            pidx,
+            anchor_x,
+            banner_bottom_y,
+            0.75,
+            align,
+            z_fg,
+            false,
+        ));
+    }
+
     actors
 }
 
@@ -2167,6 +2193,8 @@ fn build_live_timing_pane(
         anchor_y,
         text_zoom,
         [1.0, 0.0], // right-align: top-right corner at anchor
+        71,
+        true,
     ));
 }
 
@@ -2197,6 +2225,8 @@ pub fn build_live_timing_stats(
     anchor_y: f32,
     zoom: f32,
     frame_align: [f32; 2],
+    z: i16,
+    show_labels: bool,
 ) -> Vec<Actor> {
     let accum = &state.players[player_idx].live_timing;
     if accum.count == 0 {
@@ -2208,7 +2238,7 @@ pub fn build_live_timing_stats(
     let row_spacing = 16.0 * zoom;
     let text_zoom = zoom;
     // Width needed to clear the longest label ("Mean Abs [64n]").
-    let value_x = 125.0 * text_zoom;
+    let value_x = if show_labels { 125.0 * text_zoom } else { 0.0 };
     let block_width = value_x + 65.0 * text_zoom; // label col + value col
     let block_height = 3.0 * row_spacing;
 
@@ -2236,18 +2266,20 @@ pub fn build_live_timing_stats(
         max_err_text,
     ];
 
-    let mut children = Vec::with_capacity(6);
+    let mut children = Vec::with_capacity(if show_labels { 6 } else { 3 });
     for i in 0..3 {
         let y = i as f32 * row_spacing;
 
-        children.push(act!(text:
-            font("miso"): settext(labels[i]):
-            align(0.0, 0.5): horizalign(left):
-            xy(0.0, y):
-            zoom(text_zoom):
-            diffuse(label_color[0], label_color[1], label_color[2], label_color[3]):
-            z(0)
-        ));
+        if show_labels {
+            children.push(act!(text:
+                font("miso"): settext(labels[i]):
+                align(0.0, 0.5): horizalign(left):
+                xy(0.0, y):
+                zoom(text_zoom):
+                diffuse(label_color[0], label_color[1], label_color[2], label_color[3]):
+                z(0)
+            ));
+        }
         children.push(act!(text:
             font("miso"): settext(values[i].clone()):
             align(0.0, 0.5): horizalign(left):
@@ -2264,6 +2296,6 @@ pub fn build_live_timing_stats(
         size: [SizeSpec::Px(block_width), SizeSpec::Px(block_height)],
         children,
         background: None,
-        z: 71,
+        z,
     }]
 }

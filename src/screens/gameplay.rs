@@ -1484,7 +1484,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
             let x = if pidx == 0 { sw * 0.75 } else { sw * 0.25 };
             let y = screen_center_y() + 80.0;
             actors.extend(gameplay_stats::build_live_timing_stats(
-                state, pidx, x, y, 0.75, [0.0, 0.0],
+                state, pidx, x, y, 0.75, [0.0, 0.0], 71, true,
             ));
         }
     }
