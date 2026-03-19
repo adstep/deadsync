@@ -2229,9 +2229,6 @@ pub fn build_live_timing_stats(
     show_labels: bool,
 ) -> Vec<Actor> {
     let accum = &state.players[player_idx].live_timing;
-    if accum.count == 0 {
-        return vec![];
-    }
 
     let label_color: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
     let value_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
