@@ -5091,7 +5091,7 @@ impl App {
                     payload.score / 100.0
                 ))
             });
-            if let Some(po_state) = self.state.screens.player_options_state.take() {
+            if let Some(mut po_state) = self.state.screens.player_options_state.take() {
                 let song_arc = po_state.song.clone();
                 let play_style = profile::get_session_play_style();
                 let player_side = profile::get_session_player_side();
@@ -5284,6 +5284,10 @@ impl App {
                     to_scroll_speed(&po_state.speed_mod[0]),
                     to_scroll_speed(&po_state.speed_mod[1]),
                 ];
+
+                for i in 0..scroll_speeds.len() {
+                    po_state.player_profiles[i].scroll_speed = scroll_speeds[i];
+                }
 
                 let color_index = po_state.active_color_index;
                 let lead_in_timing = self.state.session.course_run.as_ref().and_then(|course| {
