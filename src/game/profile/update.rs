@@ -525,7 +525,7 @@ pub fn update_notefield_offset_y_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_judgment_offset_x_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -538,7 +538,7 @@ pub fn update_judgment_offset_x_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_judgment_offset_y_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -551,7 +551,7 @@ pub fn update_judgment_offset_y_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_combo_offset_x_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -564,7 +564,7 @@ pub fn update_combo_offset_x_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_combo_offset_y_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -577,7 +577,7 @@ pub fn update_combo_offset_y_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_error_bar_offset_x_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -590,7 +590,7 @@ pub fn update_error_bar_offset_x_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_error_bar_offset_y_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-100, 100);
+    let clamped = offset.clamp(-200, 200);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
