@@ -26,6 +26,14 @@ pub enum Action {
     SortByMeter,
     SortByPopularity,
     SortByRecent,
+    SortByGenre,
+    SortByTopGrades,
+    SortByPopularityP1,
+    SortByPopularityP2,
+    SortByRecentP1,
+    SortByRecentP2,
+    SortByTopGradesP1,
+    SortByTopGradesP2,
     SwitchToSingle,
     SwitchToDouble,
     TestInput,
@@ -91,6 +99,46 @@ const ITEM_SORT_BY_RECENT: Item = Item {
     top_label: "Sort By",
     bottom_label: "Recently Played",
     action: Action::SortByRecent,
+};
+pub const ITEM_SORT_BY_GENRE: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "Genre",
+    action: Action::SortByGenre,
+};
+pub const ITEM_SORT_BY_TOP_GRADES: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "Machine Top Scores",
+    action: Action::SortByTopGrades,
+};
+pub const ITEM_SORT_BY_POPULARITY_P1: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P1 Most Played",
+    action: Action::SortByPopularityP1,
+};
+pub const ITEM_SORT_BY_POPULARITY_P2: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P2 Most Played",
+    action: Action::SortByPopularityP2,
+};
+pub const ITEM_SORT_BY_RECENT_P1: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P1 Recent Songs",
+    action: Action::SortByRecentP1,
+};
+pub const ITEM_SORT_BY_RECENT_P2: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P2 Recent Songs",
+    action: Action::SortByRecentP2,
+};
+pub const ITEM_SORT_BY_TOP_GRADES_P1: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P1 Clear Rank",
+    action: Action::SortByTopGradesP1,
+};
+pub const ITEM_SORT_BY_TOP_GRADES_P2: Item = Item {
+    top_label: "Sort By",
+    bottom_label: "P2 Clear Rank",
+    action: Action::SortByTopGradesP2,
 };
 pub const ITEM_SWITCH_TO_SINGLE: Item = Item {
     top_label: "Change Style To",
@@ -158,15 +206,17 @@ const ITEM_GO_BACK: Item = Item {
     action: Action::BackToMain,
 };
 
-pub const ITEMS_SORTS: [Item; 9] = [
+pub const ITEMS_SORTS: [Item; 11] = [
     ITEM_SORT_BY_GROUP,
     ITEM_SORT_BY_TITLE,
     ITEM_SORT_BY_ARTIST,
+    ITEM_SORT_BY_GENRE,
     ITEM_SORT_BY_BPM,
     ITEM_SORT_BY_LENGTH,
     ITEM_SORT_BY_METER,
     ITEM_SORT_BY_POPULARITY,
     ITEM_SORT_BY_RECENT,
+    ITEM_SORT_BY_TOP_GRADES,
     ITEM_GO_BACK,
 ];
 
