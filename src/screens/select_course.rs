@@ -1,4 +1,5 @@
 use crate::act;
+use crate::assets::i18n::tr;
 use crate::assets::AssetManager;
 use crate::engine::audio;
 use crate::engine::input::{InputEvent, PadDir, VirtualAction};
@@ -2012,7 +2013,8 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         alpha_mul: 1.0,
     }));
     actors.push(sl_select_music_bg_flash());
-    actors.extend(screen_bars::build("SELECT COURSE"));
+    let select_course = tr("ScreenTitles", "SelectCourse");
+    actors.extend(screen_bars::build(&select_course));
     actors.push(timers::build_session(format_session_time(
         state.session_elapsed,
     )));
