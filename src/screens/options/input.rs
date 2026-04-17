@@ -3,10 +3,9 @@ use crate::config;
 use crate::engine::audio;
 use crate::engine::gfx::BackendType;
 use crate::engine::input::{InputEvent, VirtualAction};
-use crate::game::{profile, scores};
+use crate::game::profile;
 use crate::screens::{Screen, ScreenAction};
 use crate::screens::input as screen_input;
-use null_or_die::BiasKernel;
 use std::time::Instant;
 
 use super::*;

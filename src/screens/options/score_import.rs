@@ -1,7 +1,4 @@
-use crate::config;
-use crate::engine::audio;
 use crate::game::{course, profile, scores};
-use crate::screens::{Screen, ScreenAction};
 use crate::screens::pack_sync as shared_pack_sync;
 use crate::screens::select_music;
 use std::sync::Arc;

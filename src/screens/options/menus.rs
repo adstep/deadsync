@@ -1,13 +1,10 @@
-use std::sync::Arc;
 
-use crate::assets::i18n::{LookupKey, lookup_key, tr};
+use crate::assets::i18n::{lookup_key, tr};
 use crate::config;
 use crate::engine::audio;
 use crate::engine::display::MonitorSpec;
 use crate::engine::gfx::{BackendType, PresentModePolicy};
 use crate::game::{profile, scores};
-use crate::screens::Screen;
-use null_or_die::{BiasKernel, KernelTarget};
 
 use super::*;
 

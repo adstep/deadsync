@@ -1,40 +1,30 @@
 use crate::act;
-use crate::assets::{self, AssetManager};
+use crate::assets::{self};
 use crate::engine::display::{self, MonitorSpec};
 use crate::engine::gfx::{BackendType, PresentModePolicy};
 use crate::engine::space::{is_wide, screen_height, screen_width, widescale};
 // Screen navigation is handled in app via the dispatcher
 use crate::config::{
-    self, BreakdownStyle, DefaultFailType, DisplayMode, FullscreenType, LogLevel,
-    MachinePreferredPlayMode, MachinePreferredPlayStyle, NewPackMode, SelectMusicItlWheelMode,
-    SelectMusicPatternInfoMode, SelectMusicScoreboxPlacement, SelectMusicWheelStyle, SimpleIni,
-    SyncGraphMode, dirs,
+    self, DisplayMode, FullscreenType, SimpleIni, dirs,
 };
 use crate::engine::audio;
 #[cfg(target_os = "windows")]
 use crate::engine::input::WindowsPadBackend;
-use crate::engine::input::{InputEvent, VirtualAction};
 use crate::game::parsing::{noteskin as noteskin_parser, simfile as song_loading};
-use crate::game::{course, profile, scores};
+use crate::game::profile;
 use crate::screens::input as screen_input;
 use crate::screens::pack_sync as shared_pack_sync;
-use crate::screens::select_music;
-use crate::screens::{Screen, ScreenAction};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::assets::i18n::{lookup_key, tr, tr_fmt};
+use crate::assets::i18n::{tr, tr_fmt};
 use crate::engine::present::actors;
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
-use crate::engine::present::font;
-use crate::screens::components::shared::screen_bar::{ScreenBarPosition, ScreenBarTitlePlacement};
-use crate::screens::components::shared::{heart_bg, screen_bar};
-use null_or_die::{BiasKernel, KernelTarget};
+use crate::screens::components::shared::heart_bg;
 
 mod types;
 mod menus;

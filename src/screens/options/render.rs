@@ -5,8 +5,7 @@ use crate::assets::i18n::tr;
 use crate::engine::present::actors;
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
-use crate::engine::present::font;
-use crate::engine::space::{is_wide, screen_height, screen_width, widescale};
+use crate::engine::space::{screen_height, screen_width, widescale};
 use crate::screens::components::shared::screen_bar::{ScreenBarPosition, ScreenBarTitlePlacement};
 use crate::screens::components::shared::{heart_bg, screen_bar};
 

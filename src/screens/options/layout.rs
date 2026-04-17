@@ -1,8 +1,6 @@
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::assets::AssetManager;
-use crate::assets::i18n::tr;
 use crate::engine::present::font;
 use crate::engine::space::{screen_height, screen_width, widescale};
 
