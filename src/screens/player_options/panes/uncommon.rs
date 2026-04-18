@@ -21,6 +21,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "InsertHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &INSERT }),
         },
         Row {
             id: RowId::Remove,
@@ -38,6 +39,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "RemoveHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &REMOVE }),
         },
         Row {
             id: RowId::Holds,
@@ -52,6 +54,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "HoldsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &HOLDS }),
         },
         Row {
             id: RowId::Accel,
@@ -66,6 +69,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "AccelHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &ACCEL }),
         },
         Row {
             id: RowId::Effect,
@@ -85,6 +89,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "EffectHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &EFFECT }),
         },
         Row {
             id: RowId::Appearance,
@@ -99,6 +104,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "AppearanceHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &APPEARANCE }),
         },
         Row {
             id: RowId::Attacks,
@@ -111,6 +117,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "AttacksHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&ATTACKS) }),
         },
         Row {
             id: RowId::HideLightType,
@@ -124,6 +131,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "HideLightTypeHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&HIDE_LIGHT_TYPE) }),
         },
         Row {
             id: RowId::WhatComesNext,
@@ -135,6 +143,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
                 tr("PlayerOptionsHelp", "WhatComesNextHelp2").to_string(),
             ],
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::WhatComesNext),
         },
         Row {
             id: RowId::Exit,
@@ -143,6 +152,7 @@ pub fn build_uncommon_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![String::new()],
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::Exit),
         },
     ];
     rows

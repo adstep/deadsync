@@ -29,7 +29,7 @@ pub fn focused_inline_choice_index(
     row_idx: usize,
 ) -> Option<usize> {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row = state.rows.get(row_idx)?;
+    let row = state.rows().get(row_idx)?;
     if !row_supports_inline_nav(row) {
         return None;
     }
@@ -42,7 +42,7 @@ pub fn focused_inline_choice_index(
         return None;
     }
     let mut focus_idx = row.selected_choice_index[idx].min(centers.len().saturating_sub(1));
-    let anchor_x = state.inline_choice_x[idx];
+    let anchor_x = state.inline_choice_x()[idx];
     if anchor_x.is_finite() {
         let mut best_dist = f32::INFINITY;
         for (i, &center_x) in centers.iter().enumerate() {
@@ -62,12 +62,12 @@ pub fn move_inline_focus(
     player_idx: usize,
     delta: isize,
 ) -> bool {
-    if state.rows.is_empty() || delta == 0 {
+    if state.rows().is_empty() || delta == 0 {
         return false;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_idx = state.selected_row[idx].min(state.rows.len().saturating_sub(1));
-    let Some(row) = state.rows.get(row_idx) else {
+    let row_idx = state.selected_row()[idx].min(state.rows().len().saturating_sub(1));
+    let Some(row) = state.rows().get(row_idx) else {
         return false;
     };
     if !row_supports_inline_nav(row) {
@@ -82,12 +82,12 @@ pub fn move_inline_focus(
         return false;
     }
     if row_allows_arcade_next_row(state, row_idx) {
-        if state.arcade_row_focus[idx] {
+        if state.arcade_row_focus()[idx] {
             if delta <= 0 {
                 return false;
             }
-            state.arcade_row_focus[idx] = false;
-            state.inline_choice_x[idx] = centers[0];
+            state.arcade_row_focus_mut()[idx] = false;
+            state.inline_choice_x_mut()[idx] = centers[0];
             return true;
         }
         let Some(current_idx) = focused_inline_choice_index(state, asset_manager, idx, row_idx)
@@ -96,17 +96,17 @@ pub fn move_inline_focus(
         };
         if delta < 0 {
             if current_idx == 0 {
-                state.arcade_row_focus[idx] = true;
-                state.inline_choice_x[idx] = f32::NAN;
+                state.arcade_row_focus_mut()[idx] = true;
+                state.inline_choice_x_mut()[idx] = f32::NAN;
                 return true;
             }
-            state.inline_choice_x[idx] = centers[current_idx - 1];
+            state.inline_choice_x_mut()[idx] = centers[current_idx - 1];
             return true;
         }
         if current_idx + 1 >= centers.len() {
             return false;
         }
-        state.inline_choice_x[idx] = centers[current_idx + 1];
+        state.inline_choice_x_mut()[idx] = centers[current_idx + 1];
         return true;
     }
     let Some(current_idx) = focused_inline_choice_index(state, asset_manager, idx, row_idx) else {
@@ -114,7 +114,7 @@ pub fn move_inline_focus(
     };
     let n = centers.len() as isize;
     let next_idx = ((current_idx as isize + delta).rem_euclid(n)) as usize;
-    state.inline_choice_x[idx] = centers[next_idx];
+    state.inline_choice_x_mut()[idx] = centers[next_idx];
     true
 }
 
@@ -125,17 +125,18 @@ pub fn commit_inline_focus_selection(
     row_idx: usize,
 ) -> bool {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let Some(row) = state.rows.get(row_idx) else {
-        return false;
+    let (supports_inline, row_id) = match state.rows().get(row_idx) {
+        Some(row) => (row_supports_inline_nav(row), row.id),
+        None => return false,
     };
-    if !row_supports_inline_nav(row) {
+    if !supports_inline {
         return false;
     }
     let Some(focus_idx) = focused_inline_choice_index(state, asset_manager, idx, row_idx) else {
         return false;
     };
-    let is_shared = row_is_shared(row.id);
-    if let Some(row) = state.rows.get_mut(row_idx) {
+    let is_shared = row_is_shared(row_id);
+    if let Some(row) = state.rows_mut().get_mut(row_idx) {
         if is_shared {
             let changed = row.selected_choice_index.iter().any(|&v| v != focus_idx);
             row.selected_choice_index = [focus_idx; PLAYER_SLOTS];
@@ -155,11 +156,11 @@ pub fn sync_inline_intent_from_row(
     row_idx: usize,
 ) {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    if row_allows_arcade_next_row(state, row_idx) && state.arcade_row_focus[idx] {
-        state.inline_choice_x[idx] = f32::NAN;
+    if row_allows_arcade_next_row(state, row_idx) && state.arcade_row_focus()[idx] {
+        state.inline_choice_x_mut()[idx] = f32::NAN;
         return;
     }
-    let Some(row) = state.rows.get(row_idx) else {
+    let Some(row) = state.rows().get(row_idx) else {
         return;
     };
     if !row_supports_inline_nav(row) {
@@ -174,7 +175,7 @@ pub fn sync_inline_intent_from_row(
         return;
     }
     let sel = row.selected_choice_index[idx].min(centers.len().saturating_sub(1));
-    state.inline_choice_x[idx] = centers[sel];
+    state.inline_choice_x_mut()[idx] = centers[sel];
 }
 
 pub fn apply_inline_intent_to_row(
@@ -184,11 +185,11 @@ pub fn apply_inline_intent_to_row(
     row_idx: usize,
 ) {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    if row_allows_arcade_next_row(state, row_idx) && state.arcade_row_focus[idx] {
-        state.inline_choice_x[idx] = f32::NAN;
+    if row_allows_arcade_next_row(state, row_idx) && state.arcade_row_focus()[idx] {
+        state.inline_choice_x_mut()[idx] = f32::NAN;
         return;
     }
-    let Some(row) = state.rows.get(row_idx) else {
+    let Some(row) = state.rows().get(row_idx) else {
         return;
     };
     if !row_supports_inline_nav(row) {
@@ -204,11 +205,11 @@ pub fn apply_inline_intent_to_row(
     }
     let sel = row.selected_choice_index[idx].min(centers.len().saturating_sub(1));
     if state.current_pane == OptionsPane::Main {
-        state.inline_choice_x[idx] = centers[sel];
+        state.inline_choice_x_mut()[idx] = centers[sel];
         return;
     }
-    if !state.inline_choice_x[idx].is_finite() {
-        state.inline_choice_x[idx] = centers[sel];
+    if !state.inline_choice_x()[idx].is_finite() {
+        state.inline_choice_x_mut()[idx] = centers[sel];
     }
 }
 
@@ -219,29 +220,29 @@ pub fn move_selection_vertical(
     player_idx: usize,
     dir: NavDirection,
 ) {
-    if !matches!(dir, NavDirection::Up | NavDirection::Down) || state.rows.is_empty() {
+    if !matches!(dir, NavDirection::Up | NavDirection::Down) || state.rows().is_empty() {
         return;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     sync_selected_rows_with_visibility(state, active);
     let visibility = row_visibility(
-        &state.rows,
+        state.rows(),
         active,
         state.hide_active_mask,
         state.error_bar_active_mask,
         state.allow_per_player_global_offsets,
     );
-    let current_row = state.selected_row[idx].min(state.rows.len().saturating_sub(1));
-    if !state.inline_choice_x[idx].is_finite() {
+    let current_row = state.selected_row()[idx].min(state.rows().len().saturating_sub(1));
+    if !state.inline_choice_x()[idx].is_finite() {
         if let Some((anchor_x, _, _, _)) = cursor_dest_for_player(state, asset_manager, idx) {
-            state.inline_choice_x[idx] = anchor_x;
+            state.inline_choice_x_mut()[idx] = anchor_x;
         } else {
             sync_inline_intent_from_row(state, asset_manager, idx, current_row);
         }
     }
-    if let Some(next_row) = next_visible_row(&state.rows, current_row, dir, visibility) {
-        state.selected_row[idx] = next_row;
-        state.arcade_row_focus[idx] = row_allows_arcade_next_row(state, next_row);
+    if let Some(next_row) = next_visible_row(state.rows(), current_row, dir, visibility) {
+        state.selected_row_mut()[idx] = next_row;
+        state.arcade_row_focus_mut()[idx] = row_allows_arcade_next_row(state, next_row);
         apply_inline_intent_to_row(state, asset_manager, idx, next_row);
     }
 }
@@ -301,8 +302,8 @@ pub fn arcade_next_row_visible(state: &State, row_idx: usize) -> bool {
 pub fn arcade_row_focuses_next_row(state: &State, player_idx: usize, row_idx: usize) -> bool {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     row_allows_arcade_next_row(state, row_idx)
-        && state.arcade_row_focus[idx]
-        && state.selected_row[idx] == row_idx
+        && state.arcade_row_focus()[idx]
+        && state.selected_row()[idx] == row_idx
 }
 
 pub fn arcade_next_row_layout(
@@ -321,25 +322,24 @@ pub fn cursor_dest_for_player(
     asset_manager: &AssetManager,
     player_idx: usize,
 ) -> Option<(f32, f32, f32, f32)> {
-    if state.rows.is_empty() {
+    if state.rows().is_empty() {
         return None;
     }
     let player_idx = player_idx.min(PLAYER_SLOTS - 1);
     let visibility = row_visibility(
-        &state.rows,
+        state.rows(),
         session_active_players(),
         state.hide_active_mask,
         state.error_bar_active_mask,
         state.allow_per_player_global_offsets,
     );
-    let mut row_idx = state.selected_row[player_idx].min(state.rows.len().saturating_sub(1));
-    if !is_row_visible(&state.rows, row_idx, visibility) {
-        row_idx = fallback_visible_row(&state.rows, row_idx, visibility)?;
+    let mut row_idx = state.selected_row()[player_idx].min(state.rows().len().saturating_sub(1));
+    if !is_row_visible(state.rows(), row_idx, visibility) {
+        row_idx = fallback_visible_row(state.rows(), row_idx, visibility)?;
     }
-    let row = state.rows.get(row_idx)?;
+    let row = state.rows().get(row_idx)?;
 
-    let y = state
-        .row_tweens
+    let y = state.row_tweens()
         .get(row_idx)
         .map(|tw| tw.to_y)
         .unwrap_or_else(|| {
@@ -469,19 +469,9 @@ pub fn cursor_dest_for_player(
     let display_text = if arcade_row_focuses_next_row(state, player_idx, row_idx) {
         ARCADE_NEXT_ROW_TEXT.to_string()
     } else if row.id == RowId::SpeedMod {
-        match state.speed_mod[player_idx].mod_type.as_str() {
-            "X" => format!("{:.2}x", state.speed_mod[player_idx].value),
-            "C" => format!("C{}", state.speed_mod[player_idx].value as i32),
-            "M" => format!("M{}", state.speed_mod[player_idx].value as i32),
-            _ => String::new(),
-        }
+        state.speed_mod[player_idx].display()
     } else if row.id == RowId::TypeOfSpeedMod {
-        let idx = match state.speed_mod[player_idx].mod_type.as_str() {
-            "X" => 0,
-            "C" => 1,
-            "M" => 2,
-            _ => 1,
-        };
+        let idx = state.speed_mod[player_idx].mod_type.type_choice_index();
         row.choices.get(idx).cloned().unwrap_or_default()
     } else {
         let idx = row.selected_choice_index[player_idx].min(row.choices.len().saturating_sub(1));

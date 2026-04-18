@@ -40,124 +40,14 @@ pub fn clear_start_hold(state: &mut State, player_idx: usize) {
 }
 
 pub fn apply_pane(state: &mut State, pane: OptionsPane) {
-    let speed_mod = &state.speed_mod[session_persisted_player_idx()];
-    let mut rows = build_rows(
-        &state.song,
-        speed_mod,
-        state.chart_steps_index,
-        state.chart_difficulty_index,
-        state.music_rate,
-        pane,
-        &state.noteskin_names,
-        state.return_screen,
-        state.fixed_stepchart.as_ref(),
-    );
-    let (
-        scroll_active_mask_p1,
-        hide_active_mask_p1,
-        insert_active_mask_p1,
-        remove_active_mask_p1,
-        holds_active_mask_p1,
-        accel_effects_active_mask_p1,
-        visual_effects_active_mask_p1,
-        appearance_effects_active_mask_p1,
-        fa_plus_active_mask_p1,
-        early_dw_active_mask_p1,
-        gameplay_extras_active_mask_p1,
-        gameplay_extras_more_active_mask_p1,
-        results_extras_active_mask_p1,
-        life_bar_options_active_mask_p1,
-        error_bar_active_mask_p1,
-        error_bar_options_active_mask_p1,
-        measure_counter_options_active_mask_p1,
-    ) = apply_profile_defaults(&mut rows, &state.player_profiles[P1], P1);
-    let (
-        scroll_active_mask_p2,
-        hide_active_mask_p2,
-        insert_active_mask_p2,
-        remove_active_mask_p2,
-        holds_active_mask_p2,
-        accel_effects_active_mask_p2,
-        visual_effects_active_mask_p2,
-        appearance_effects_active_mask_p2,
-        fa_plus_active_mask_p2,
-        early_dw_active_mask_p2,
-        gameplay_extras_active_mask_p2,
-        gameplay_extras_more_active_mask_p2,
-        results_extras_active_mask_p2,
-        life_bar_options_active_mask_p2,
-        error_bar_active_mask_p2,
-        error_bar_options_active_mask_p2,
-        measure_counter_options_active_mask_p2,
-    ) = apply_profile_defaults(&mut rows, &state.player_profiles[P2], P2);
-    state.rows = rows;
-    state.scroll_active_mask = [scroll_active_mask_p1, scroll_active_mask_p2];
-    state.hide_active_mask = [hide_active_mask_p1, hide_active_mask_p2];
-    state.insert_active_mask = [insert_active_mask_p1, insert_active_mask_p2];
-    state.remove_active_mask = [remove_active_mask_p1, remove_active_mask_p2];
-    state.holds_active_mask = [holds_active_mask_p1, holds_active_mask_p2];
-    state.accel_effects_active_mask = [accel_effects_active_mask_p1, accel_effects_active_mask_p2];
-    state.visual_effects_active_mask =
-        [visual_effects_active_mask_p1, visual_effects_active_mask_p2];
-    state.appearance_effects_active_mask = [
-        appearance_effects_active_mask_p1,
-        appearance_effects_active_mask_p2,
-    ];
-    state.fa_plus_active_mask = [fa_plus_active_mask_p1, fa_plus_active_mask_p2];
-    state.early_dw_active_mask = [early_dw_active_mask_p1, early_dw_active_mask_p2];
-    state.gameplay_extras_active_mask = [
-        gameplay_extras_active_mask_p1,
-        gameplay_extras_active_mask_p2,
-    ];
-    state.gameplay_extras_more_active_mask = [
-        gameplay_extras_more_active_mask_p1,
-        gameplay_extras_more_active_mask_p2,
-    ];
-    state.results_extras_active_mask =
-        [results_extras_active_mask_p1, results_extras_active_mask_p2];
-    state.life_bar_options_active_mask = [
-        life_bar_options_active_mask_p1,
-        life_bar_options_active_mask_p2,
-    ];
-    state.error_bar_active_mask = [error_bar_active_mask_p1, error_bar_active_mask_p2];
-    state.error_bar_options_active_mask = [
-        error_bar_options_active_mask_p1,
-        error_bar_options_active_mask_p2,
-    ];
-    state.measure_counter_options_active_mask = [
-        measure_counter_options_active_mask_p1,
-        measure_counter_options_active_mask_p2,
-    ];
+    // Pane swap is just a swap. Each pane was built up front in `init()`
+    // with its own rows, selection, and tween state, so switching panes
+    // preserves cursor and scroll position automatically.
     state.current_pane = pane;
-    state.selected_row = [0; PLAYER_SLOTS];
-    state.prev_selected_row = [0; PLAYER_SLOTS];
-    state.inline_choice_x = [f32::NAN; PLAYER_SLOTS];
-    state.arcade_row_focus = [false; PLAYER_SLOTS];
+    // Cancel any in-flight Start hold so it doesn't immediately repeat
+    // on the new pane.
     state.start_held_since = [None; PLAYER_SLOTS];
     state.start_last_triggered_at = [None; PLAYER_SLOTS];
-    state.cursor_initialized = [false; PLAYER_SLOTS];
-    state.cursor_from_x = [0.0; PLAYER_SLOTS];
-    state.cursor_from_y = [0.0; PLAYER_SLOTS];
-    state.cursor_from_w = [0.0; PLAYER_SLOTS];
-    state.cursor_from_h = [0.0; PLAYER_SLOTS];
-    state.cursor_to_x = [0.0; PLAYER_SLOTS];
-    state.cursor_to_y = [0.0; PLAYER_SLOTS];
-    state.cursor_to_w = [0.0; PLAYER_SLOTS];
-    state.cursor_to_h = [0.0; PLAYER_SLOTS];
-    state.cursor_t = [1.0; PLAYER_SLOTS];
-    state.help_anim_time = [0.0; PLAYER_SLOTS];
-    let active = session_active_players();
-    state.row_tweens = init_row_tweens(
-        &state.rows,
-        state.selected_row,
-        active,
-        state.hide_active_mask,
-        state.error_bar_active_mask,
-        state.allow_per_player_global_offsets,
-    );
-    state.arcade_row_focus = std::array::from_fn(|player_idx| {
-        row_allows_arcade_next_row(state, state.selected_row[player_idx])
-    });
 }
 
 pub fn switch_to_pane(state: &mut State, pane: OptionsPane) {
@@ -182,12 +72,12 @@ pub fn switch_to_pane(state: &mut State, pane: OptionsPane) {
 }
 
 pub fn focus_exit_row(state: &mut State, active: [bool; PLAYER_SLOTS], player_idx: usize) {
-    if state.rows.is_empty() {
+    if state.rows().is_empty() {
         return;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    state.selected_row[idx] = state.rows.len().saturating_sub(1);
-    state.arcade_row_focus[idx] = row_allows_arcade_next_row(state, state.selected_row[idx]);
+    state.selected_row_mut()[idx] = state.rows().len().saturating_sub(1);
+    state.arcade_row_focus_mut()[idx] = row_allows_arcade_next_row(state, state.selected_row()[idx]);
     sync_selected_rows_with_visibility(state, active);
 }
 
@@ -212,7 +102,7 @@ pub fn handle_nav_event(
     dir: NavDirection,
     pressed: bool,
 ) {
-    if !active[player_idx] || state.rows.is_empty() {
+    if !active[player_idx] || state.rows().is_empty() {
         return;
     }
     if pressed {
@@ -232,7 +122,7 @@ pub fn handle_nav_event(
                 if !move_arcade_horizontal_focus(state, asset_manager, player_idx, -1) {
                     apply_choice_delta(state, asset_manager, player_idx, -1);
                     if arcade_row_uses_choice_focus(state, player_idx) {
-                        state.arcade_row_focus[player_idx.min(PLAYER_SLOTS - 1)] = false;
+                        state.arcade_row_focus_mut()[player_idx.min(PLAYER_SLOTS - 1)] = false;
                     }
                 }
             }
@@ -240,7 +130,7 @@ pub fn handle_nav_event(
                 if !move_arcade_horizontal_focus(state, asset_manager, player_idx, 1) {
                     apply_choice_delta(state, asset_manager, player_idx, 1);
                     if arcade_row_uses_choice_focus(state, player_idx) {
-                        state.arcade_row_focus[player_idx.min(PLAYER_SLOTS - 1)] = false;
+                        state.arcade_row_focus_mut()[player_idx.min(PLAYER_SLOTS - 1)] = false;
                     }
                 }
             }
@@ -279,10 +169,10 @@ pub fn handle_arcade_start_press(
         handle_arcade_prev_event(state, asset_manager, active, player_idx);
         return None;
     }
-    if repeated && !state.rows.is_empty() {
+    if repeated && !state.rows().is_empty() {
         let idx = player_idx.min(PLAYER_SLOTS - 1);
-        let row_idx = state.selected_row[idx].min(state.rows.len().saturating_sub(1));
-        if row_idx + 1 == state.rows.len() {
+        let row_idx = state.selected_row()[idx].min(state.rows().len().saturating_sub(1));
+        if row_idx + 1 == state.rows().len() {
             return None;
         }
     }
@@ -322,12 +212,12 @@ pub fn move_arcade_horizontal_focus(
     player_idx: usize,
     delta: isize,
 ) -> bool {
-    if delta == 0 || state.rows.is_empty() {
+    if delta == 0 || state.rows().is_empty() {
         return false;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_idx = state.selected_row[idx].min(state.rows.len().saturating_sub(1));
-    let Some(row) = state.rows.get(row_idx) else {
+    let row_idx = state.selected_row()[idx].min(state.rows().len().saturating_sub(1));
+    let Some(row) = state.rows().get(row_idx) else {
         return false;
     };
     let row_supports_inline = row_supports_inline_nav(row);
@@ -348,11 +238,11 @@ pub fn move_arcade_horizontal_focus(
     if num_choices <= 1 {
         return false;
     }
-    if state.arcade_row_focus[idx] {
+    if state.arcade_row_focus()[idx] {
         if delta < 0 {
             return false;
         }
-        state.arcade_row_focus[idx] = false;
+        state.arcade_row_focus_mut()[idx] = false;
         if current_choice == 0 {
             audio::play_sfx("assets/sounds/change_value.ogg");
         } else {
@@ -362,7 +252,7 @@ pub fn move_arcade_horizontal_focus(
     }
     if delta < 0 {
         if current_choice == 0 {
-            state.arcade_row_focus[idx] = true;
+            state.arcade_row_focus_mut()[idx] = true;
             audio::play_sfx("assets/sounds/change_value.ogg");
             return true;
         }
@@ -382,17 +272,17 @@ pub fn handle_arcade_prev_event(
     active: [bool; PLAYER_SLOTS],
     player_idx: usize,
 ) {
-    if !active[player_idx] || state.rows.is_empty() {
+    if !active[player_idx] || state.rows().is_empty() {
         return;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let prev_row = state.selected_row[idx];
+    let prev_row = state.selected_row()[idx];
     clear_nav_hold(state, player_idx);
     move_selection_vertical(state, asset_manager, active, player_idx, NavDirection::Up);
-    if state.selected_row[idx] != prev_row {
+    if state.selected_row()[idx] != prev_row {
         audio::play_sfx("assets/sounds/prev_row.ogg");
         state.help_anim_time[idx] = 0.0;
-        state.prev_selected_row[idx] = state.selected_row[idx];
+        state.prev_selected_row_mut()[idx] = state.selected_row()[idx];
     }
 }
 
@@ -406,23 +296,23 @@ pub fn handle_arcade_start_event(
         return None;
     }
     sync_selected_rows_with_visibility(state, active);
-    let num_rows = state.rows.len();
+    let num_rows = state.rows().len();
     if num_rows == 0 {
         return None;
     }
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.selected_row[idx].min(num_rows.saturating_sub(1));
+    let row_index = state.selected_row()[idx].min(num_rows.saturating_sub(1));
     if row_index + 1 == num_rows {
-        state.arcade_row_focus[idx] = row_allows_arcade_next_row(state, row_index);
+        state.arcade_row_focus_mut()[idx] = row_allows_arcade_next_row(state, row_index);
         return handle_start_event(state, asset_manager, active, idx);
     }
-    if arcade_row_uses_choice_focus(state, idx) && !state.arcade_row_focus[idx] {
+    if arcade_row_uses_choice_focus(state, idx) && !state.arcade_row_focus()[idx] {
         let action = handle_start_event(state, asset_manager, active, idx);
-        state.arcade_row_focus[idx] = row_allows_arcade_next_row(state, row_index);
+        state.arcade_row_focus_mut()[idx] = row_allows_arcade_next_row(state, row_index);
         return action;
     }
     move_selection_vertical(state, asset_manager, active, idx, NavDirection::Down);
-    state.arcade_row_focus[idx] = row_allows_arcade_next_row(state, state.selected_row[idx]);
+    state.arcade_row_focus_mut()[idx] = row_allows_arcade_next_row(state, state.selected_row()[idx]);
     None
 }
 
@@ -436,13 +326,13 @@ pub fn handle_start_event(
         return None;
     }
     sync_selected_rows_with_visibility(state, active);
-    let num_rows = state.rows.len();
+    let num_rows = state.rows().len();
     if num_rows == 0 {
         return None;
     }
-    let row_index = state.selected_row[player_idx].min(num_rows.saturating_sub(1));
+    let row_index = state.selected_row()[player_idx].min(num_rows.saturating_sub(1));
     let should_focus_exit = state.current_pane == OptionsPane::Main && row_index + 1 < num_rows;
-    let row = state.rows.get(row_index)?;
+    let row = state.rows().get(row_index)?;
     let id = row.id;
     let row_supports_inline = row_supports_inline_nav(row);
     if row_supports_inline {
@@ -452,76 +342,17 @@ pub fn handle_start_event(
             return finish_start_without_action(state, active, player_idx, should_focus_exit);
         }
     }
-    if id == RowId::Scroll {
-        toggle_scroll_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Hide {
-        toggle_hide_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Insert {
-        toggle_insert_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Remove {
-        toggle_remove_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Holds {
-        toggle_holds_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Accel {
-        toggle_accel_effects_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Effect {
-        toggle_visual_effects_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::Appearance {
-        toggle_appearance_effects_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::LifeBarOptions {
-        toggle_life_bar_options_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::GameplayExtras {
-        toggle_gameplay_extras_row(state, player_idx);
+    // Bitmask rows route through the RowKind dispatcher.
+    if matches!(state.rows()[row_index].kind, RowKind::Bitmask(_)) {
+        let _ = dispatch_kind_toggle(state, player_idx, row_index);
         return finish_start_without_action(state, active, player_idx, should_focus_exit);
     }
     if id == RowId::GameplayExtrasMore {
         toggle_gameplay_extras_more_row(state, player_idx);
         return finish_start_without_action(state, active, player_idx, should_focus_exit);
     }
-    if id == RowId::ResultsExtras {
-        toggle_results_extras_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::ErrorBar {
-        toggle_error_bar_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::ErrorBarOptions {
-        toggle_error_bar_options_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::MeasureCounterOptions {
-        toggle_measure_counter_options_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::FAPlusOptions {
-        toggle_fa_plus_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
-    if id == RowId::EarlyDecentWayOffOptions {
-        toggle_early_dw_row(state, player_idx);
-        return finish_start_without_action(state, active, player_idx, should_focus_exit);
-    }
     if row_index == num_rows.saturating_sub(1)
-        && let Some(what_comes_next_row) = state.rows.get(num_rows.saturating_sub(2))
+        && let Some(what_comes_next_row) = state.rows().get(num_rows.saturating_sub(2))
         && what_comes_next_row.id == RowId::WhatComesNext
     {
         let choice_idx = what_comes_next_row.selected_choice_index[player_idx];

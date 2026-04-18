@@ -33,6 +33,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "TurnHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&TURN) }),
         },
         Row {
             id: RowId::Scroll,
@@ -47,6 +48,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ScrollHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &SCROLL }),
         },
         Row {
             id: RowId::Hide,
@@ -63,6 +65,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "HideHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &HIDE }),
         },
         Row {
             id: RowId::LifeMeterType,
@@ -75,6 +78,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "LifeMeterTypeHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&LIFE_METER_TYPE) }),
         },
         Row {
             id: RowId::LifeBarOptions,
@@ -87,6 +91,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "LifeBarOptionsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &LIFE_BAR_OPTIONS }),
         },
         Row {
             id: RowId::DataVisualizations,
@@ -99,6 +104,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "DataVisualizationsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&DATA_VISUALIZATIONS) }),
         },
         Row {
             id: RowId::DensityGraphBackground,
@@ -110,6 +116,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "DensityGraphBackgroundHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&DENSITY_GRAPH_BACKGROUND) }),
         },
         Row {
             id: RowId::TargetScore,
@@ -133,6 +140,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [10; PLAYER_SLOTS], // S by default
             help: vec![tr("PlayerOptionsHelp", "TargetScoreHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&TARGET_SCORE) }),
         },
         Row {
             id: RowId::ActionOnMissedTarget,
@@ -145,6 +153,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "TargetScoreMissPolicyHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&ACTION_ON_MISSED_TARGET),
         },
         Row {
             id: RowId::MiniIndicator,
@@ -161,6 +170,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "MiniIndicatorHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&MINI_INDICATOR),
         },
         Row {
             id: RowId::IndicatorScoreType,
@@ -173,6 +183,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "IndicatorScoreTypeHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&INDICATOR_SCORE_TYPE) }),
         },
         Row {
             id: RowId::GameplayExtras,
@@ -181,6 +192,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "GameplayExtrasHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &GAMEPLAY_EXTRAS }),
         },
         Row {
             id: RowId::ComboColors,
@@ -195,6 +207,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ComboColorsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&COMBO_COLORS) }),
         },
         Row {
             id: RowId::ComboColorMode,
@@ -206,6 +219,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ComboColorModeHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&COMBO_COLOR_MODE) }),
         },
         Row {
             id: RowId::CarryCombo,
@@ -217,6 +231,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "CarryComboHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&CARRY_COMBO) }),
         },
         Row {
             id: RowId::JudgmentTilt,
@@ -228,6 +243,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "JudgmentTiltHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&JUDGMENT_TILT) }),
         },
         Row {
             id: RowId::JudgmentTiltIntensity,
@@ -236,6 +252,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "JudgmentTiltIntensityHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&JUDGMENT_TILT_INTENSITY),
         },
         Row {
             id: RowId::JudgmentBehindArrows,
@@ -247,6 +264,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "JudgmentBehindArrowsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&JUDGMENT_BEHIND_ARROWS) }),
         },
         Row {
             id: RowId::OffsetIndicator,
@@ -258,6 +276,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "OffsetIndicatorHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&OFFSET_INDICATOR) }),
         },
         Row {
             id: RowId::ErrorBar,
@@ -272,6 +291,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ErrorBarHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &ERROR_BAR }),
         },
         Row {
             id: RowId::ErrorBarTrim,
@@ -285,6 +305,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ErrorBarTrimHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&ERROR_BAR_TRIM) }),
         },
         Row {
             id: RowId::ErrorBarOptions,
@@ -296,6 +317,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ErrorBarOptionsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &ERROR_BAR_OPTIONS }),
         },
         Row {
             id: RowId::ErrorBarOffsetX,
@@ -304,6 +326,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetXHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &ERROR_BAR_OFFSET_X }),
         },
         Row {
             id: RowId::ErrorBarOffsetY,
@@ -312,6 +335,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetYHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &ERROR_BAR_OFFSET_Y }),
         },
         Row {
             id: RowId::MeasureCounter,
@@ -327,6 +351,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "MeasureCounterHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&MEASURE_COUNTER) }),
         },
         Row {
             id: RowId::MeasureCounterLookahead,
@@ -341,6 +366,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "MeasureCounterLookaheadHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&MEASURE_COUNTER_LOOKAHEAD),
         },
         Row {
             id: RowId::MeasureCounterOptions,
@@ -355,6 +381,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "MeasureCounterOptionsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &MEASURE_COUNTER_OPTIONS }),
         },
         Row {
             id: RowId::MeasureLines,
@@ -368,6 +395,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "MeasureLinesHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&MEASURE_LINES) }),
         },
         Row {
             id: RowId::RescoreEarlyHits,
@@ -379,6 +407,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "RescoreEarlyHitsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&RESCORE_EARLY_HITS) }),
         },
         Row {
             id: RowId::EarlyDecentWayOffOptions,
@@ -394,6 +423,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "EarlyDecentWayOffOptionsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &EARLY_DW_OPTIONS }),
         },
         Row {
             id: RowId::ResultsExtras,
@@ -402,6 +432,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "ResultsExtrasHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &RESULTS_EXTRAS }),
         },
         Row {
             id: RowId::TimingWindows,
@@ -415,6 +446,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "TimingWindowsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&TIMING_WINDOWS) }),
         },
         Row {
             id: RowId::FAPlusOptions,
@@ -430,6 +462,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "FAPlusOptionsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Bitmask(BitmaskRow { binding: &FA_PLUS_OPTIONS }),
         },
         Row {
             id: RowId::CustomBlueFantasticWindow,
@@ -441,6 +474,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Bool(&CUSTOM_BLUE_FANTASTIC_WINDOW) }),
         },
         Row {
             id: RowId::CustomBlueFantasticWindowMs,
@@ -449,6 +483,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowMsHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&CUSTOM_BLUE_FANTASTIC_WINDOW_MS),
         },
         Row {
             id: RowId::WhatComesNext,
@@ -457,6 +492,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![tr("PlayerOptionsHelp", "WhatComesNextAdvancedHelp").to_string()],
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::WhatComesNext),
         },
         Row {
             id: RowId::Exit,
@@ -465,6 +501,7 @@ pub fn build_advanced_rows(return_screen: Screen) -> Vec<Row> {
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![String::new()],
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::Exit),
         },
     ]
 }

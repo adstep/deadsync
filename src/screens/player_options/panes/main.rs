@@ -15,12 +15,7 @@ pub fn build_main_rows(
     return_screen: Screen,
     fixed_stepchart: Option<&FixedStepchart>,
 ) -> Vec<Row> {
-    let speed_mod_value_str = match speed_mod.mod_type.as_str() {
-        "X" => format!("{:.2}x", speed_mod.value),
-        "C" => format!("C{}", speed_mod.value as i32),
-        "M" => format!("M{}", speed_mod.value as i32),
-        _ => String::new(),
-    };
+    let speed_mod_value_str = speed_mod.display();
     let (stepchart_choices, stepchart_choice_indices, initial_stepchart_choice_index) =
         if let Some(fixed) = fixed_stepchart {
             let fixed_steps_idx = chart_steps_index[session_persisted_player_idx()];
@@ -119,17 +114,13 @@ pub fn build_main_rows(
                 tr("PlayerOptions", "SpeedModTypeC").to_string(),
                 tr("PlayerOptions", "SpeedModTypeM").to_string(),
             ],
-            selected_choice_index: [match speed_mod.mod_type.as_str() {
-                "X" => 0,
-                "C" => 1,
-                "M" => 2,
-                _ => 1, // Default to C
-            }; PLAYER_SLOTS],
+            selected_choice_index: [speed_mod.mod_type.type_choice_index(); PLAYER_SLOTS],
             help: tr("PlayerOptionsHelp", "TypeOfSpeedModHelp")
                 .split("\\n")
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&TYPE_OF_SPEED_MOD),
         },
         Row {
             id: RowId::SpeedMod,
@@ -141,6 +132,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&SPEED_MOD),
         },
         Row {
             id: RowId::Mini,
@@ -152,6 +144,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&MINI),
         },
         Row {
             id: RowId::Perspective,
@@ -169,6 +162,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&PERSPECTIVE) }),
         },
         Row {
             id: RowId::NoteSkin,
@@ -184,6 +178,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::NoteSkin(&NOTE_SKIN) }),
         },
         Row {
             id: RowId::MineSkin,
@@ -195,6 +190,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::NoteSkin(&MINE_SKIN) }),
         },
         Row {
             id: RowId::ReceptorSkin,
@@ -206,6 +202,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::NoteSkin(&RECEPTOR_SKIN) }),
         },
         Row {
             id: RowId::TapExplosionSkin,
@@ -217,6 +214,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::NoteSkin(&TAP_EXPLOSION_SKIN) }),
         },
         Row {
             id: RowId::JudgmentFont,
@@ -231,6 +229,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&JUDGMENT_FONT),
         },
         Row {
             id: RowId::JudgmentOffsetX,
@@ -242,6 +241,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &JUDGMENT_OFFSET_X }),
         },
         Row {
             id: RowId::JudgmentOffsetY,
@@ -253,6 +253,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &JUDGMENT_OFFSET_Y }),
         },
         Row {
             id: RowId::ComboFont,
@@ -273,6 +274,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&COMBO_FONT) }),
         },
         Row {
             id: RowId::ComboOffsetX,
@@ -284,6 +286,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &COMBO_OFFSET_X }),
         },
         Row {
             id: RowId::ComboOffsetY,
@@ -295,6 +298,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &COMBO_OFFSET_Y }),
         },
         Row {
             id: RowId::HoldJudgment,
@@ -309,6 +313,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&HOLD_JUDGMENT),
         },
         Row {
             id: RowId::BackgroundFilter,
@@ -325,6 +330,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Cycle(CycleRow { binding: CycleBinding::Index(&BACKGROUND_FILTER) }),
         },
         Row {
             id: RowId::NoteFieldOffsetX,
@@ -336,6 +342,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &NOTEFIELD_OFFSET_X }),
         },
         Row {
             id: RowId::NoteFieldOffsetY,
@@ -347,6 +354,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &NOTEFIELD_OFFSET_Y }),
         },
         Row {
             id: RowId::VisualDelay,
@@ -358,6 +366,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &VISUAL_DELAY }),
         },
         Row {
             id: RowId::GlobalOffsetShift,
@@ -369,6 +378,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Numeric(NumericRow { binding: &GLOBAL_OFFSET_SHIFT }),
         },
         Row {
             id: RowId::MusicRate,
@@ -380,6 +390,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Custom(&MUSIC_RATE),
         },
         Row {
             id: RowId::Stepchart,
@@ -391,6 +402,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: Some(stepchart_choice_indices),
+            kind: RowKind::Custom(&STEPCHART),
         },
         Row {
             id: RowId::WhatComesNext,
@@ -402,6 +414,7 @@ pub fn build_main_rows(
                 .map(|s| s.to_string())
                 .collect(),
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::WhatComesNext),
         },
         Row {
             id: RowId::Exit,
@@ -410,6 +423,7 @@ pub fn build_main_rows(
             selected_choice_index: [0; PLAYER_SLOTS],
             help: vec![String::new()],
             choice_difficulty_indices: None,
+            kind: RowKind::Action(ActionRow::Exit),
         },
     ]
 }

@@ -232,7 +232,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
             let p_chart = resolve_p1_chart(&state.song, &state.chart_steps_index);
             let main_scroll =
                 speed_mod_helper_scroll_text(&state.song, p_chart, speed_mod, state.music_rate);
-            let speed_prefix = speed_mod.mod_type.as_str();
+            let speed_prefix = speed_mod.mod_type.as_letter();
             let speed_text = format!("{speed_prefix}{main_scroll}");
             // zmod uses GetWidth() from the main helper actor (unzoomed width), then +w*0.4.
             let main_draw_w = measure_wendy_text_width(asset_manager, &speed_text);
@@ -268,7 +268,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     let help_box_w = widescale(614.0, 792.0);
     let help_box_x = widescale(13.0, 30.666);
     let help_box_bottom_y = screen_height() - 36.0;
-    let total_rows = state.rows.len();
+    let total_rows = state.rows().len();
     let frame_h = ROW_HEIGHT;
     let (fallback_y0, fallback_row_step) = row_layout_params();
     let row_alpha_cutoff: f32 = 0.001;
@@ -283,24 +283,23 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     // Keep header labels bounded to the title column so they never overlap option values.
     let title_max_w = (TITLE_BG_WIDTH - title_left_pad - 5.0).max(0.0);
     let cursor_now = |player_idx: usize| -> Option<(f32, f32, f32, f32)> {
-        if player_idx >= PLAYER_SLOTS || !state.cursor_initialized[player_idx] {
+        if player_idx >= PLAYER_SLOTS {
             return None;
         }
-        let t = state.cursor_t[player_idx].clamp(0.0, 1.0);
-        let x = (state.cursor_to_x[player_idx] - state.cursor_from_x[player_idx])
-            .mul_add(t, state.cursor_from_x[player_idx]);
-        let y = (state.cursor_to_y[player_idx] - state.cursor_from_y[player_idx])
-            .mul_add(t, state.cursor_from_y[player_idx]);
-        let w = (state.cursor_to_w[player_idx] - state.cursor_from_w[player_idx])
-            .mul_add(t, state.cursor_from_w[player_idx]);
-        let h = (state.cursor_to_h[player_idx] - state.cursor_from_h[player_idx])
-            .mul_add(t, state.cursor_from_h[player_idx]);
+        let c = state.cursor()[player_idx];
+        if !c.initialized {
+            return None;
+        }
+        let t = c.t.clamp(0.0, 1.0);
+        let x = (c.to_x - c.from_x).mul_add(t, c.from_x);
+        let y = (c.to_y - c.from_y).mul_add(t, c.from_y);
+        let w = (c.to_w - c.from_w).mul_add(t, c.from_w);
+        let h = (c.to_h - c.from_h).mul_add(t, c.from_h);
         Some((x, y, w, h))
     };
 
     for item_idx in 0..total_rows {
-        let (current_row_y, row_alpha) = state
-            .row_tweens
+        let (current_row_y, row_alpha) = state.row_tweens()
             .get(item_idx)
             .map(|tw| (tw.y(), tw.a()))
             .unwrap_or_else(|| {
@@ -315,9 +314,9 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
         }
         let a = row_alpha;
 
-        let is_active = (active[P1] && item_idx == state.selected_row[P1])
-            || (active[P2] && item_idx == state.selected_row[P2]);
-        let row = &state.rows[item_idx];
+        let is_active = (active[P1] && item_idx == state.selected_row()[P1])
+            || (active[P2] && item_idx == state.selected_row()[P2]);
+        let row = &state.rows()[item_idx];
         let active_bg = color::rgba_hex("#333333");
         let inactive_bg_base = color::rgba_hex("#071016");
         let bg_color = if is_active {
@@ -423,7 +422,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
             if is_active {
                 let border_w = widescale(2.0, 2.5);
                 for player_idx in active_player_indices(active) {
-                    if state.selected_row[player_idx] != item_idx {
+                    if state.selected_row()[player_idx] != item_idx {
                         continue;
                     }
                     let Some((center_x, center_y, ring_w, ring_h)) = cursor_now(player_idx) else {
@@ -1163,7 +1162,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
             if !widths.is_empty() {
                 let border_w = widescale(2.0, 2.5);
                 for player_idx in active_player_indices(active) {
-                    if state.selected_row[player_idx] != item_idx {
+                    if state.selected_row()[player_idx] != item_idx {
                         continue;
                     }
                     let Some((center_x, center_y, ring_w, ring_h)) = cursor_now(player_idx) else {
@@ -1263,18 +1262,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
                         if arcade_row_focuses_next_row(state, primary_player_idx, item_idx) {
                             ARCADE_NEXT_ROW_TEXT.to_string()
                         } else if row.id == RowId::SpeedMod {
-                            match state.speed_mod[primary_player_idx].mod_type.as_str() {
-                                "X" => format!("{:.2}x", state.speed_mod[primary_player_idx].value),
-                                "C" => format!(
-                                    "C{}",
-                                    state.speed_mod[primary_player_idx].value as i32
-                                ),
-                                "M" => format!(
-                                    "M{}",
-                                    state.speed_mod[primary_player_idx].value as i32
-                                ),
-                                _ => String::new(),
-                            }
+                            state.speed_mod[primary_player_idx].display()
                         } else {
                             choice_text.clone()
                         };
@@ -1311,7 +1299,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
                         z(101)
                     ));
                     // Encircling cursor around the active option value (programmatic border)
-                    if active[primary_player_idx] && state.selected_row[primary_player_idx] == item_idx {
+                    if active[primary_player_idx] && state.selected_row()[primary_player_idx] == item_idx {
                         let border_w = widescale(2.0, 2.5);
                         if let Some((center_x, center_y, ring_w, ring_h)) =
                             cursor_now(primary_player_idx)
@@ -1353,19 +1341,9 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
                         if arcade_row_focuses_next_row(state, P2, item_idx) {
                             ARCADE_NEXT_ROW_TEXT.to_string()
                         } else if row.id == RowId::SpeedMod {
-                            match state.speed_mod[P2].mod_type.as_str() {
-                                "X" => format!("{:.2}x", state.speed_mod[P2].value),
-                                "C" => format!("C{}", state.speed_mod[P2].value as i32),
-                                "M" => format!("M{}", state.speed_mod[P2].value as i32),
-                                _ => String::new(),
-                            }
+                            state.speed_mod[P2].display()
                         } else if row.id == RowId::TypeOfSpeedMod {
-                            let idx = match state.speed_mod[P2].mod_type.as_str() {
-                                "X" => 0,
-                                "C" => 1,
-                                "M" => 2,
-                                _ => 1,
-                            };
+                            let idx = state.speed_mod[P2].mod_type.type_choice_index();
                             row.choices.get(idx).cloned().unwrap_or_default()
                         } else {
                             let idx = row
@@ -1406,7 +1384,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
                             diffuse(line_color[0], line_color[1], line_color[2], line_color[3]):
                             z(101)
                         ));
-                        if active[P2] && state.selected_row[P2] == item_idx {
+                        if active[P2] && state.selected_row()[P2] == item_idx {
                             let border_w = widescale(2.0, 2.5);
                             if let Some((center_x, center_y, ring_w, ring_h)) = cursor_now(P2) {
                                 let left = center_x - ring_w * 0.5;
@@ -2110,8 +2088,8 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     const REVEAL_DURATION: f32 = 0.5;
     let split_help = active[P1] && active[P2];
     for player_idx in active_player_indices(active) {
-        let row_idx = state.selected_row[player_idx].min(state.rows.len().saturating_sub(1));
-        let Some(row) = state.rows.get(row_idx) else {
+        let row_idx = state.selected_row()[player_idx].min(state.rows().len().saturating_sub(1));
+        let Some(row) = state.rows().get(row_idx) else {
             continue;
         };
         let help_text_color = color::simply_love_rgba(player_color_index(player_idx));
