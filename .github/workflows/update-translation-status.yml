@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "assets/languages/*.ini"
+  workflow_dispatch:
 
 permissions:
   contents: write
