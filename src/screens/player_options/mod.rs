@@ -41,6 +41,8 @@ mod state;
 mod visibility;
 
 #[cfg(test)]
+mod render_snapshot;
+#[cfg(test)]
 mod tests;
 
 // Re-import every submodule so legacy code in this file resolves.
