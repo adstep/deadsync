@@ -323,6 +323,131 @@ enum BackendImpl {
 /// This hides platform-specific variants from the rest of the application.
 pub struct Backend(BackendImpl);
 
+/// Replace the RGB of fully-transparent texels that border opaque texels with
+/// the average RGB of their opaque 8-neighborhood. This eliminates the gray /
+/// colored "halo" that linear filtering produces when sampling across a
+/// transparent edge whose RGB does not match the adjacent visible content
+/// (a one-pixel transparent border with `(255,255,255,0)` is the canonical
+/// example). Returns `Some(modified)` only when at least one texel needed
+/// fixing, so the common case (no transparent edges) avoids any allocation.
+fn bleed_transparent_rgb(image: &RgbaImage) -> Option<RgbaImage> {
+    let (w, h) = image.dimensions();
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let raw = image.as_raw();
+    debug_assert_eq!(raw.len(), (w as usize) * (h as usize) * 4);
+
+    // Quick scan: bail unless the image has both transparent and opaque texels.
+    let mut has_transparent = false;
+    let mut has_visible = false;
+    for chunk in raw.chunks_exact(4) {
+        if chunk[3] == 0 {
+            has_transparent = true;
+        } else {
+            has_visible = true;
+        }
+        if has_transparent && has_visible {
+            break;
+        }
+    }
+    if !(has_transparent && has_visible) {
+        return None;
+    }
+
+    let mut out = image.clone();
+    let stride = (w as usize) * 4;
+    let src = raw;
+    let mut wrote = false;
+    let dst: &mut [u8] = &mut out;
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y as usize) * stride + (x as usize) * 4;
+            if src[idx + 3] != 0 {
+                continue;
+            }
+            let mut r = 0u32;
+            let mut g = 0u32;
+            let mut b = 0u32;
+            let mut n = 0u32;
+            let y0 = y.saturating_sub(1);
+            let y1 = (y + 1).min(h - 1);
+            let x0 = x.saturating_sub(1);
+            let x1 = (x + 1).min(w - 1);
+            for ny in y0..=y1 {
+                for nx in x0..=x1 {
+                    if nx == x && ny == y {
+                        continue;
+                    }
+                    let nidx = (ny as usize) * stride + (nx as usize) * 4;
+                    if src[nidx + 3] != 0 {
+                        r += u32::from(src[nidx]);
+                        g += u32::from(src[nidx + 1]);
+                        b += u32::from(src[nidx + 2]);
+                        n += 1;
+                    }
+                }
+            }
+            if n > 0 {
+                dst[idx] = (r / n) as u8;
+                dst[idx + 1] = (g / n) as u8;
+                dst[idx + 2] = (b / n) as u8;
+                // alpha intentionally left at 0
+                wrote = true;
+            }
+        }
+    }
+
+    wrote.then_some(out)
+}
+
+#[cfg(test)]
+mod bleed_tests {
+    use super::bleed_transparent_rgb;
+    use image::{Rgba, RgbaImage};
+
+    #[test]
+    fn no_op_when_no_transparent_pixels() {
+        let img = RgbaImage::from_pixel(4, 4, Rgba([10, 20, 30, 255]));
+        assert!(bleed_transparent_rgb(&img).is_none());
+    }
+
+    #[test]
+    fn no_op_when_fully_transparent() {
+        let img = RgbaImage::from_pixel(4, 4, Rgba([255, 255, 255, 0]));
+        assert!(bleed_transparent_rgb(&img).is_none());
+    }
+
+    #[test]
+    fn bleeds_neighbors_into_transparent_border() {
+        let mut img = RgbaImage::from_pixel(3, 3, Rgba([255, 255, 255, 0]));
+        img.put_pixel(1, 1, Rgba([200, 100, 50, 255]));
+        let bled = bleed_transparent_rgb(&img).expect("should bleed");
+        for y in 0..3 {
+            for x in 0..3 {
+                let p = bled.get_pixel(x, y).0;
+                if x == 1 && y == 1 {
+                    assert_eq!(p, [200, 100, 50, 255]);
+                } else {
+                    assert_eq!(p[0..3], [200, 100, 50], "pixel {x},{y}");
+                    assert_eq!(p[3], 0, "alpha preserved at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn leaves_isolated_transparent_pixels_alone() {
+        let mut img = RgbaImage::from_pixel(5, 1, Rgba([255, 255, 255, 0]));
+        img.put_pixel(0, 0, Rgba([10, 20, 30, 255]));
+        let bled = bleed_transparent_rgb(&img).expect("should bleed");
+        // pixel 1 borders pixel 0 -> bled to its RGB
+        assert_eq!(bled.get_pixel(1, 0).0, [10, 20, 30, 0]);
+        // pixel 2 has no opaque 8-neighbor -> unchanged
+        assert_eq!(bled.get_pixel(2, 0).0, [255, 255, 255, 0]);
+    }
+}
+
 impl Backend {
     pub fn draw(
         &mut self,
@@ -437,6 +562,8 @@ impl Backend {
         image: &RgbaImage,
         sampler: SamplerDesc,
     ) -> Result<Texture, Box<dyn Error>> {
+        let bled = bleed_transparent_rgb(image);
+        let image = bled.as_ref().unwrap_or(image);
         match &mut self.0 {
             #[cfg(not(target_pointer_width = "32"))]
             BackendImpl::Vulkan(state) => {
@@ -478,6 +605,8 @@ impl Backend {
         texture: &mut Texture,
         image: &RgbaImage,
     ) -> Result<(), Box<dyn Error>> {
+        let bled = bleed_transparent_rgb(image);
+        let image = bled.as_ref().unwrap_or(image);
         match (&mut self.0, texture) {
             #[cfg(not(target_pointer_width = "32"))]
             (BackendImpl::Vulkan(state), Texture::Vulkan(texture)) => {
