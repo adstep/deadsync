@@ -42,7 +42,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         }
     }
 
@@ -61,7 +60,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         }
     }
 
@@ -526,20 +524,27 @@ pub(super) mod tests {
         );
     }
 
-    /// Conditional-write contract: when `select_from_profile` returns `None`,
-    /// the row's constructed default must be left untouched. Mirrors the
-    /// legacy `if let Some(idx) = ... { row.selected_choice_index = idx }`
-    /// pattern that several format!-based numeric rows still rely on.
+    /// Conditional-write contract: when a behaviour's `select_from_profile`
+    /// hook returns `None`, the row's constructed default must be left
+    /// untouched. Mirrors the legacy `if let Some(idx) = ... { row.s_c_i = idx }`
+    /// pattern that the format!-based numeric rows still rely on.
     #[test]
     fn select_from_profile_returning_none_keeps_constructed_default() {
         ensure_i18n();
-        let mut row = test_row(
-            RowId::Mini,
-            lookup_key("PlayerOptions", "Mini"),
-            &["a", "b", "c"],
-            [2, 1],
-        );
-        row.select_from_profile = Some(|_, _| None);
+        let binding = super::CustomBinding {
+            apply: |_, _, _, _| super::Outcome::NONE,
+            select_from_profile: |_, _| None,
+        };
+        let row = Row {
+            id: RowId::Mini,
+            behavior: super::RowBehavior::Custom(binding),
+            name: lookup_key("PlayerOptions", "Mini"),
+            choices: vec!["a".into(), "b".into(), "c".into()],
+            selected_choice_index: [2, 1],
+            help: Vec::new(),
+            choice_difficulty_indices: None,
+            mirror_across_players: false,
+        };
 
         let mut rows = test_row_map(vec![row]);
         let mut masks = PlayerOptionMasks::default();
@@ -557,19 +562,27 @@ pub(super) mod tests {
         );
     }
 
-    /// Safety net: if a `select_from_profile` hook returns an out-of-range
-    /// index (e.g. a stale profile value or a rounding bug), the dispatcher
-    /// clamps to the last choice rather than panicking on a later read.
+    /// Safety net: if a behaviour's `select_from_profile` hook returns an
+    /// out-of-range index (e.g. a stale profile value or a rounding bug),
+    /// the dispatcher clamps to the last choice rather than panicking on a
+    /// later read.
     #[test]
     fn select_from_profile_clamps_out_of_range_index() {
         ensure_i18n();
-        let mut row = test_row(
-            RowId::Mini,
-            lookup_key("PlayerOptions", "Mini"),
-            &["a", "b", "c"],
-            [0, 0],
-        );
-        row.select_from_profile = Some(|_, _| Some(99));
+        let binding = super::CustomBinding {
+            apply: |_, _, _, _| super::Outcome::NONE,
+            select_from_profile: |_, _| Some(99),
+        };
+        let row = Row {
+            id: RowId::Mini,
+            behavior: super::RowBehavior::Custom(binding),
+            name: lookup_key("PlayerOptions", "Mini"),
+            choices: vec!["a".into(), "b".into(), "c".into()],
+            selected_choice_index: [0, 0],
+            help: Vec::new(),
+            choice_difficulty_indices: None,
+            mirror_across_players: false,
+        };
 
         let mut rows = test_row_map(vec![row]);
         let mut masks = PlayerOptionMasks::default();
@@ -858,7 +871,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
         state.pane_mut().row_map.insert(scroll_row);
@@ -888,6 +900,7 @@ pub(super) mod tests {
                 super::Outcome::persisted_with_visibility()
             },
             persist_for_side: profile::update_judgment_tilt_for_side,
+            select_from_profile: |p, _| Some(if p.judgment_tilt { 1 } else { 0 }),
         };
         let tilt_row = Row {
             id: RowId::JudgmentTilt,
@@ -898,7 +911,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         };
         let tilt_intensity_row = test_row(
             RowId::JudgmentTiltIntensity,
@@ -1155,7 +1167,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
         state.pane_mut().row_map.insert(scroll_row);
@@ -1310,6 +1321,7 @@ pub(super) mod tests {
         // overwrite P2 in that case.
         let custom = super::CustomBinding {
             apply: |_state, _player_idx, _id, _delta| super::Outcome::NONE,
+            select_from_profile: |_, _| None,
         };
         let mirror_row = Row {
             id: RowId::Hide,
@@ -1320,7 +1332,6 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: true,
-            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Hide);
         state.pane_mut().row_map.insert(mirror_row);

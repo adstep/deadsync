@@ -25,6 +25,7 @@ const BACKGROUND_FILTER: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_background_filter_for_side,
+    select_from_profile: |p, choices| Some((p.background_filter.percent() as usize).min(choices.len().saturating_sub(1))),
 };
 
 const JUDGMENT_OFFSET_X: NumericBinding = NumericBinding {
@@ -34,6 +35,7 @@ const JUDGMENT_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_judgment_offset_x_for_side,
+    select_from_profile: |p, choices| { let v = p.judgment_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 const JUDGMENT_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -42,6 +44,7 @@ const JUDGMENT_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_judgment_offset_y_for_side,
+    select_from_profile: |p, choices| { let v = p.judgment_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 const COMBO_OFFSET_X: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -50,6 +53,7 @@ const COMBO_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_combo_offset_x_for_side,
+    select_from_profile: |p, choices| { let v = p.combo_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 const COMBO_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -58,6 +62,7 @@ const COMBO_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_combo_offset_y_for_side,
+    select_from_profile: |p, choices| { let v = p.combo_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 const NOTEFIELD_OFFSET_X: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -66,6 +71,7 @@ const NOTEFIELD_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_notefield_offset_x_for_side,
+    select_from_profile: |p, choices| { let v = p.note_field_offset_x.clamp(0, 50).to_string(); choices.iter().position(|c| c == &v) },
 };
 const NOTEFIELD_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -74,6 +80,7 @@ const NOTEFIELD_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_notefield_offset_y_for_side,
+    select_from_profile: |p, choices| { let v = p.note_field_offset_y.clamp(-50, 50).to_string(); choices.iter().position(|c| c == &v) },
 };
 const VISUAL_DELAY: NumericBinding = NumericBinding {
     parse: parse_i32_ms,
@@ -82,6 +89,7 @@ const VISUAL_DELAY: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_visual_delay_ms_for_side,
+    select_from_profile: |p, choices| { let needle = format!("{}ms", p.visual_delay_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) },
 };
 const GLOBAL_OFFSET_SHIFT: NumericBinding = NumericBinding {
     parse: parse_i32_ms,
@@ -90,6 +98,7 @@ const GLOBAL_OFFSET_SHIFT: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_global_offset_shift_ms_for_side,
+    select_from_profile: |p, choices| { let needle = format!("{}ms", p.global_offset_shift_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) },
 };
 
 /// Shared boilerplate for a noteskin-style cycle row implemented via
@@ -142,6 +151,7 @@ const NOTE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    select_from_profile: |p, choices| Some(choices.iter().position(|c| c.eq_ignore_ascii_case(p.noteskin.as_str())).or_else(|| choices.iter().position(|c| c.eq_ignore_ascii_case(crate::game::profile::NoteSkin::DEFAULT_NAME))).unwrap_or(0)),
 };
 const MINE_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta| {
@@ -167,6 +177,7 @@ const MINE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    select_from_profile: |p, choices| Some(super::find_noteskin_choice_index(p.mine_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None)),
 };
 const RECEPTOR_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta| {
@@ -192,6 +203,7 @@ const RECEPTOR_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    select_from_profile: |p, choices| Some(super::find_noteskin_choice_index(p.receptor_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None)),
 };
 const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta| {
@@ -220,6 +232,7 @@ const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    select_from_profile: |p, choices| Some(super::find_noteskin_choice_index(p.tap_explosion_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), Some(tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL).as_ref()))),
 };
 
 const MUSIC_RATE: CustomBinding = CustomBinding {
@@ -239,6 +252,7 @@ const MUSIC_RATE: CustomBinding = CustomBinding {
         crate::engine::audio::set_music_rate(state.music_rate);
         Outcome::persisted()
     },
+    select_from_profile: select_from_profile_noop,
 };
 
 const SPEED_MOD: CustomBinding = CustomBinding {
@@ -257,6 +271,7 @@ const SPEED_MOD: CustomBinding = CustomBinding {
         sync_profile_scroll_speed(&mut state.player_profiles[player_idx], &speed_mod);
         Outcome::persisted()
     },
+    select_from_profile: select_from_profile_noop,
 };
 
 const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
@@ -305,6 +320,7 @@ const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
         sync_profile_scroll_speed(&mut state.player_profiles[player_idx], &speed_mod);
         Outcome::persisted()
     },
+    select_from_profile: select_from_profile_noop,
 };
 
 const MINI: CustomBinding = CustomBinding {
@@ -333,6 +349,7 @@ const MINI: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: |p, choices| { let needle = format!("{}%", p.mini_percent.clamp(-100, 150)); choices.iter().position(|c| c == &needle) },
 };
 
 const JUDGMENT_FONT: CustomBinding = CustomBinding {
@@ -356,6 +373,7 @@ const JUDGMENT_FONT: CustomBinding = CustomBinding {
         }
         Outcome::persisted_with_visibility()
     },
+    select_from_profile: |p, _| Some(assets::judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.judgment_graphic.as_str())).unwrap_or(0)),
 };
 
 const HOLD_JUDGMENT: CustomBinding = CustomBinding {
@@ -381,6 +399,7 @@ const HOLD_JUDGMENT: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: |p, _| Some(assets::hold_judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.hold_judgment_graphic.as_str())).unwrap_or(0)),
 };
 
 const STEPCHART: CustomBinding = CustomBinding {
@@ -408,6 +427,7 @@ const STEPCHART: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: select_from_profile_noop,
 };
 
 pub(super) fn build_main_rows(
@@ -527,7 +547,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::SpeedMod,
@@ -541,7 +560,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Mini,
@@ -555,7 +573,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let needle = format!("{}%", p.mini_percent.clamp(-100, 150)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::Perspective,
@@ -575,7 +592,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(PERSPECTIVE_VARIANTS.iter().position(|&v| v == p.perspective).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::NoteSkin,
@@ -593,7 +609,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { Some(choices.iter().position(|c| c.eq_ignore_ascii_case(p.noteskin.as_str())).or_else(|| choices.iter().position(|c| c.eq_ignore_ascii_case(crate::game::profile::NoteSkin::DEFAULT_NAME))).unwrap_or(0)) }),
     });
     b.push(Row {
         id: RowId::MineSkin,
@@ -607,7 +622,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.mine_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None))),
     });
     b.push(Row {
         id: RowId::ReceptorSkin,
@@ -621,7 +635,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.receptor_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None))),
     });
     b.push(Row {
         id: RowId::TapExplosionSkin,
@@ -635,7 +648,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.tap_explosion_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), Some(tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL).as_ref())))),
     });
     b.push(Row {
         id: RowId::JudgmentFont,
@@ -652,7 +664,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(assets::judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.judgment_graphic.as_str())).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::JudgmentOffsetX,
@@ -666,7 +677,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.judgment_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::JudgmentOffsetY,
@@ -680,7 +690,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.judgment_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::ComboFont,
@@ -704,7 +713,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(COMBO_FONT_VARIANTS.iter().position(|&v| v == p.combo_font).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::ComboOffsetX,
@@ -718,7 +726,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.combo_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::ComboOffsetY,
@@ -732,7 +739,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.combo_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::HoldJudgment,
@@ -749,7 +755,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(assets::hold_judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.hold_judgment_graphic.as_str())).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::BackgroundFilter,
@@ -765,7 +770,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| Some((p.background_filter.percent() as usize).min(choices.len().saturating_sub(1)))),
     });
     b.push(Row {
         id: RowId::NoteFieldOffsetX,
@@ -779,7 +783,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.note_field_offset_x.clamp(0, 50).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::NoteFieldOffsetY,
@@ -793,7 +796,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.note_field_offset_y.clamp(-50, 50).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::VisualDelay,
@@ -807,7 +809,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let needle = format!("{}ms", p.visual_delay_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::GlobalOffsetShift,
@@ -821,7 +822,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let needle = format!("{}ms", p.global_offset_shift_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::MusicRate,
@@ -835,7 +835,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Stepchart,
@@ -849,7 +848,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: Some(stepchart_choice_indices),
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::WhatComesNext,
@@ -863,7 +861,6 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: true,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Exit,
@@ -874,7 +871,6 @@ pub(super) fn build_main_rows(
         help: vec![String::new()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.finish()
 }

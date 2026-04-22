@@ -90,6 +90,7 @@ const DENSITY_GRAPH_BACKGROUND: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted()
     },
     persist_for_side: gp::update_transparent_density_graph_bg_for_side,
+    select_from_profile: |p, _| Some(if p.transparent_density_graph_bg { 1 } else { 0 }),
 };
 const CARRY_COMBO: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -97,6 +98,7 @@ const CARRY_COMBO: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted()
     },
     persist_for_side: gp::update_carry_combo_between_songs_for_side,
+    select_from_profile: |p, _| Some(if p.carry_combo_between_songs { 1 } else { 0 }),
 };
 const JUDGMENT_TILT: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -104,6 +106,7 @@ const JUDGMENT_TILT: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted_with_visibility()
     },
     persist_for_side: gp::update_judgment_tilt_for_side,
+    select_from_profile: |p, _| Some(if p.judgment_tilt { 1 } else { 0 }),
 };
 const JUDGMENT_BEHIND_ARROWS: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -111,6 +114,7 @@ const JUDGMENT_BEHIND_ARROWS: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted()
     },
     persist_for_side: gp::update_judgment_back_for_side,
+    select_from_profile: |p, _| Some(if p.judgment_back { 1 } else { 0 }),
 };
 const OFFSET_INDICATOR: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -118,6 +122,7 @@ const OFFSET_INDICATOR: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted()
     },
     persist_for_side: gp::update_error_ms_display_for_side,
+    select_from_profile: |p, _| Some(if p.error_ms_display { 1 } else { 0 }),
 };
 const RESCORE_EARLY_HITS: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -125,6 +130,7 @@ const RESCORE_EARLY_HITS: ChoiceBinding<bool> = ChoiceBinding::<bool> {
         Outcome::persisted()
     },
     persist_for_side: gp::update_rescore_early_hits_for_side,
+    select_from_profile: |p, _| Some(if p.rescore_early_hits { 1 } else { 0 }),
 };
 const CUSTOM_BLUE_FANTASTIC_WINDOW: ChoiceBinding<bool> = ChoiceBinding::<bool> {
     apply: |p, v| {
@@ -132,6 +138,7 @@ const CUSTOM_BLUE_FANTASTIC_WINDOW: ChoiceBinding<bool> = ChoiceBinding::<bool> 
         Outcome::persisted_with_visibility()
     },
     persist_for_side: gp::update_custom_fantastic_window_for_side,
+    select_from_profile: |p, _| Some(if p.custom_fantastic_window { 1 } else { 0 }),
 };
 
 const ERROR_BAR_OFFSET_X: NumericBinding = NumericBinding {
@@ -141,6 +148,7 @@ const ERROR_BAR_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_error_bar_offset_x_for_side,
+    select_from_profile: |p, choices| { let v = p.error_bar_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 const ERROR_BAR_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -149,6 +157,7 @@ const ERROR_BAR_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_error_bar_offset_y_for_side,
+    select_from_profile: |p, choices| { let v = p.error_bar_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) },
 };
 
 const SCROLL: BitmaskBinding = BitmaskBinding {
@@ -446,6 +455,7 @@ const ACTION_ON_MISSED_TARGET: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: select_from_profile_noop,
 };
 
 const MINI_INDICATOR: CustomBinding = CustomBinding {
@@ -478,6 +488,7 @@ const MINI_INDICATOR: CustomBinding = CustomBinding {
         }
         Outcome::persisted_with_visibility()
     },
+    select_from_profile: |p, _| Some(MINI_INDICATOR_VARIANTS.iter().position(|&v| v == p.mini_indicator).unwrap_or(0)),
 };
 
 const JUDGMENT_TILT_INTENSITY: CustomBinding = CustomBinding {
@@ -508,6 +519,7 @@ const JUDGMENT_TILT_INTENSITY: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: |p, choices| { let stepped = round_to_step(p.tilt_multiplier.clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX), TILT_INTENSITY_STEP).clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX); let needle = fmt_tilt_intensity(stepped); Some(choices.iter().position(|c| c == &needle).unwrap_or(0)) },
 };
 
 const MEASURE_COUNTER_LOOKAHEAD: CustomBinding = CustomBinding {
@@ -525,6 +537,7 @@ const MEASURE_COUNTER_LOOKAHEAD: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: |p, _| Some(p.measure_counter_lookahead.min(4) as usize),
 };
 
 const CUSTOM_BLUE_FANTASTIC_WINDOW_MS: CustomBinding = CustomBinding {
@@ -554,6 +567,7 @@ const CUSTOM_BLUE_FANTASTIC_WINDOW_MS: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    select_from_profile: |p, choices| { let ms = crate::game::profile::clamp_custom_fantastic_window_ms(p.custom_fantastic_window_ms); let needle = format!("{}ms", ms); choices.iter().position(|c| c == &needle) },
 };
 
 pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
@@ -587,7 +601,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TurnHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(TURN_OPTION_VARIANTS.iter().position(|&v| v == p.turn_option).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::Scroll,
@@ -604,7 +617,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ScrollHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Hide,
@@ -623,7 +635,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HideHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::LifeMeterType,
@@ -638,7 +649,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "LifeMeterTypeHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(LIFE_METER_TYPE_VARIANTS.iter().position(|&v| v == p.lifemeter_type).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::LifeBarOptions,
@@ -653,7 +663,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "LifeBarOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::DataVisualizations,
@@ -668,7 +677,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "DataVisualizationsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(DATA_VISUALIZATIONS_VARIANTS.iter().position(|&v| v == p.data_visualizations).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::DensityGraphBackground,
@@ -682,7 +690,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "DensityGraphBackgroundHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.transparent_density_graph_bg { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::TargetScore,
@@ -708,7 +715,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TargetScoreHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(TARGET_SCORE_VARIANTS.iter().position(|&v| v == p.target_score).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::ActionOnMissedTarget,
@@ -723,7 +729,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TargetScoreMissPolicyHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::MiniIndicator,
@@ -742,7 +747,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MiniIndicatorHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(MINI_INDICATOR_VARIANTS.iter().position(|&v| v == p.mini_indicator).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::IndicatorScoreType,
@@ -757,7 +761,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "IndicatorScoreTypeHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(MINI_INDICATOR_SCORE_TYPE_VARIANTS.iter().position(|&v| v == p.mini_indicator_score_type).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::GameplayExtras,
@@ -768,7 +771,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "GameplayExtrasHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::ComboColors,
@@ -785,7 +787,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ComboColorsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(COMBO_COLORS_VARIANTS.iter().position(|&v| v == p.combo_colors).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::ComboColorMode,
@@ -799,7 +800,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ComboColorModeHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(COMBO_MODE_VARIANTS.iter().position(|&v| v == p.combo_mode).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::CarryCombo,
@@ -813,7 +813,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CarryComboHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.carry_combo_between_songs { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::JudgmentTilt,
@@ -827,7 +826,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentTiltHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.judgment_tilt { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::JudgmentTiltIntensity,
@@ -838,7 +836,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentTiltIntensityHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let stepped = round_to_step(p.tilt_multiplier.clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX), TILT_INTENSITY_STEP).clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX); let needle = fmt_tilt_intensity(stepped); Some(choices.iter().position(|c| c == &needle).unwrap_or(0)) }),
     });
     b.push(Row {
         id: RowId::JudgmentBehindArrows,
@@ -852,7 +849,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentBehindArrowsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.judgment_back { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::OffsetIndicator,
@@ -866,7 +862,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "OffsetIndicatorHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.error_ms_display { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::ErrorBar,
@@ -883,7 +878,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::ErrorBarTrim,
@@ -899,7 +893,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarTrimHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(ERROR_BAR_TRIM_VARIANTS.iter().position(|&v| v == p.error_bar_trim).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::ErrorBarOptions,
@@ -913,7 +906,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::ErrorBarOffsetX,
@@ -924,7 +916,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetXHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.error_bar_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::ErrorBarOffsetY,
@@ -935,7 +926,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetYHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let v = p.error_bar_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::MeasureCounter,
@@ -953,7 +943,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(MEASURE_COUNTER_VARIANTS.iter().position(|&v| v == p.measure_counter).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::MeasureCounterLookahead,
@@ -970,7 +959,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterLookaheadHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(p.measure_counter_lookahead.min(4) as usize)),
     });
     b.push(Row {
         id: RowId::MeasureCounterOptions,
@@ -987,7 +975,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::MeasureLines,
@@ -1003,7 +990,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureLinesHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(MEASURE_LINES_VARIANTS.iter().position(|&v| v == p.measure_lines).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::RescoreEarlyHits,
@@ -1017,7 +1003,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "RescoreEarlyHitsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.rescore_early_hits { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::EarlyDecentWayOffOptions,
@@ -1035,7 +1020,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "EarlyDecentWayOffOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::ResultsExtras,
@@ -1046,7 +1030,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ResultsExtrasHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::TimingWindows,
@@ -1062,7 +1045,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TimingWindowsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(TIMING_WINDOWS_VARIANTS.iter().position(|&v| v == p.timing_windows).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::FAPlusOptions,
@@ -1080,7 +1062,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "FAPlusOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::CustomBlueFantasticWindow,
@@ -1094,7 +1075,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, _| Some(if p.custom_fantastic_window { 1 } else { 0 })),
     });
     b.push(Row {
         id: RowId::CustomBlueFantasticWindowMs,
@@ -1105,7 +1085,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowMsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: Some(|p, choices| { let ms = crate::game::profile::clamp_custom_fantastic_window_ms(p.custom_fantastic_window_ms); let needle = format!("{}ms", ms); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::WhatComesNext,
@@ -1116,7 +1095,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "WhatComesNextAdvancedHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: true,
-        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Exit,
@@ -1127,7 +1105,6 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![String::new()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
-        select_from_profile: None,
     });
     b.finish()
 }
@@ -1161,7 +1138,6 @@ mod bitmask_binding_init_tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
-            select_from_profile: None,
         }
     }
 

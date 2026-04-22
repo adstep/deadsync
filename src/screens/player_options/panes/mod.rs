@@ -11,6 +11,7 @@ use uncommon::*;
 /// handled by the dispatcher via `Row::mirror_across_players`, not here.
 pub(super) const WHAT_COMES_NEXT: CustomBinding = CustomBinding {
     apply: apply_what_comes_next_cycle,
+    select_from_profile: select_from_profile_noop,
 };
 
 fn apply_what_comes_next_cycle(
@@ -125,13 +126,14 @@ pub(super) fn apply_profile_defaults(
     init_choice_cursors_from_profile(row_map, profile, player_idx);
 }
 
-/// Walk every row in display order and, if it has a `select_from_profile`
-/// hook, seed `selected_choice_index[player_idx]` from the active profile.
-/// `None` returned by the hook means "leave the row's constructed default in
-/// place" (matches the legacy `if let Some(idx) = ... { row.s_c_i = idx }`
-/// pattern). Bitmask rows are initialised through `BitmaskBinding::init`
-/// and must not also carry a `select_from_profile` hook; the debug assertion
-/// guards against that drift.
+/// Walk every row in display order and ask its behaviour where the cursor
+/// should land for `player_idx`. `None` returned by
+/// `RowBehavior::select_from_profile` means "leave the row's constructed
+/// default in place", preserving the legacy
+/// `if let Some(idx) = ... { row.s_c_i = idx }` semantics for format-lookup
+/// rows whose profile value falls outside the row's choice set. Bitmask rows
+/// are initialised earlier through `BitmaskBinding::init` and return `None`
+/// from their behaviour, so this loop is a no-op for them.
 fn init_choice_cursors_from_profile(
     row_map: &mut RowMap,
     profile: &crate::game::profile::Profile,
@@ -142,15 +144,7 @@ fn init_choice_cursors_from_profile(
         let Some(row) = row_map.get_mut(id) else {
             continue;
         };
-        let Some(init) = row.select_from_profile else {
-            continue;
-        };
-        debug_assert!(
-            !matches!(row.behavior, RowBehavior::Bitmask(_)),
-            "Bitmask row {:?} must not also set `select_from_profile`; use `BitmaskBinding::init` instead",
-            id
-        );
-        if let Some(idx) = init(profile, &row.choices) {
+        if let Some(idx) = row.behavior.select_from_profile(profile, &row.choices) {
             let max = row.choices.len().saturating_sub(1);
             row.selected_choice_index[player_idx] = idx.min(max);
         }

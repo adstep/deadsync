@@ -122,6 +122,23 @@ impl Outcome {
     }
 }
 
+/// Pure mapping from a profile and the row's choice strings to the choice
+/// index that should be selected on screen open. Returning `None` leaves the
+/// row's constructed default in place — use this when the profile value does
+/// not correspond to any of the row's choices (e.g. an out-of-range numeric
+/// whose formatted needle cannot be found). For rows that never read the
+/// profile (e.g. `WhatComesNext`, `Stepchart`, speed mod families), use
+/// `select_from_profile_noop` to make the intent explicit.
+pub type SelectFromProfile = fn(&Profile, &[String]) -> Option<usize>;
+
+/// Stock `select_from_profile` for bindings whose owning row has no
+/// profile-driven cursor placement (volatile or session-scoped state). The
+/// loop in `init_choice_cursors_from_profile` interprets `None` as
+/// "leave the constructed default in place".
+pub fn select_from_profile_noop(_: &Profile, _: &[String]) -> Option<usize> {
+    None
+}
+
 /// Static behaviour for a numeric row whose `Row::choices` already encode
 /// every legal value as a string.
 #[derive(Clone, Copy, Debug)]
@@ -129,6 +146,8 @@ pub struct NumericBinding {
     pub parse: fn(&str) -> Option<i32>,
     pub apply: fn(&mut Profile, i32) -> Outcome,
     pub persist_for_side: fn(PlayerSide, i32),
+    /// Cursor placement on screen open. See `SelectFromProfile`.
+    pub select_from_profile: SelectFromProfile,
 }
 
 /// How a cycle row writes its currently selected index back to the persisted
@@ -139,6 +158,16 @@ pub enum CycleBinding {
     Index(ChoiceBinding<usize>),
 }
 
+impl CycleBinding {
+    #[inline]
+    pub fn select_from_profile(&self, profile: &Profile, choices: &[String]) -> Option<usize> {
+        match self {
+            CycleBinding::Bool(b) => (b.select_from_profile)(profile, choices),
+            CycleBinding::Index(i) => (i.select_from_profile)(profile, choices),
+        }
+    }
+}
+
 /// A typed cycle binding. `apply` writes the new value into the profile and
 /// reports back via `Outcome` whether the change should also trigger a
 /// visibility re-sync. The dispatcher reads that outcome and acts on it
@@ -147,6 +176,8 @@ pub enum CycleBinding {
 pub struct ChoiceBinding<T: Copy + 'static> {
     pub apply: fn(&mut Profile, T) -> Outcome,
     pub persist_for_side: fn(PlayerSide, T),
+    /// Cursor placement on screen open. See `SelectFromProfile`.
+    pub select_from_profile: SelectFromProfile,
 }
 
 /// # Adding a new mask row
@@ -250,6 +281,10 @@ pub fn init_bitmask_row_from_binding(
 #[derive(Clone, Copy, Debug)]
 pub struct CustomBinding {
     pub apply: fn(&mut State, usize, RowId, isize) -> Outcome,
+    /// Cursor placement on screen open. See `SelectFromProfile`. Use
+    /// `select_from_profile_noop` for rows whose state is volatile or
+    /// session-scoped (e.g. `WhatComesNext`, `MusicRate`).
+    pub select_from_profile: SelectFromProfile,
 }
 
 /// What kind of row this is, and any state owned by the row's behaviour.
@@ -260,6 +295,26 @@ pub enum RowBehavior {
     Bitmask(BitmaskBinding),
     Exit,
     Custom(CustomBinding),
+}
+
+impl RowBehavior {
+    /// Cursor placement on screen open, dispatched to the active behaviour.
+    /// Bitmask rows return `None` here because they place their cursor as a
+    /// side effect of `init_bitmask_row_from_binding`, which also writes
+    /// into `PlayerOptionMasks`. `Exit` rows have no cursor to place.
+    #[inline]
+    pub fn select_from_profile(
+        &self,
+        profile: &Profile,
+        choices: &[String],
+    ) -> Option<usize> {
+        match self {
+            RowBehavior::Numeric(n) => (n.select_from_profile)(profile, choices),
+            RowBehavior::Cycle(c) => c.select_from_profile(profile, choices),
+            RowBehavior::Custom(c) => (c.select_from_profile)(profile, choices),
+            RowBehavior::Bitmask(_) | RowBehavior::Exit => None,
+        }
+    }
 }
 
 // ============================== Helpers ================================
@@ -280,7 +335,9 @@ pub(super) fn parse_i32_percent(s: &str) -> Option<i32> {
 }
 
 /// Build a `ChoiceBinding<usize>` for a row whose choices map 1:1 to a static
-/// `[Enum; N]` variant table. Cuts per-binding boilerplate down to its data.
+/// `[Enum; N]` variant table. Cuts per-binding boilerplate down to its data,
+/// including auto-deriving `select_from_profile` from the same table+field
+/// pair so cycle init cannot drift away from the variant order.
 macro_rules! index_binding {
     ($table:expr, $default:expr, $field:ident, $persist:expr, $vis:expr) => {
         $crate::screens::player_options::row::ChoiceBinding::<usize> {
@@ -293,6 +350,9 @@ macro_rules! index_binding {
                 }
             },
             persist_for_side: |s, i| $persist(s, $table.get(i).copied().unwrap_or($default)),
+            select_from_profile: |p, _| {
+                Some($table.iter().position(|&v| v == p.$field).unwrap_or(0))
+            },
         }
     };
 }
@@ -402,8 +462,6 @@ impl RowBuilder {
 /// instead and must leave this field `None`; the production loop in
 /// `apply_profile_defaults` skips bitmask rows and `debug_assert!`s that
 /// invariant.
-pub type SelectFromProfile = fn(&Profile, &[String]) -> Option<usize>;
-
 pub struct Row {
     pub id: RowId,
     pub behavior: RowBehavior,
@@ -417,11 +475,6 @@ pub struct Row {
     /// slot. Also consulted by inline-nav focus commit. Use for rows whose
     /// state is conceptually shared across players (e.g. `WhatComesNext`).
     pub mirror_across_players: bool,
-    /// Optional per-row hook to seed `selected_choice_index[player_idx]`
-    /// from the active profile when the screen opens. Colocates the
-    /// profile→choice mapping with the row's `choices` declaration so they
-    /// cannot drift apart silently. See `SelectFromProfile` for semantics.
-    pub select_from_profile: Option<SelectFromProfile>,
 }
 
 #[derive(Clone, Debug)]
