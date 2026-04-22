@@ -392,6 +392,18 @@ impl RowBuilder {
     }
 }
 
+/// Pure mapping from a profile and the row's choice strings to the choice
+/// index that should be selected on screen open. Returning `None` leaves the
+/// row's constructed default in place — use this when the profile value does
+/// not correspond to any of the row's choices (e.g. an out-of-range numeric
+/// whose formatted needle cannot be found).
+///
+/// Bitmask rows initialise their cursor through `BitmaskBinding::init`
+/// instead and must leave this field `None`; the production loop in
+/// `apply_profile_defaults` skips bitmask rows and `debug_assert!`s that
+/// invariant.
+pub type SelectFromProfile = fn(&Profile, &[String]) -> Option<usize>;
+
 pub struct Row {
     pub id: RowId,
     pub behavior: RowBehavior,
@@ -405,6 +417,11 @@ pub struct Row {
     /// slot. Also consulted by inline-nav focus commit. Use for rows whose
     /// state is conceptually shared across players (e.g. `WhatComesNext`).
     pub mirror_across_players: bool,
+    /// Optional per-row hook to seed `selected_choice_index[player_idx]`
+    /// from the active profile when the screen opens. Colocates the
+    /// profile→choice mapping with the row's `choices` declaration so they
+    /// cannot drift apart silently. See `SelectFromProfile` for semantics.
+    pub select_from_profile: Option<SelectFromProfile>,
 }
 
 #[derive(Clone, Debug)]

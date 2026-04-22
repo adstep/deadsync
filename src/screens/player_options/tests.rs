@@ -42,6 +42,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
+            select_from_profile: None,
         }
     }
 
@@ -60,6 +61,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
+            select_from_profile: None,
         }
     }
 
@@ -125,16 +127,8 @@ pub(super) mod tests {
             &row_map,
             [true, false],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -144,16 +138,8 @@ pub(super) mod tests {
             &row_map,
             [true, false],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::COLORFUL,
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::COLORFUL, ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -181,16 +167,8 @@ pub(super) mod tests {
             &row_map,
             [true, false],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -214,16 +192,8 @@ pub(super) mod tests {
             &row_map,
             [true, false],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -251,16 +221,8 @@ pub(super) mod tests {
             &row_map,
             [true, true],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -284,16 +246,8 @@ pub(super) mod tests {
             &row_map,
             [true, true],
             [
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
-                PlayerOptionMasks {
-                    hide: HideMask::empty(),
-                    error_bar: ErrorBarMask::empty(),
-                    ..Default::default()
-                },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
+                PlayerOptionMasks { hide: HideMask::empty(), error_bar: ErrorBarMask::empty(), ..Default::default() },
             ],
             false,
         );
@@ -572,6 +526,145 @@ pub(super) mod tests {
         );
     }
 
+    /// Conditional-write contract: when `select_from_profile` returns `None`,
+    /// the row's constructed default must be left untouched. Mirrors the
+    /// legacy `if let Some(idx) = ... { row.selected_choice_index = idx }`
+    /// pattern that several format!-based numeric rows still rely on.
+    #[test]
+    fn select_from_profile_returning_none_keeps_constructed_default() {
+        ensure_i18n();
+        let mut row = test_row(
+            RowId::Mini,
+            lookup_key("PlayerOptions", "Mini"),
+            &["a", "b", "c"],
+            [2, 1],
+        );
+        row.select_from_profile = Some(|_, _| None);
+
+        let mut rows = test_row_map(vec![row]);
+        let mut masks = PlayerOptionMasks::default();
+        super::super::panes::apply_profile_defaults(
+            &mut rows,
+            &Profile::default(),
+            P1,
+            &mut masks,
+        );
+
+        assert_eq!(
+            rows.get(RowId::Mini).unwrap().selected_choice_index,
+            [2, 1],
+            "None return must leave constructed defaults untouched for both players",
+        );
+    }
+
+    /// Safety net: if a `select_from_profile` hook returns an out-of-range
+    /// index (e.g. a stale profile value or a rounding bug), the dispatcher
+    /// clamps to the last choice rather than panicking on a later read.
+    #[test]
+    fn select_from_profile_clamps_out_of_range_index() {
+        ensure_i18n();
+        let mut row = test_row(
+            RowId::Mini,
+            lookup_key("PlayerOptions", "Mini"),
+            &["a", "b", "c"],
+            [0, 0],
+        );
+        row.select_from_profile = Some(|_, _| Some(99));
+
+        let mut rows = test_row_map(vec![row]);
+        let mut masks = PlayerOptionMasks::default();
+        super::super::panes::apply_profile_defaults(
+            &mut rows,
+            &Profile::default(),
+            P1,
+            &mut masks,
+        );
+
+        assert_eq!(
+            rows.get(RowId::Mini).unwrap().selected_choice_index,
+            [2, 0],
+            "out-of-range index must be clamped to choices.len()-1 for the active player only",
+        );
+    }
+
+    /// Drift guard for the formatted-numeric row family (`VisualDelay`,
+    /// `Mini`, the offset rows, etc.): the production row's `select_from_profile`
+    /// closure formats the profile value the same way the row's `choices` are
+    /// generated, so a known profile value resolves to the matching index.
+    #[test]
+    fn production_visual_delay_row_inits_from_profile_value() {
+        ensure_i18n();
+        let (state, _asset_manager) = setup_state();
+        let noteskin_names = super::discover_noteskin_names();
+        let mut row_map = super::build_rows(
+            &state.song,
+            &state.speed_mod[P1],
+            state.chart_steps_index,
+            [0; 2],
+            state.music_rate,
+            super::OptionsPane::Main,
+            &noteskin_names,
+            Screen::SelectMusic,
+            state.fixed_stepchart.as_ref(),
+        );
+
+        let mut profile = Profile::default();
+        profile.visual_delay_ms = -42;
+        let mut masks = PlayerOptionMasks::default();
+        super::super::panes::apply_profile_defaults(&mut row_map, &profile, P1, &mut masks);
+
+        let row = row_map.get(RowId::VisualDelay).expect("VisualDelay built");
+        let expected = row
+            .choices
+            .iter()
+            .position(|c| c == "-42ms")
+            .expect("'-42ms' must exist in VisualDelay choices");
+        assert_eq!(
+            row.selected_choice_index[P1], expected,
+            "VisualDelay cursor must be seeded from profile.visual_delay_ms",
+        );
+    }
+
+    /// Drift guard for the translated-label noteskin family (`MineSkin`,
+    /// `ReceptorSkin`, `TapExplosionSkin`): when the profile field is `None`,
+    /// the cursor must land on the localised "Match Note Skin" choice rather
+    /// than silently defaulting to index 0.
+    #[test]
+    fn production_mine_skin_row_picks_match_label_when_profile_is_none() {
+        ensure_i18n();
+        let (state, _asset_manager) = setup_state();
+        let noteskin_names = super::discover_noteskin_names();
+        let mut row_map = super::build_rows(
+            &state.song,
+            &state.speed_mod[P1],
+            state.chart_steps_index,
+            [0; 2],
+            state.music_rate,
+            super::OptionsPane::Main,
+            &noteskin_names,
+            Screen::SelectMusic,
+            state.fixed_stepchart.as_ref(),
+        );
+
+        let mut profile = Profile::default();
+        profile.mine_noteskin = None;
+        let mut masks = PlayerOptionMasks::default();
+        super::super::panes::apply_profile_defaults(&mut row_map, &profile, P1, &mut masks);
+
+        let row = row_map.get(RowId::MineSkin).expect("MineSkin built");
+        let match_label =
+            crate::assets::i18n::tr("PlayerOptions", "MatchNoteSkinLabel").to_string();
+        let expected = row
+            .choices
+            .iter()
+            .position(|c| c == &match_label)
+            .expect("MatchNoteSkin label must be present in MineSkin choices");
+        assert_eq!(
+            row.selected_choice_index[P1], expected,
+            "MineSkin must seed cursor on the Match label when the profile field is None",
+        );
+    }
+
     #[test]
     fn hud_offset_choices_cover_full_range() {
         let choices = hud_offset_choices();
@@ -765,6 +858,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
+            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
         state.pane_mut().row_map.insert(scroll_row);
@@ -804,6 +898,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
+            select_from_profile: None,
         };
         let tilt_intensity_row = test_row(
             RowId::JudgmentTiltIntensity,
@@ -1060,6 +1155,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: false,
+            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
         state.pane_mut().row_map.insert(scroll_row);
@@ -1224,6 +1320,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             mirror_across_players: true,
+            select_from_profile: None,
         };
         state.pane_mut().row_map.display_order.push(RowId::Hide);
         state.pane_mut().row_map.insert(mirror_row);

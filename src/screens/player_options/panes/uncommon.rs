@@ -122,6 +122,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "InsertHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Remove,
@@ -141,6 +142,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "RemoveHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Holds,
@@ -157,6 +159,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HoldsHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Accel,
@@ -173,6 +176,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AccelHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Effect,
@@ -194,6 +198,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "EffectHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Appearance,
@@ -210,6 +215,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AppearanceHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Attacks,
@@ -224,6 +230,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AttacksHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(ATTACK_MODE_VARIANTS.iter().position(|&v| v == p.attack_mode).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::HideLightType,
@@ -239,6 +246,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HideLightTypeHelp").to_string()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(HIDE_LIGHT_TYPE_VARIANTS.iter().position(|&v| v == p.hide_light_type).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::WhatComesNext,
@@ -252,6 +260,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         ],
         choice_difficulty_indices: None,
         mirror_across_players: true,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Exit,
@@ -262,6 +271,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![String::new()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.finish()
 }

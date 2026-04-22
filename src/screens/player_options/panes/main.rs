@@ -527,6 +527,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::SpeedMod,
@@ -540,6 +541,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Mini,
@@ -553,6 +555,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let needle = format!("{}%", p.mini_percent.clamp(-100, 150)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::Perspective,
@@ -572,6 +575,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(PERSPECTIVE_VARIANTS.iter().position(|&v| v == p.perspective).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::NoteSkin,
@@ -589,6 +593,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { Some(choices.iter().position(|c| c.eq_ignore_ascii_case(p.noteskin.as_str())).or_else(|| choices.iter().position(|c| c.eq_ignore_ascii_case(crate::game::profile::NoteSkin::DEFAULT_NAME))).unwrap_or(0)) }),
     });
     b.push(Row {
         id: RowId::MineSkin,
@@ -602,6 +607,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.mine_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None))),
     });
     b.push(Row {
         id: RowId::ReceptorSkin,
@@ -615,6 +621,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.receptor_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), None))),
     });
     b.push(Row {
         id: RowId::TapExplosionSkin,
@@ -628,6 +635,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| Some(super::find_noteskin_choice_index(p.tap_explosion_noteskin.as_ref(), choices, tr("PlayerOptions", MATCH_NOTESKIN_LABEL).as_ref(), Some(tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL).as_ref())))),
     });
     b.push(Row {
         id: RowId::JudgmentFont,
@@ -644,6 +652,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(assets::judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.judgment_graphic.as_str())).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::JudgmentOffsetX,
@@ -657,6 +666,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.judgment_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::JudgmentOffsetY,
@@ -670,6 +680,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.judgment_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::ComboFont,
@@ -693,6 +704,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(COMBO_FONT_VARIANTS.iter().position(|&v| v == p.combo_font).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::ComboOffsetX,
@@ -706,6 +718,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.combo_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::ComboOffsetY,
@@ -719,6 +732,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.combo_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::HoldJudgment,
@@ -735,6 +749,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, _| Some(assets::hold_judgment_texture_choices().iter().position(|c| c.key.eq_ignore_ascii_case(p.hold_judgment_graphic.as_str())).unwrap_or(0))),
     });
     b.push(Row {
         id: RowId::BackgroundFilter,
@@ -750,6 +765,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| Some((p.background_filter.percent() as usize).min(choices.len().saturating_sub(1)))),
     });
     b.push(Row {
         id: RowId::NoteFieldOffsetX,
@@ -763,6 +779,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.note_field_offset_x.clamp(0, 50).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::NoteFieldOffsetY,
@@ -776,6 +793,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let v = p.note_field_offset_y.clamp(-50, 50).to_string(); choices.iter().position(|c| c == &v) }),
     });
     b.push(Row {
         id: RowId::VisualDelay,
@@ -789,6 +807,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let needle = format!("{}ms", p.visual_delay_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::GlobalOffsetShift,
@@ -802,6 +821,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: Some(|p, choices| { let needle = format!("{}ms", p.global_offset_shift_ms.clamp(-100, 100)); choices.iter().position(|c| c == &needle) }),
     });
     b.push(Row {
         id: RowId::MusicRate,
@@ -815,6 +835,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Stepchart,
@@ -828,6 +849,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: Some(stepchart_choice_indices),
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::WhatComesNext,
@@ -841,6 +863,7 @@ pub(super) fn build_main_rows(
             .collect(),
         choice_difficulty_indices: None,
         mirror_across_players: true,
+        select_from_profile: None,
     });
     b.push(Row {
         id: RowId::Exit,
@@ -851,6 +874,7 @@ pub(super) fn build_main_rows(
         help: vec![String::new()],
         choice_difficulty_indices: None,
         mirror_across_players: false,
+        select_from_profile: None,
     });
     b.finish()
 }
