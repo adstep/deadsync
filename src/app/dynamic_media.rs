@@ -23,17 +23,14 @@ struct DynamicVideoState {
 
 struct PreparedBannerVideo {
     key: String,
+    path: PathBuf,
     poster: RgbaImage,
     player: video::Player,
 }
 
 enum BannerVideoPrepResult {
     Ready(PreparedBannerVideo),
-    Failed {
-        key: String,
-        path: PathBuf,
-        msg: String,
-    },
+    Failed { path: PathBuf, msg: String },
 }
 
 struct PreparedGameplayBackground {
@@ -761,10 +758,10 @@ impl DynamicMedia {
         backend: &mut Backend,
     ) {
         self.destroy_current_dynamic_background(assets, backend);
-        for key in self.active_song_lua_videos.drain().map(|(key, _)| key) {
+        for key in std::mem::take(&mut self.active_song_lua_videos).into_keys() {
             self.release_texture_key(assets, backend, key);
         }
-        for key in self.failed_song_lua_video_keys.drain() {
+        for key in std::mem::take(&mut self.failed_song_lua_video_keys) {
             self.release_texture_key(assets, backend, key);
         }
         self.reset_pending_gameplay_background();
@@ -982,7 +979,7 @@ impl DynamicMedia {
                         },
                     );
                 }
-                BannerVideoPrepResult::Failed { key: _, path, msg } => {
+                BannerVideoPrepResult::Failed { path, msg } => {
                     self.pending_banner_video_preps.remove(&path);
                     if Some(path.as_path()) == desired_path {
                         warn!("Failed to start banner video '{}': {msg}", path.display());
@@ -1017,7 +1014,7 @@ impl DynamicMedia {
                         },
                     );
                 }
-                BannerVideoPrepResult::Failed { key: _, path, msg } => {
+                BannerVideoPrepResult::Failed { path, msg } => {
                     self.pending_banner_video_preps.remove(&path);
                     if desired_paths.iter().any(|desired| {
                         dynamic::is_dynamic_video_path(desired)
@@ -1090,27 +1087,29 @@ fn prepare_banner_video(key: String, path: PathBuf) -> BannerVideoPrepResult {
         return match video::open(&path, true) {
             Ok(video) => BannerVideoPrepResult::Ready(PreparedBannerVideo {
                 key,
+                path,
                 poster: video.poster,
                 player: video.player,
             }),
-            Err(msg) => BannerVideoPrepResult::Failed { key, path, msg },
+            Err(msg) => BannerVideoPrepResult::Failed { path, msg },
         };
     }
 
     let poster = match media_cache::load_banner_source_rgba(&path) {
         Ok(rgba) => rgba,
         Err(msg) => {
-            return BannerVideoPrepResult::Failed { key, path, msg };
+            return BannerVideoPrepResult::Failed { path, msg };
         }
     };
     let player = match video::open_player(&path, true) {
         Ok(player) => player,
         Err(msg) => {
-            return BannerVideoPrepResult::Failed { key, path, msg };
+            return BannerVideoPrepResult::Failed { path, msg };
         }
     };
     BannerVideoPrepResult::Ready(PreparedBannerVideo {
         key,
+        path,
         poster,
         player,
     })
@@ -1227,7 +1226,6 @@ mod tests {
         media
             .banner_video_prep_tx
             .send(BannerVideoPrepResult::Failed {
-                key: key.clone(),
                 path: PathBuf::from(&key),
                 msg: "failed".to_string(),
             })

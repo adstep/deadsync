@@ -7,7 +7,7 @@ use crate::engine::gfx::BlendMode;
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::{self, Actor};
 use crate::engine::present::color;
-use crate::engine::space::{screen_center_x, screen_center_y, screen_height, screen_width};
+use crate::engine::space::{screen_center_x, screen_center_y};
 use crate::game::parsing::noteskin::{self, NUM_QUANTIZATIONS, Noteskin, Quantization};
 use crate::game::profile::{self, ActiveProfile};
 use crate::game::scores;
@@ -475,26 +475,11 @@ pub fn update(state: &mut State, dt: f32) {
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    super::transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    super::transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 #[inline(always)]
@@ -811,63 +796,16 @@ pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
     }
 }
 
-fn apply_alpha_to_actor(actor: &mut Actor, alpha: f32) {
-    match actor {
-        Actor::Sprite { tint, .. } => tint[3] *= alpha,
-        Actor::Text { color, .. } => color[3] *= alpha,
-        Actor::Mesh { vertices, .. } => {
-            let mut out: Vec<crate::engine::gfx::MeshVertex> = Vec::with_capacity(vertices.len());
-            for v in vertices.iter() {
-                let mut c = v.color;
-                c[3] *= alpha;
-                out.push(crate::engine::gfx::MeshVertex {
-                    pos: v.pos,
-                    color: c,
-                });
-            }
-            *vertices = std::sync::Arc::from(out);
-        }
-        Actor::TexturedMesh { tint, .. } => tint[3] *= alpha,
-        Actor::Frame {
-            background,
-            children,
-            ..
-        } => {
-            if let Some(actors::Background::Color(c)) = background {
-                c[3] *= alpha;
-            }
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Camera { children, .. } => {
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Shadow { color, child, .. } => {
-            color[3] *= alpha;
-            apply_alpha_to_actor(child, alpha);
-        }
-    }
-}
-
 #[inline(always)]
 fn exit_anim_t(exiting: bool) -> f32 {
-    if !exiting {
-        return 0.0;
-    }
-
-    use crate::engine::present::{anim, runtime};
-    static STEPS: std::sync::OnceLock<Vec<anim::Step>> = std::sync::OnceLock::new();
-    let dur = EXIT_ANIM_DURATION.max(0.0);
-    let steps = STEPS.get_or_init(|| vec![anim::linear(dur).x(dur).build()]);
-
-    let mut init = anim::TweenState::default();
-    init.x = 0.0;
-    const SITE_BASE: u64 = runtime::site_base(file!(), line!(), column!());
-    let sid = runtime::site_id(SITE_BASE, 0x53454C5052455849u64); // "SELPREXI"
-    runtime::materialize(sid, init, steps).x.max(0.0)
+    static STEPS: std::sync::OnceLock<Vec<crate::engine::present::anim::Step>> =
+        std::sync::OnceLock::new();
+    super::transitions::linear_elapsed(
+        exiting,
+        EXIT_ANIM_DURATION,
+        &STEPS,
+        0x53454C5052455849u64, // "SELPREXI"
+    )
 }
 
 #[inline(always)]
@@ -1626,7 +1564,7 @@ fn build_box_actors(
             col_overlay,
         );
         for a in &mut scroller_ui {
-            apply_alpha_to_actor(a, if show_scroller { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_scroller { 1.0 } else { 0.0 });
         }
         p1_ui.extend(scroller_ui);
 
@@ -1647,7 +1585,7 @@ fn build_box_actors(
             join_text,
         );
         for a in &mut join_ui {
-            apply_alpha_to_actor(a, if show_join { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_join { 1.0 } else { 0.0 });
         }
         p1_ui.extend(join_ui);
 
@@ -1712,7 +1650,7 @@ fn build_box_actors(
             col_overlay,
         );
         for a in &mut scroller_ui {
-            apply_alpha_to_actor(a, if show_scroller { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_scroller { 1.0 } else { 0.0 });
         }
         p2_ui.extend(scroller_ui);
 
@@ -1733,7 +1671,7 @@ fn build_box_actors(
             join_text,
         );
         for a in &mut join_ui {
-            apply_alpha_to_actor(a, if show_join { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_join { 1.0 } else { 0.0 });
         }
         p2_ui.extend(join_ui);
 
@@ -1772,7 +1710,7 @@ fn build_box_actors(
     }
 
     for mut a in ui {
-        apply_alpha_to_actor(&mut a, alpha_multiplier);
+        a.mul_alpha(alpha_multiplier);
         actors.push(a);
     }
     actors

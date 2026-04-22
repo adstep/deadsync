@@ -10,7 +10,7 @@ use crate::engine::present::color;
 use crate::engine::present::font;
 use crate::engine::space::{screen_height, screen_width, widescale};
 use crate::screens::components::shared::screen_bar::{ScreenBarPosition, ScreenBarTitlePlacement};
-use crate::screens::components::shared::{heart_bg, screen_bar};
+use crate::screens::components::shared::{heart_bg, screen_bar, transitions};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::time::{Duration, Instant};
@@ -251,26 +251,11 @@ pub fn init() -> State {
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 fn on_nav_press(state: &mut State, dir: NavDirection) {
@@ -915,47 +900,6 @@ pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
 }
 
 /* -------------------------------- drawing -------------------------------- */
-
-fn apply_alpha_to_actor(actor: &mut Actor, alpha: f32) {
-    match actor {
-        Actor::Sprite { tint, .. } => tint[3] *= alpha,
-        Actor::Text { color, .. } => color[3] *= alpha,
-        Actor::Mesh { vertices, .. } => {
-            let mut out: Vec<crate::engine::gfx::MeshVertex> = Vec::with_capacity(vertices.len());
-            for v in vertices.iter() {
-                let mut c = v.color;
-                c[3] *= alpha;
-                out.push(crate::engine::gfx::MeshVertex {
-                    pos: v.pos,
-                    color: c,
-                });
-            }
-            *vertices = std::sync::Arc::from(out);
-        }
-        Actor::TexturedMesh { tint, .. } => tint[3] *= alpha,
-        Actor::Frame {
-            background,
-            children,
-            ..
-        } => {
-            if let Some(crate::engine::present::actors::Background::Color(c)) = background {
-                c[3] *= alpha;
-            }
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Camera { children, .. } => {
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Shadow { color, child, .. } => {
-            color[3] *= alpha;
-            apply_alpha_to_actor(child, alpha);
-        }
-    }
-}
 
 #[inline(always)]
 fn slot_pulse_zoom_and_color(
@@ -1737,7 +1681,7 @@ pub fn get_actors(
 
     let combined_alpha = alpha_multiplier;
     for actor in &mut ui_actors {
-        apply_alpha_to_actor(actor, combined_alpha);
+        actor.mul_alpha(combined_alpha);
     }
     actors.extend(ui_actors);
 

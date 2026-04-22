@@ -976,26 +976,29 @@ fn closest_lane_note_ns(
     notes: &[Note],
     note_times_ns: &[SongTimeNs],
     current_time_ns: SongTimeNs,
+    current_row_index: usize,
     search_start_idx: usize,
     search_end_idx: usize,
 ) -> Option<(usize, SongTimeNs)> {
     let mut best: Option<(usize, SongTimeNs)> = None;
-    let mut best_signed_err = 0i128;
+    let mut best_row_distance = usize::MAX;
+    let mut best_row_index = 0usize;
     for &note_index in &note_indices[search_start_idx..search_end_idx] {
         let note = &notes[note_index];
         if note.result.is_some() || !note.can_be_judged || note.is_fake {
             continue;
         }
+        let row_distance = current_row_index.abs_diff(note.row_index);
         let signed_err_music = current_time_ns as i128 - note_times_ns[note_index] as i128;
-        let abs_err_music = signed_err_music.unsigned_abs();
+        // Match ITGmania Player::GetClosestNote: choose by row proximity, and
+        // break exact ties toward the later row.
         match best {
-            Some((_, best_err))
-                if abs_err_music > (best_err as i128).unsigned_abs()
-                    || (abs_err_music == (best_err as i128).unsigned_abs()
-                        && signed_err_music >= best_signed_err) => {}
+            Some(_) if row_distance > best_row_distance => {}
+            Some(_) if row_distance == best_row_distance && note.row_index <= best_row_index => {}
             _ => {
                 best = Some((note_index, signed_err_music as SongTimeNs));
-                best_signed_err = signed_err_music;
+                best_row_distance = row_distance;
+                best_row_index = note.row_index;
             }
         }
     }
@@ -1067,6 +1070,11 @@ fn build_lane_hold_display_runs(
         end: hold_indices.len(),
     });
     runs
+}
+
+#[inline(always)]
+const fn note_has_displayable_hold(note: &Note) -> bool {
+    matches!(note.note_type, NoteType::Hold | NoteType::Roll) && note.hold.is_some()
 }
 
 #[inline(always)]
@@ -2705,6 +2713,13 @@ pub struct JudgmentRenderInfo {
     pub started_at_screen_s: f32,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct MineJudgmentRenderInfo {
+    pub result: MineResult,
+    pub column: usize,
+    pub started_at_screen_s: f32,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct HoldJudgmentRenderInfo {
     pub result: HoldResult,
@@ -3125,6 +3140,7 @@ pub struct PlayerRuntime {
     pub scoring_counts: judgment::JudgeCounts,
     pub provisional_scoring_counts: judgment::JudgeCounts,
     pub last_judgment: Option<JudgmentRenderInfo>,
+    pub last_mine_judgment: Option<MineJudgmentRenderInfo>,
 
     pub life: f32,
     pub combo_after_miss: u32,
@@ -3233,6 +3249,7 @@ fn init_player_runtime() -> PlayerRuntime {
         scoring_counts: [0; judgment::JUDGE_GRADE_COUNT],
         provisional_scoring_counts: [0; judgment::JUDGE_GRADE_COUNT],
         last_judgment: None,
+        last_mine_judgment: None,
         life: 0.5,
         combo_after_miss: 0,
         is_failing: false,
@@ -4716,6 +4733,11 @@ fn stage_music_cut(lead_in_seconds: f32) -> audio::Cut {
     }
 }
 
+#[inline(always)]
+fn visible_notefield_time_ns(music_time_ns: SongTimeNs, visual_delay_seconds: f32) -> SongTimeNs {
+    song_time_ns_add_seconds(music_time_ns, -visual_delay_seconds)
+}
+
 fn start_stage_music_audio(state: &State) {
     let Some(music_path) = state.charts[0].music_path.as_ref() else {
         return;
@@ -4741,7 +4763,7 @@ pub fn start_stage_music(state: &mut State) {
     state.current_beat_display = state.timing.get_beat_for_time_ns(display_time_ns);
     for player in 0..state.num_players {
         let delay = state.global_visual_delay_seconds + state.player_visual_delay_seconds[player];
-        let visible_time_ns = song_time_ns_add_seconds(display_time_ns, -delay);
+        let visible_time_ns = visible_notefield_time_ns(state.current_music_time_ns, delay);
         state.current_music_time_visible_ns[player] = visible_time_ns;
         state.current_music_time_visible[player] = song_time_ns_to_seconds(visible_time_ns);
         state.current_beat_visible[player] =
@@ -5454,7 +5476,7 @@ pub fn init(
         let col = note.column;
         if col < num_cols && col < MAX_COLS {
             lane_note_counts[col] = lane_note_counts[col].saturating_add(1);
-            if matches!(note.note_type, NoteType::Hold | NoteType::Roll) {
+            if note_has_displayable_hold(note) {
                 lane_hold_counts[col] = lane_hold_counts[col].saturating_add(1);
             }
         }
@@ -5470,7 +5492,7 @@ pub fn init(
         let col = note.column;
         if col < num_cols && col < MAX_COLS {
             lane_note_indices[col].push(note_index);
-            if matches!(note.note_type, NoteType::Hold | NoteType::Roll) {
+            if note_has_displayable_hold(note) {
                 lane_hold_indices[col].push(note_index);
             }
         }
@@ -5511,12 +5533,15 @@ pub fn init(
         ms as f32 / 1000.0
     });
     let init_music_time = -start_delay;
-    let init_beat = timing.get_beat_for_time_ns(song_time_ns_from_seconds(init_music_time));
-    let current_music_time_visible: [f32; MAX_PLAYERS] = std::array::from_fn(|player| {
-        init_music_time - global_visual_delay_seconds - player_visual_delay_seconds[player]
+    let init_music_time_ns = song_time_ns_from_seconds(init_music_time);
+    let init_beat = timing.get_beat_for_time_ns(init_music_time_ns);
+    let current_music_time_visible_ns: [SongTimeNs; MAX_PLAYERS] = std::array::from_fn(|player| {
+        let delay = global_visual_delay_seconds + player_visual_delay_seconds[player];
+        visible_notefield_time_ns(init_music_time_ns, delay)
     });
-    let current_music_time_visible_ns: [SongTimeNs; MAX_PLAYERS] =
-        std::array::from_fn(|player| song_time_ns_from_seconds(current_music_time_visible[player]));
+    let current_music_time_visible: [f32; MAX_PLAYERS] = std::array::from_fn(|player| {
+        song_time_ns_to_seconds(current_music_time_visible_ns[player])
+    });
     let current_beat_visible: [f32; MAX_PLAYERS] = std::array::from_fn(|player| {
         timing_players[player].get_beat_for_time_ns(current_music_time_visible_ns[player])
     });
@@ -6302,6 +6327,7 @@ fn hit_mine(
     }
     state.receptor_glow_timers[column] = 0.0;
     trigger_mine_explosion(state, column);
+    set_last_mine_judgment(state, player, column, MineResult::Hit);
     let note_time_ns = state.note_time_cache_ns[note_index];
     let hit_time_ns = note_time_ns.saturating_add(time_error_music_ns);
     debug!(
@@ -6651,6 +6677,15 @@ fn set_last_judgment(state: &mut State, player: usize, judgment: Judgment) {
 }
 
 #[inline(always)]
+fn set_last_mine_judgment(state: &mut State, player: usize, column: usize, result: MineResult) {
+    state.players[player].last_mine_judgment = Some(MineJudgmentRenderInfo {
+        result,
+        column,
+        started_at_screen_s: state.total_elapsed_in_screen,
+    });
+}
+
+#[inline(always)]
 fn render_provisional_early_rescore_feedback(
     state: &mut State,
     player: usize,
@@ -6701,11 +6736,16 @@ pub fn judge_a_tap(
         search_start_time_ns,
         search_end_time_ns,
     );
+    let current_row_index = timing_row_floor(
+        &state.timing_players[player],
+        state.timing_players[player].get_beat_for_time_ns(current_time_ns),
+    );
     if let Some((note_index, _)) = closest_lane_note_ns(
         lane_notes,
         &state.notes,
         &state.note_time_cache_ns,
         current_time_ns,
+        current_row_index,
         search_start_idx,
         search_end_idx,
     ) {
@@ -6975,11 +7015,16 @@ pub fn judge_a_lift(
         search_start_time_ns,
         search_end_time_ns,
     );
+    let current_row_index = timing_row_floor(
+        &state.timing_players[player],
+        state.timing_players[player].get_beat_for_time_ns(current_time_ns),
+    );
     let Some((note_index, _)) = closest_lane_note_ns(
         lane_notes,
         &state.notes,
         &state.note_time_cache_ns,
         current_time_ns,
+        current_row_index,
         search_start_idx,
         search_end_idx,
     ) else {
@@ -7322,6 +7367,7 @@ fn apply_time_based_mine_avoidance(state: &mut State, music_time_ns: SongTimeNs)
                 let row_index = note.row_index;
                 let column = note.column;
                 note.mine_result = Some(MineResult::Avoided);
+                set_last_mine_judgment(state, player, column, MineResult::Avoided);
                 avoided_count = avoided_count.saturating_add(1);
                 if log_mine_avoid {
                     trace!(
@@ -7572,7 +7618,7 @@ pub fn update(state: &mut State, delta_time: f32) -> GameplayAction {
         for player in 0..state.num_players {
             let delay =
                 state.global_visual_delay_seconds + state.player_visual_delay_seconds[player];
-            let visible_time_ns = song_time_ns_add_seconds(display_music_time_ns, -delay);
+            let visible_time_ns = visible_notefield_time_ns(music_time_ns, delay);
             state.current_music_time_visible_ns[player] = visible_time_ns;
             state.current_music_time_visible[player] = song_time_ns_to_seconds(visible_time_ns);
             state.current_beat_visible[player] =
@@ -7854,22 +7900,22 @@ mod tests {
         lane_note_window_bounds_ns, lane_press_started, lane_release_finished,
         late_note_resolution_window_ns, live_autoplay_enabled_from_flags, max_step_distance_ns,
         mine_window_bounds_ns, music_time_ns_from_song_clock, mutate_timing_arc,
-        next_ready_row_in_lookahead, next_tick_mode, note_hit_eval, parse_attack_mods,
-        parse_song_lua_runtime_mods, player_draw_scale_for_tilt_with_visual_mask,
-        player_row_scan_state, recent_step_tracks, recompute_player_totals,
-        refresh_active_attack_masks, refresh_timing_after_offset_change,
+        next_ready_row_in_lookahead, next_tick_mode, note_has_displayable_hold, note_hit_eval,
+        parse_attack_mods, parse_song_lua_runtime_mods,
+        player_draw_scale_for_tilt_with_visual_mask, player_row_scan_state, recent_step_tracks,
+        recompute_player_totals, refresh_active_attack_masks, refresh_timing_after_offset_change,
         remove_provisional_early_score, replay_edge_cap, row_entry_for_cached_row,
         row_final_grade_hides_note, score_invalid_reason_lines_for_chart,
         score_missed_holds_and_rolls, scored_hold_totals_with_carry, set_final_note_result,
         single_runtime_player_is_p2, song_time_ns_from_seconds, song_time_ns_to_seconds,
         stage_music_cut, step_calories, suppress_final_bad_rescore_visual, tick_mode_status_line,
-        tick_visual_effects, turn_option_bits, update_lane_count,
+        tick_visual_effects, turn_option_bits, update_lane_count, visible_notefield_time_ns,
     };
     use crate::engine::input::{InputEvent, InputSource, VirtualAction};
     use crate::engine::present::color;
     use crate::game::chart::{ChartData, GameplayChartData, StaminaCounts};
     use crate::game::judgment::{self, JudgeGrade, Judgment, TimingWindow};
-    use crate::game::note::{HoldData, HoldResult, Note, NoteType};
+    use crate::game::note::{HoldData, HoldResult, MineResult, Note, NoteType};
     use crate::game::parsing::notes::ParsedNote;
     use crate::game::profile;
     use crate::game::song::SongData;
@@ -8990,6 +9036,22 @@ mod tests {
     }
 
     #[test]
+    fn mine_judgment_feedback_records_result_column_and_time() {
+        let mut state =
+            regression_state([profile::Profile::default(), profile::Profile::default()]);
+        state.total_elapsed_in_screen = 9.25;
+
+        super::set_last_mine_judgment(&mut state, 0, 2, MineResult::Avoided);
+
+        let info = state.players[0]
+            .last_mine_judgment
+            .expect("mine judgment should be recorded");
+        assert_eq!(info.result, MineResult::Avoided);
+        assert_eq!(info.column, 2);
+        assert_eq!(info.started_at_screen_s, 9.25);
+    }
+
+    #[test]
     fn completed_row_hidden_note_indices_wait_for_full_jump() {
         let row_index = 48usize;
         let notes = vec![
@@ -9165,6 +9227,15 @@ mod tests {
             false,
         ));
         assert!((display_time - 100.250).abs() < 0.000_5);
+    }
+
+    #[test]
+    fn visible_notefield_time_uses_simulation_clock_plus_delay() {
+        let music_time_ns = song_time_ns_from_seconds(100.0);
+        let delay = 0.010;
+        let visible = song_time_ns_to_seconds(visible_notefield_time_ns(music_time_ns, delay));
+
+        assert!((visible - 99.990).abs() < 0.000_5);
     }
 
     #[test]
@@ -10213,6 +10284,16 @@ mod tests {
     }
 
     #[test]
+    fn displayable_hold_requires_runtime_hold_data() {
+        assert!(!note_has_displayable_hold(&test_note(
+            0,
+            48,
+            NoteType::Hold
+        )));
+        assert!(note_has_displayable_hold(&test_hold(0, 48, 96)));
+    }
+
+    #[test]
     fn closest_lane_note_keeps_nearer_lift_visible_to_press_edges() {
         let notes = vec![
             test_note(0, 48, NoteType::Lift),
@@ -10234,6 +10315,7 @@ mod tests {
             &notes,
             &note_times_ns,
             song_time_ns_from_seconds(1.004),
+            48,
             start_idx,
             end_idx,
         )
@@ -10268,6 +10350,7 @@ mod tests {
             &notes,
             &note_times_ns,
             song_time_ns_from_seconds(1.004),
+            48,
             start_idx,
             end_idx,
         )
@@ -10284,7 +10367,7 @@ mod tests {
     fn closest_lane_note_breaks_exact_tie_toward_future_note() {
         let notes = vec![
             test_note(0, 48, NoteType::Tap),
-            test_note(0, 49, NoteType::Tap),
+            test_note(0, 50, NoteType::Tap),
         ];
         let note_indices = [0usize, 1];
         let note_times_ns = [1_000_000_000_i64, 1_020_000_000_i64];
@@ -10299,6 +10382,7 @@ mod tests {
             &notes,
             &note_times_ns,
             1_010_000_000_i64,
+            49,
             start_idx,
             end_idx,
         )
@@ -10309,7 +10393,7 @@ mod tests {
     }
 
     #[test]
-    fn closest_lane_note_prefers_nearer_time_over_nearer_row() {
+    fn closest_lane_note_prefers_nearer_row_over_nearer_time() {
         let notes = vec![
             test_note(0, 48, NoteType::Tap),
             test_note(0, 60, NoteType::Tap),
@@ -10330,13 +10414,14 @@ mod tests {
             &notes,
             &note_times_ns,
             song_time_ns_from_seconds(1.030),
+            50,
             start_idx,
             end_idx,
         )
-        .expect("expected the nearer note in time to win");
+        .expect("expected the nearer note in row to win");
 
-        assert_eq!(note_index, 1);
-        assert!((song_time_ns_to_seconds(abs_err_ns.abs()) - 0.002).abs() <= 1e-6);
+        assert_eq!(note_index, 0);
+        assert!((song_time_ns_to_seconds(abs_err_ns.abs()) - 0.010).abs() <= 1e-6);
     }
     #[test]
     fn input_queue_cap_scales_with_fields() {
