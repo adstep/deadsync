@@ -1581,13 +1581,18 @@ fn build_holds_mines_rolls_pane_at(
     actors
 }
 
+/// SL parity: layout width is style/lane based and must NOT shrink/grow
+/// with Mini.  Simply Love's `GetNotefieldWidth()` returns a fixed value
+/// per style (e.g. 256 for dance-single, 512 for dance-double).
 fn notefield_width(state: &State) -> Option<f32> {
     let ns = state.noteskin[0].as_ref()?;
-    let field_zoom = state.field_zoom[0];
+    let receptor_ns = state.receptor_noteskin[0]
+        .as_deref()
+        .unwrap_or(ns);
     let cols = state
         .cols_per_player
         .min(ns.column_xs.len())
-        .min(ns.receptor_off.len());
+        .min(receptor_ns.receptor_off.len());
     if cols == 0 {
         return None;
     }
@@ -1600,17 +1605,17 @@ fn notefield_width(state: &State) -> Option<f32> {
         max_x = max_x.max(xf);
     }
 
-    let target_arrow_px = 64.0 * field_zoom.max(0.0);
-    let size = ns.receptor_off[0].size();
+    let target_arrow_px = 64.0_f32;
+    let size = receptor_ns.receptor_off[0].size();
     let w = size[0].max(0) as f32;
     let h = size[1].max(0) as f32;
     let arrow_w = if h > 0.0 && target_arrow_px > 0.0 {
         w * (target_arrow_px / h)
     } else {
-        w * field_zoom.max(0.0)
+        w
     };
 
-    Some(((max_x - min_x) * field_zoom.max(0.0)) + arrow_w)
+    Some((max_x - min_x) + arrow_w)
 }
 
 fn build_holds_mines_rolls_pane(
