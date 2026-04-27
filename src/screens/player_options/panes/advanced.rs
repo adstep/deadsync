@@ -601,6 +601,7 @@ const ACTION_ON_MISSED_TARGET: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    init: None,
 };
 
 const MINI_INDICATOR: CustomBinding = CustomBinding {
@@ -633,6 +634,14 @@ const MINI_INDICATOR: CustomBinding = CustomBinding {
         }
         Outcome::persisted_with_visibility()
     },
+    init: Some(CycleInit {
+        from_profile: |p| {
+            MINI_INDICATOR_VARIANTS
+                .iter()
+                .position(|&v| v == p.mini_indicator)
+                .unwrap_or(0)
+        },
+    }),
 };
 
 /// Computes the `tilt_multiplier` value for a given choice index. Used by

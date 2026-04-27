@@ -337,6 +337,31 @@ pub fn init_numeric_row_from_binding(
 #[derive(Clone, Copy, Debug)]
 pub struct CustomBinding {
     pub apply: fn(&mut State, usize, RowId, isize, NavWrap) -> Outcome,
+    /// Opt-in init contract. Currently only the `CycleInit` shape is used
+    /// (cursor index is computed from the profile and clamped to
+    /// `Row::choices.len() - 1`). When `Some`, a row's initial cursor is
+    /// derived directly from a `Profile` via
+    /// `init_custom_row_from_binding`. `None` means the row's selection is
+    /// initialized elsewhere (today: a hand-written block in
+    /// `apply_profile_defaults` for the NoteSkin family).
+    pub init: Option<CycleInit>,
+}
+
+/// Apply a `CustomBinding`'s init contract to a row. Mirrors
+/// `init_cycle_row_from_binding` but operates on a `CustomBinding` directly so
+/// the caller does not have to fish a `ChoiceBinding<T>` out of nowhere.
+pub fn init_custom_row_from_binding(
+    row: &mut Row,
+    binding: &CustomBinding,
+    profile: &Profile,
+    player_idx: usize,
+) -> bool {
+    let Some(init) = binding.init.as_ref() else {
+        return false;
+    };
+    let max = row.choices.len().saturating_sub(1);
+    row.selected_choice_index[player_idx] = (init.from_profile)(profile).min(max);
+    true
 }
 
 /// What kind of row this is, and any state owned by the row's behaviour.

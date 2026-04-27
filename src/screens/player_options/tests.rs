@@ -1254,6 +1254,7 @@ pub(super) mod tests {
         // overwrite P2 in that case.
         let custom = super::CustomBinding {
             apply: |_state, _player_idx, _id, _delta, _wrap| super::Outcome::NONE,
+            init: None,
         };
         let mirror_row = Row {
             id: RowId::Hide,
@@ -1640,6 +1641,8 @@ pub(super) mod tests {
         p.tilt_multiplier = 0.50;
         p.measure_counter_lookahead = 3;
         p.custom_fantastic_window_ms = 7;
+        // MiniIndicator migrated to CustomBinding init contract in PR 8b.
+        p.mini_indicator = profile::MiniIndicator::Pacemaker;
 
         let profile = state.player_profiles[P1].clone();
         let noteskin_names = super::discover_noteskin_names();
@@ -1694,6 +1697,15 @@ pub(super) mod tests {
         assert_eq!(
             lookahead_row.selected_choice_index[P1], 3,
             "MeasureCounterLookahead cursor must equal the profile u8 value"
+        );
+        let mi_idx = super::MINI_INDICATOR_VARIANTS
+            .iter()
+            .position(|&v| v == profile.mini_indicator)
+            .expect("mini_indicator must exist in variants for test profile");
+        let mi_row = row_map.get(RowId::MiniIndicator).expect("MiniIndicator row");
+        assert_eq!(
+            mi_row.selected_choice_index[P1], mi_idx,
+            "MiniIndicator cursor must match variants index"
         );
     }
 

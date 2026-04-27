@@ -215,6 +215,7 @@ const NOTE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    init: None,
 };
 const MINE_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -245,6 +246,7 @@ const MINE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    init: None,
 };
 const RECEPTOR_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -275,6 +277,7 @@ const RECEPTOR_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    init: None,
 };
 const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -308,6 +311,7 @@ const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
+    init: None,
 };
 
 const MUSIC_RATE: CustomBinding = CustomBinding {
@@ -327,6 +331,7 @@ const MUSIC_RATE: CustomBinding = CustomBinding {
         crate::engine::audio::set_music_rate(state.music_rate);
         Outcome::persisted()
     },
+    init: None,
 };
 
 const SPEED_MOD: CustomBinding = CustomBinding {
@@ -345,6 +350,7 @@ const SPEED_MOD: CustomBinding = CustomBinding {
         sync_profile_scroll_speed(&mut state.player_profiles[player_idx], &speed_mod);
         Outcome::persisted()
     },
+    init: None,
 };
 
 const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
@@ -393,6 +399,7 @@ const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
         sync_profile_scroll_speed(&mut state.player_profiles[player_idx], &speed_mod);
         Outcome::persisted()
     },
+    init: None,
 };
 
 const MINI: NumericBinding = NumericBinding {
@@ -485,6 +492,7 @@ const STEPCHART: CustomBinding = CustomBinding {
         }
         Outcome::persisted()
     },
+    init: None,
 };
 
 pub(super) fn build_main_rows(

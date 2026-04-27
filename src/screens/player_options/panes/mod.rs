@@ -11,6 +11,7 @@ use uncommon::*;
 /// handled by the dispatcher via `Row::mirror_across_players`, not here.
 pub(super) const WHAT_COMES_NEXT: CustomBinding = CustomBinding {
     apply: apply_what_comes_next_cycle,
+    init: None,
 };
 
 fn apply_what_comes_next_cycle(
@@ -124,6 +125,7 @@ pub(super) fn apply_profile_defaults(
     init_opted_in_bitmask_rows(row_map, profile, masks, player_idx);
     init_opted_in_cycle_rows(row_map, profile, player_idx);
     init_opted_in_numeric_rows(row_map, profile, player_idx);
+    init_opted_in_custom_rows(row_map, profile, player_idx);
     apply_derived_masks(profile, masks);
 
     let match_ns_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
@@ -164,13 +166,6 @@ pub(super) fn apply_profile_defaults(
             match_ns_label.as_ref(),
             Some(no_tap_label.as_ref()),
         );
-    }
-    if let Some(row) = row_map.get_mut(RowId::MiniIndicator) {
-        row.selected_choice_index[player_idx] = MINI_INDICATOR_VARIANTS
-            .iter()
-            .position(|&v| v == profile.mini_indicator)
-            .unwrap_or(0)
-            .min(row.choices.len().saturating_sub(1));
     }
 }
 
@@ -236,6 +231,27 @@ fn init_opted_in_numeric_rows(
         }
         let row = row_map.get_mut(id).expect("row was just observed");
         super::row::init_numeric_row_from_binding(row, &binding, profile, player_idx);
+    }
+}
+
+fn init_opted_in_custom_rows(
+    row_map: &mut RowMap,
+    profile: &crate::game::profile::Profile,
+    player_idx: usize,
+) {
+    let ids: Vec<RowId> = row_map.display_order().to_vec();
+    for id in ids {
+        let Some(row) = row_map.get(id) else {
+            continue;
+        };
+        let RowBehavior::Custom(binding) = row.behavior else {
+            continue;
+        };
+        if binding.init.is_none() {
+            continue;
+        }
+        let row = row_map.get_mut(id).expect("row was just observed");
+        super::row::init_custom_row_from_binding(row, &binding, profile, player_idx);
     }
 }
 
