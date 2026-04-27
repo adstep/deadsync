@@ -1501,6 +1501,10 @@ pub(super) mod tests {
         p.mini_percent = 75;
         p.judgment_graphic = profile::JudgmentGraphic::new("Wendy");
         p.hold_judgment_graphic = profile::HoldJudgmentGraphic::new("ITG2");
+        // The mine/receptor values stay `None` (their cursor must land on the
+        // "match noteskin" label) and tap_explosion is set to the explicit
+        // "none" sentinel (cursor must land on the "no tap explosion" label).
+        p.tap_explosion_noteskin = Some(profile::NoteSkin::none_choice());
 
         let profile = state.player_profiles[P1].clone();
         let noteskin_names = super::discover_noteskin_names();
@@ -1565,6 +1569,60 @@ pub(super) mod tests {
         assert_eq!(
             hj_row.selected_choice_index[P1], hj_idx,
             "HoldJudgment cursor must match asset-table index"
+        );
+
+        // NoteSkin (Main): cursor lands on profile.noteskin (case-insensitive)
+        // or DEFAULT_NAME as fallback.
+        let ns_row = row_map.get(RowId::NoteSkin).expect("NoteSkin row");
+        let expected_ns_idx = ns_row
+            .choices
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case(profile.noteskin.as_str()))
+            .or_else(|| {
+                ns_row
+                    .choices
+                    .iter()
+                    .position(|c| c.eq_ignore_ascii_case(profile::NoteSkin::DEFAULT_NAME))
+            })
+            .expect("NoteSkin row must contain profile noteskin or default");
+        assert_eq!(
+            ns_row.selected_choice_index[P1],
+            expected_ns_idx,
+            "NoteSkin cursor must match profile noteskin (or default fallback)"
+        );
+
+        // MineSkin / ReceptorSkin: profile value is `None`, so cursor must land
+        // on the translated "match noteskin" label.
+        let match_label = crate::assets::i18n::tr("PlayerOptions", super::MATCH_NOTESKIN_LABEL);
+        for row_id in [RowId::MineSkin, RowId::ReceptorSkin] {
+            let row = row_map.get(row_id).expect("noteskin-family row");
+            let expected = row
+                .choices
+                .iter()
+                .position(|c| c.as_str() == match_label.as_ref())
+                .expect("noteskin-family row must contain match-noteskin label");
+            assert_eq!(
+                row.selected_choice_index[P1],
+                expected,
+                "{row_id:?} cursor must point at the match-noteskin label when profile value is None",
+            );
+        }
+
+        // TapExplosionSkin: profile holds the explicit "none" sentinel, so the
+        // cursor must land on the translated "no tap explosion" label.
+        let no_tap_label =
+            crate::assets::i18n::tr("PlayerOptions", super::NO_TAP_EXPLOSION_LABEL);
+        let te_row = row_map
+            .get(RowId::TapExplosionSkin)
+            .expect("TapExplosionSkin row");
+        let expected_te = te_row
+            .choices
+            .iter()
+            .position(|c| c.as_str() == no_tap_label.as_ref())
+            .expect("TapExplosionSkin row must contain no-tap-explosion label");
+        assert_eq!(
+            te_row.selected_choice_index[P1], expected_te,
+            "TapExplosionSkin cursor must point at the no-tap-explosion label",
         );
     }
 

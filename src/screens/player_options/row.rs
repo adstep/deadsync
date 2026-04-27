@@ -1,6 +1,6 @@
 use super::state::PlayerOptionMasks;
 use super::*;
-use crate::game::profile::{PlayerSide, Profile};
+use crate::game::profile::{NoteSkin, PlayerSide, Profile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
@@ -337,19 +337,50 @@ pub fn init_numeric_row_from_binding(
 #[derive(Clone, Copy, Debug)]
 pub struct CustomBinding {
     pub apply: fn(&mut State, usize, RowId, isize, NavWrap) -> Outcome,
-    /// Opt-in init contract. Currently only the `CycleInit` shape is used
-    /// (cursor index is computed from the profile and clamped to
-    /// `Row::choices.len() - 1`). When `Some`, a row's initial cursor is
-    /// derived directly from a `Profile` via
-    /// `init_custom_row_from_binding`. `None` means the row's selection is
-    /// initialized elsewhere (today: a hand-written block in
-    /// `apply_profile_defaults` for the NoteSkin family).
-    pub init: Option<CycleInit>,
+    /// Opt-in init contract. When `Some`, a row's initial cursor is derived
+    /// directly from a `Profile` via `init_custom_row_from_binding`. `None`
+    /// means the row's selection is initialized elsewhere (today: a
+    /// hand-written block in `apply_profile_defaults`).
+    pub init: Option<CustomInit>,
 }
 
-/// Apply a `CustomBinding`'s init contract to a row. Mirrors
-/// `init_cycle_row_from_binding` but operates on a `CustomBinding` directly so
-/// the caller does not have to fish a `ChoiceBinding<T>` out of nowhere.
+/// Init contract variants supported by `CustomBinding`. Each variant
+/// represents a distinct cursor-placement policy that the dispatcher knows
+/// how to apply.
+#[derive(Clone, Copy, Debug)]
+pub enum CustomInit {
+    /// Same semantics as `CycleInit`: cursor lands on
+    /// `from_profile(p).min(choices.len() - 1)`.
+    Cycle(CycleInit),
+    /// Cursor placement for noteskin-family rows: `Row::choices` is
+    /// runtime-discovered and the lookup needs translated labels for
+    /// "use noteskin's mine" and (optionally) "no tap explosion".
+    NoteSkin(NoteSkinInit),
+}
+
+/// Init contract for a noteskin-family row. Two shapes:
+///
+/// - `Main` covers `RowId::NoteSkin`: a plain string lookup (case-insensitive)
+///   with a fallback to the choice matching `NoteSkin::DEFAULT_NAME`.
+/// - `Optional` covers `MineSkin` / `ReceptorSkin` / `TapExplosionSkin`: the
+///   profile field is `Option<NoteSkin>`, and the lookup needs translated
+///   "match" / "none" labels (resolved at init time via `tr`).
+#[derive(Clone, Copy, Debug)]
+pub enum NoteSkinInit {
+    Main {
+        from_profile: fn(&Profile) -> &str,
+    },
+    Optional {
+        from_profile: fn(&Profile) -> Option<&NoteSkin>,
+        match_label_key: &'static str,
+        none_label_key: Option<&'static str>,
+    },
+}
+
+/// Apply a `CustomBinding`'s init contract to a row. Dispatches on the
+/// `CustomInit` variant: `Cycle` uses the same cursor-clamp semantics as
+/// `init_cycle_row_from_binding`; `NoteSkin` resolves translated labels
+/// from `i18n` and matches against `Row::choices`.
 pub fn init_custom_row_from_binding(
     row: &mut Row,
     binding: &CustomBinding,
@@ -359,9 +390,64 @@ pub fn init_custom_row_from_binding(
     let Some(init) = binding.init.as_ref() else {
         return false;
     };
-    let max = row.choices.len().saturating_sub(1);
-    row.selected_choice_index[player_idx] = (init.from_profile)(profile).min(max);
+    match init {
+        CustomInit::Cycle(cycle) => {
+            let max = row.choices.len().saturating_sub(1);
+            row.selected_choice_index[player_idx] = (cycle.from_profile)(profile).min(max);
+        }
+        CustomInit::NoteSkin(noteskin) => {
+            row.selected_choice_index[player_idx] =
+                noteskin_init_cursor_index(noteskin, profile, &row.choices);
+        }
+    }
     true
+}
+
+fn noteskin_init_cursor_index(
+    init: &NoteSkinInit,
+    profile: &Profile,
+    choices: &[String],
+) -> usize {
+    match init {
+        NoteSkinInit::Main { from_profile } => {
+            let value = (from_profile)(profile);
+            choices
+                .iter()
+                .position(|c| c.eq_ignore_ascii_case(value))
+                .or_else(|| {
+                    choices
+                        .iter()
+                        .position(|c| c.eq_ignore_ascii_case(NoteSkin::DEFAULT_NAME))
+                })
+                .unwrap_or(0)
+        }
+        NoteSkinInit::Optional {
+            from_profile,
+            match_label_key,
+            none_label_key,
+        } => {
+            let match_label = crate::assets::i18n::tr("PlayerOptions", match_label_key);
+            let none_label =
+                none_label_key.map(|k| crate::assets::i18n::tr("PlayerOptions", k));
+            let position_eq = |label: &str| choices.iter().position(|c| c.as_str() == label);
+            let value = (from_profile)(profile);
+            match value {
+                None => position_eq(match_label.as_ref()).unwrap_or(0),
+                Some(skin) => {
+                    if let Some(none_label) = none_label.as_ref() {
+                        if skin.is_none_choice() {
+                            return position_eq(none_label.as_ref()).unwrap_or(0);
+                        }
+                    }
+                    choices
+                        .iter()
+                        .position(|c| c.eq_ignore_ascii_case(skin.as_str()))
+                        .or_else(|| position_eq(match_label.as_ref()))
+                        .unwrap_or(0)
+                }
+            }
+        }
+    }
 }
 
 /// What kind of row this is, and any state owned by the row's behaviour.

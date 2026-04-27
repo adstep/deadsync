@@ -215,7 +215,9 @@ const NOTE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
-    init: None,
+    init: Some(CustomInit::NoteSkin(NoteSkinInit::Main {
+        from_profile: |p| p.noteskin.as_str(),
+    })),
 };
 const MINE_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -246,7 +248,11 @@ const MINE_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
-    init: None,
+    init: Some(CustomInit::NoteSkin(NoteSkinInit::Optional {
+        from_profile: |p| p.mine_noteskin.as_ref(),
+        match_label_key: MATCH_NOTESKIN_LABEL,
+        none_label_key: None,
+    })),
 };
 const RECEPTOR_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -277,7 +283,11 @@ const RECEPTOR_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
-    init: None,
+    init: Some(CustomInit::NoteSkin(NoteSkinInit::Optional {
+        from_profile: |p| p.receptor_noteskin.as_ref(),
+        match_label_key: MATCH_NOTESKIN_LABEL,
+        none_label_key: None,
+    })),
 };
 const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
     apply: |state, player_idx, row_id, delta, wrap| {
@@ -311,7 +321,11 @@ const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
             },
         )
     },
-    init: None,
+    init: Some(CustomInit::NoteSkin(NoteSkinInit::Optional {
+        from_profile: |p| p.tap_explosion_noteskin.as_ref(),
+        match_label_key: MATCH_NOTESKIN_LABEL,
+        none_label_key: Some(NO_TAP_EXPLOSION_LABEL),
+    })),
 };
 
 const MUSIC_RATE: CustomBinding = CustomBinding {

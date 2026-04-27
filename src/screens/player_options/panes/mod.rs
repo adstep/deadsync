@@ -86,30 +86,6 @@ pub(super) fn build_rows(
     }
 }
 
-fn find_noteskin_choice_index(
-    profile_value: Option<&crate::game::profile::NoteSkin>,
-    choices: &[String],
-    match_label: &str,
-    none_label: Option<&str>,
-) -> usize {
-    let position_eq = |label: &str| choices.iter().position(|c| c.as_str() == label);
-    match profile_value {
-        None => position_eq(match_label).unwrap_or(0),
-        Some(skin) => {
-            if let Some(none_label) = none_label {
-                if skin.is_none_choice() {
-                    return position_eq(none_label).unwrap_or(0);
-                }
-            }
-            choices
-                .iter()
-                .position(|c| c.eq_ignore_ascii_case(skin.as_str()))
-                .or_else(|| position_eq(match_label))
-                .unwrap_or(0)
-        }
-    }
-}
-
 /// Initialize per-row cursor positions from `profile` and accumulate any
 /// bitmask state into `masks`. Production calls this once per (pane, player)
 /// pair, passing the same `&mut PlayerOptionMasks` for both pane calls of a
@@ -127,46 +103,6 @@ pub(super) fn apply_profile_defaults(
     init_opted_in_numeric_rows(row_map, profile, player_idx);
     init_opted_in_custom_rows(row_map, profile, player_idx);
     apply_derived_masks(profile, masks);
-
-    let match_ns_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
-    let no_tap_label = tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL);
-    // Initialize NoteSkin row from profile setting
-    if let Some(row) = row_map.get_mut(RowId::NoteSkin) {
-        row.selected_choice_index[player_idx] = row
-            .choices
-            .iter()
-            .position(|c| c.eq_ignore_ascii_case(profile.noteskin.as_str()))
-            .or_else(|| {
-                row.choices.iter().position(|c| {
-                    c.eq_ignore_ascii_case(crate::game::profile::NoteSkin::DEFAULT_NAME)
-                })
-            })
-            .unwrap_or(0);
-    }
-    if let Some(row) = row_map.get_mut(RowId::MineSkin) {
-        row.selected_choice_index[player_idx] = find_noteskin_choice_index(
-            profile.mine_noteskin.as_ref(),
-            &row.choices,
-            match_ns_label.as_ref(),
-            None,
-        );
-    }
-    if let Some(row) = row_map.get_mut(RowId::ReceptorSkin) {
-        row.selected_choice_index[player_idx] = find_noteskin_choice_index(
-            profile.receptor_noteskin.as_ref(),
-            &row.choices,
-            match_ns_label.as_ref(),
-            None,
-        );
-    }
-    if let Some(row) = row_map.get_mut(RowId::TapExplosionSkin) {
-        row.selected_choice_index[player_idx] = find_noteskin_choice_index(
-            profile.tap_explosion_noteskin.as_ref(),
-            &row.choices,
-            match_ns_label.as_ref(),
-            Some(no_tap_label.as_ref()),
-        );
-    }
 }
 
 fn init_opted_in_bitmask_rows(

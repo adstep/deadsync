@@ -1,6 +1,6 @@
 use super::super::constants::MINI_INDICATOR_VARIANTS;
 use super::super::row::index_binding;
-use super::super::row::{BitmaskInit, CursorInit, CycleInit, NumericInit};
+use super::super::row::{BitmaskInit, CursorInit, CustomInit, CycleInit, NumericInit};
 use super::*;
 use crate::game::profile as gp;
 
@@ -634,14 +634,14 @@ const MINI_INDICATOR: CustomBinding = CustomBinding {
         }
         Outcome::persisted_with_visibility()
     },
-    init: Some(CycleInit {
+    init: Some(CustomInit::Cycle(CycleInit {
         from_profile: |p| {
             MINI_INDICATOR_VARIANTS
                 .iter()
                 .position(|&v| v == p.mini_indicator)
                 .unwrap_or(0)
         },
-    }),
+    })),
 };
 
 /// Computes the `tilt_multiplier` value for a given choice index. Used by
