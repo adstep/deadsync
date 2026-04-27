@@ -356,18 +356,6 @@ pub(in crate::screens::options) const DISPLAY_ASPECT_RATIO_CHOICES: &[Choice] = 
     literal_choice("1:1"),
 ];
 
-pub(in crate::screens::options) const VIDEO_RENDERER_ROW_INDEX: usize = 0;
-pub(in crate::screens::options) const SOFTWARE_THREADS_ROW_INDEX: usize = 1;
-pub(in crate::screens::options) const DISPLAY_MODE_ROW_INDEX: usize = 2;
-pub(in crate::screens::options) const DISPLAY_ASPECT_RATIO_ROW_INDEX: usize = 3;
-pub(in crate::screens::options) const DISPLAY_RESOLUTION_ROW_INDEX: usize = 4;
-pub(in crate::screens::options) const REFRESH_RATE_ROW_INDEX: usize = 5;
-pub(in crate::screens::options) const FULLSCREEN_TYPE_ROW_INDEX: usize = 6;
-pub(in crate::screens::options) const VSYNC_ROW_INDEX: usize = 7;
-pub(in crate::screens::options) const PRESENT_MODE_ROW_INDEX: usize = 8;
-pub(in crate::screens::options) const MAX_FPS_ENABLED_ROW_INDEX: usize = 9;
-pub(in crate::screens::options) const MAX_FPS_VALUE_ROW_INDEX: usize = 10;
-
 pub(in crate::screens::options) const MAX_FPS_MIN: u16 = 5;
 pub(in crate::screens::options) const MAX_FPS_MAX: u16 = 1000;
 pub(in crate::screens::options) const MAX_FPS_STEP: u16 = 5;
@@ -411,11 +399,11 @@ pub(in crate::screens::options) fn renderer_choice_index_to_backend(idx: usize) 
 }
 
 pub(in crate::screens::options) fn selected_video_renderer(state: &State) -> BackendType {
-    let choice_idx = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(VIDEO_RENDERER_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let choice_idx = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::VideoRenderer,
+    ).unwrap_or(0);
     renderer_choice_index_to_backend(choice_idx)
 }
 
@@ -521,11 +509,11 @@ pub(in crate::screens::options) const fn present_mode_from_choice(idx: usize) ->
 }
 
 pub(in crate::screens::options) fn selected_present_mode_policy(state: &State) -> PresentModePolicy {
-    state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(PRESENT_MODE_ROW_INDEX)
-        .copied()
-        .map_or(state.present_mode_policy_at_load, present_mode_from_choice)
+    get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::PresentMode,
+    ).map_or(state.present_mode_policy_at_load, present_mode_from_choice)
 }
 
 pub(in crate::screens::options) fn selected_high_dpi(state: &State) -> bool {
@@ -539,16 +527,18 @@ pub(in crate::screens::options) fn selected_high_dpi(state: &State) -> bool {
 #[inline(always)]
 pub(in crate::screens::options) fn set_max_fps_enabled_choice(state: &mut State, enabled: bool) {
     let idx = yes_no_choice_index(enabled);
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(MAX_FPS_ENABLED_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFps,
+    ) {
         *slot = idx;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(MAX_FPS_ENABLED_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFps,
+    ) {
         *slot = idx;
     }
 }
@@ -557,16 +547,18 @@ pub(in crate::screens::options) fn set_max_fps_enabled_choice(state: &mut State,
 pub(in crate::screens::options) fn set_max_fps_value_choice_index(state: &mut State, idx: usize) {
     let max_idx = state.max_fps_choices.len().saturating_sub(1);
     let clamped = idx.min(max_idx);
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(MAX_FPS_VALUE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFpsValue,
+    ) {
         *slot = clamped;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(MAX_FPS_VALUE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFpsValue,
+    ) {
         *slot = clamped;
     }
 }
@@ -578,11 +570,11 @@ pub(in crate::screens::options) fn graphics_show_software_threads(state: &State)
 
 #[inline(always)]
 pub(in crate::screens::options) fn graphics_show_present_mode(state: &State) -> bool {
-    state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(VSYNC_ROW_INDEX)
-        .copied()
-        .is_some_and(|idx| !yes_no_from_choice(idx))
+    get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::VSync,
+    ).is_some_and(|idx| !yes_no_from_choice(idx))
 }
 
 #[inline(always)]
@@ -592,11 +584,11 @@ pub(in crate::screens::options) fn graphics_show_max_fps(state: &State) -> bool 
 
 #[inline(always)]
 pub(in crate::screens::options) fn max_fps_enabled(state: &State) -> bool {
-    state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(MAX_FPS_ENABLED_ROW_INDEX)
-        .copied()
-        .is_some_and(yes_no_from_choice)
+    get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFps,
+    ).is_some_and(yes_no_from_choice)
 }
 
 #[inline(always)]
@@ -624,19 +616,19 @@ pub(in crate::screens::options) const fn choice_index_to_fullscreen_type(idx: us
 }
 
 pub(in crate::screens::options) fn selected_fullscreen_type(state: &State) -> FullscreenType {
-    state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(FULLSCREEN_TYPE_ROW_INDEX)
-        .copied()
-        .map_or(FullscreenType::Exclusive, choice_index_to_fullscreen_type)
+    get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::FullscreenType,
+    ).map_or(FullscreenType::Exclusive, choice_index_to_fullscreen_type)
 }
 
 pub(in crate::screens::options) fn selected_display_mode(state: &State) -> DisplayMode {
-    let display_choice = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(DISPLAY_MODE_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let display_choice = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ).unwrap_or(0);
     let windowed_idx = state.display_mode_choices.len().saturating_sub(1);
     if windowed_idx == 0 || display_choice >= windowed_idx {
         DisplayMode::Windowed
@@ -646,11 +638,11 @@ pub(in crate::screens::options) fn selected_display_mode(state: &State) -> Displ
 }
 
 pub(in crate::screens::options) fn selected_display_monitor(state: &State) -> usize {
-    let display_choice = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(DISPLAY_MODE_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let display_choice = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ).unwrap_or(0);
     let windowed_idx = state.display_mode_choices.len().saturating_sub(1);
     if windowed_idx == 0 || display_choice >= windowed_idx {
         0
@@ -660,11 +652,11 @@ pub(in crate::screens::options) fn selected_display_monitor(state: &State) -> us
 }
 
 pub(in crate::screens::options) fn selected_refresh_rate_millihertz(state: &State) -> u32 {
-    let idx = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(REFRESH_RATE_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let idx = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::RefreshRate,
+    ).unwrap_or(0);
     state.refresh_rate_choices.get(idx).copied().unwrap_or(0)
 }
 
@@ -713,31 +705,34 @@ pub(in crate::screens::options) fn selected_max_fps(state: &State) -> u16 {
     if !max_fps_enabled(state) {
         return 0;
     }
-    let idx = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(MAX_FPS_VALUE_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let idx = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::MaxFpsValue,
+    ).unwrap_or(0);
     max_fps_from_choice(&state.max_fps_choices, idx)
 }
 
 pub(in crate::screens::options) fn ensure_display_mode_choices(state: &mut State) {
     state.display_mode_choices = build_display_mode_choices(&state.monitor_specs);
     // If current selection is out of bounds, reset it.
-    if let Some(idx) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(DISPLAY_MODE_ROW_INDEX)
-        && *idx >= state.display_mode_choices.len()
+    if let Some(idx) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ) && *idx >= state.display_mode_choices.len()
     {
         *idx = 0;
     }
-    if let Some(choice_idx) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(DISPLAY_MODE_ROW_INDEX)
-        .copied()
-        && let Some(cursor_idx) = state
-            .sub[SubmenuKind::Graphics].cursor_indices
-            .get_mut(DISPLAY_MODE_ROW_INDEX)
+    if let Some(choice_idx) = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ) && let Some(cursor_idx) = get_choice_by_id_mut(
+            &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+            GRAPHICS_OPTIONS_ROWS,
+            SubRowId::DisplayMode,
+        )
     {
         *cursor_idx = choice_idx;
     }
@@ -782,16 +777,18 @@ pub(in crate::screens::options) fn set_display_mode_row_selection(
             }
         }
     };
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(DISPLAY_MODE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ) {
         *slot = idx;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(DISPLAY_MODE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayMode,
+    ) {
         *slot = idx;
     }
     // Re-trigger resolution rebuild based on the potentially new monitor selection.
@@ -800,11 +797,11 @@ pub(in crate::screens::options) fn set_display_mode_row_selection(
 }
 
 pub(in crate::screens::options) fn selected_aspect_label(state: &State) -> &'static str {
-    let idx = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(DISPLAY_ASPECT_RATIO_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let idx = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayAspectRatio,
+    ).unwrap_or(0);
     DISPLAY_ASPECT_RATIO_CHOICES
         .get(idx)
         .or(Some(&DISPLAY_ASPECT_RATIO_CHOICES[0]))
@@ -849,16 +846,18 @@ pub(in crate::screens::options) fn inferred_aspect_choice(width: u32, height: u3
 
 pub(in crate::screens::options) fn sync_display_aspect_ratio(state: &mut State, width: u32, height: u32) {
     let idx = inferred_aspect_choice(width, height);
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(DISPLAY_ASPECT_RATIO_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayAspectRatio,
+    ) {
         *slot = idx;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(DISPLAY_ASPECT_RATIO_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayAspectRatio,
+    ) {
         *slot = idx;
     }
 }
@@ -897,11 +896,11 @@ pub(in crate::screens::options) fn aspect_matches(width: u32, height: u32, label
 }
 
 pub(in crate::screens::options) fn selected_resolution(state: &State) -> (u32, u32) {
-    let idx = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(DISPLAY_RESOLUTION_ROW_INDEX)
-        .copied()
-        .unwrap_or(0);
+    let idx = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayResolution,
+    ).unwrap_or(0);
     state
         .resolution_choices
         .get(idx)
@@ -913,16 +912,18 @@ pub(in crate::screens::options) fn selected_resolution(state: &State) -> (u32, u
 pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut State) {
     if matches!(selected_display_mode(state), DisplayMode::Windowed) {
         state.refresh_rate_choices = vec![0];
-        if let Some(slot) = state
-            .sub[SubmenuKind::Graphics].choice_indices
-            .get_mut(REFRESH_RATE_ROW_INDEX)
-        {
+        if let Some(slot) = get_choice_by_id_mut(
+            &mut state.sub[SubmenuKind::Graphics].choice_indices,
+            GRAPHICS_OPTIONS_ROWS,
+            SubRowId::RefreshRate,
+        ) {
             *slot = 0;
         }
-        if let Some(slot) = state
-            .sub[SubmenuKind::Graphics].cursor_indices
-            .get_mut(REFRESH_RATE_ROW_INDEX)
-        {
+        if let Some(slot) = get_choice_by_id_mut(
+            &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+            GRAPHICS_OPTIONS_ROWS,
+            SubRowId::RefreshRate,
+        ) {
             *slot = 0;
         }
         return;
@@ -945,11 +946,12 @@ pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut Stat
     }
 
     // Preserve current selection if possible, else default to "Default".
-    let current_rate = if let Some(idx) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get(REFRESH_RATE_ROW_INDEX)
-    {
-        state.refresh_rate_choices.get(*idx).copied().unwrap_or(0)
+    let current_rate = if let Some(idx) = get_choice_by_id(
+        &state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::RefreshRate,
+    ) {
+        state.refresh_rate_choices.get(idx).copied().unwrap_or(0)
     } else {
         0
     };
@@ -961,16 +963,18 @@ pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut Stat
         .iter()
         .position(|&r| r == current_rate)
         .unwrap_or(0);
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(REFRESH_RATE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::RefreshRate,
+    ) {
         *slot = next_idx;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(REFRESH_RATE_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::RefreshRate,
+    ) {
         *slot = next_idx;
     }
     if state.max_fps_at_load == 0 && !max_fps_enabled(state) {
@@ -1007,16 +1011,18 @@ pub(in crate::screens::options) fn rebuild_resolution_choices(state: &mut State,
         .iter()
         .position(|&(w, h)| w == width && h == height)
         .unwrap_or(0);
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].choice_indices
-        .get_mut(DISPLAY_RESOLUTION_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].choice_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayResolution,
+    ) {
         *slot = next_idx;
     }
-    if let Some(slot) = state
-        .sub[SubmenuKind::Graphics].cursor_indices
-        .get_mut(DISPLAY_RESOLUTION_ROW_INDEX)
-    {
+    if let Some(slot) = get_choice_by_id_mut(
+        &mut state.sub[SubmenuKind::Graphics].cursor_indices,
+        GRAPHICS_OPTIONS_ROWS,
+        SubRowId::DisplayResolution,
+    ) {
         *slot = next_idx;
     }
 
