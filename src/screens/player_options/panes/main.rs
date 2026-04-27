@@ -627,6 +627,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: Some(type_of_speed_mod_display_value),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -642,6 +643,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: Some(speed_mod_display_value),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -657,6 +659,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -674,6 +677,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -695,6 +699,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -714,6 +719,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -729,6 +735,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -744,6 +751,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -759,6 +767,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -777,6 +786,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -792,6 +802,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -807,6 +818,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -832,6 +844,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -847,6 +860,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboOffsets),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -862,6 +876,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboOffsets),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -880,6 +895,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -897,6 +913,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -912,6 +929,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -927,6 +945,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -942,6 +961,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -957,6 +977,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::GlobalOffsetShift),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -972,6 +993,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: Some(music_rate_display_name),
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -987,6 +1009,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: Some(stepchart_choice_indices),
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1002,6 +1025,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -1014,6 +1038,7 @@ pub(super) fn build_main_rows(
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.finish()

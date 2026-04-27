@@ -618,6 +618,27 @@ pub struct Row {
     /// may contain `\n` to render two stacked lines (the renderer splits on
     /// the literal newline).
     pub dynamic_title: Option<fn(&State) -> String>,
+    /// When `Some`, layout/render derive the row's value-column display text
+    /// from `(f)(row, state, player_idx)` instead of indexing
+    /// `row.choices[selected_choice_index[player_idx]]`. Used by rows whose
+    /// displayed value lives on `State` rather than the row's own selection
+    /// (e.g. `SpeedMod`, `TypeOfSpeedMod`).
+    pub display_text: Option<fn(&Row, &State, usize) -> String>,
+}
+
+impl Row {
+    /// Resolve the row's value-column display text for the given player slot.
+    /// Falls back to `choices[selected_choice_index[idx]]` when no
+    /// `display_text` override is set.
+    #[inline]
+    pub fn display_value(&self, state: &State, player_idx: usize) -> String {
+        if let Some(f) = self.display_text {
+            return f(self, state, player_idx);
+        }
+        let idx = self.selected_choice_index[player_idx]
+            .min(self.choices.len().saturating_sub(1));
+        self.choices.get(idx).cloned().unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug)]

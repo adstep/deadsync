@@ -736,6 +736,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -754,6 +755,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -774,6 +776,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -790,6 +793,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::LifebarRows),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -806,6 +810,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::LifebarRows),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -822,6 +827,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -837,6 +843,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::DensityGraphBackground),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -864,6 +871,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -880,6 +888,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -900,6 +909,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -916,6 +926,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::IndicatorScoreType),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -928,6 +939,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -946,6 +958,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -961,6 +974,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -976,6 +990,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -991,6 +1006,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1003,6 +1019,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::JudgmentTiltIntensity),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1018,6 +1035,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1033,6 +1051,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1051,6 +1070,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1068,6 +1088,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1083,6 +1104,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1095,6 +1117,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1107,6 +1130,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1126,6 +1150,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1144,6 +1169,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1162,6 +1188,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1179,6 +1206,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1194,6 +1222,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1213,6 +1242,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1225,6 +1255,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1242,6 +1273,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1261,6 +1293,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1276,6 +1309,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1288,6 +1322,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::CustomFantasticWindowMs),
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1300,6 +1335,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -1312,6 +1348,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.finish()
@@ -1347,6 +1384,7 @@ mod bitmask_binding_init_tests {
             choice_difficulty_indices: None,
             visibility_group: None,
             dynamic_title: None,
+            display_text: None,
             mirror_across_players: false,
         }
     }

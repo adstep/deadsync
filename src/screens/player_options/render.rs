@@ -900,13 +900,6 @@ fn draw_value_text(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usi
     } else if primary_player_idx == P2 {
         choice_center_x = screen_center_x().mul_add(2.0, -choice_center_x);
     }
-    let choice_text_idx = rc.row.selected_choice_index[primary_player_idx]
-        .min(rc.row.choices.len().saturating_sub(1));
-    let choice_text = rc
-        .row
-        .choices
-        .get(choice_text_idx)
-        .unwrap_or_else(|| rc.row.choices.first().expect("OptionRow must have choices"));
     let choice_color = if rc.is_active {
         [1.0, 1.0, 1.0, rc.a]
     } else {
@@ -917,10 +910,8 @@ fn draw_value_text(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usi
             let choice_display_text =
                 if arcade_row_focuses_next_row(rc.fc.state, primary_player_idx, rc.item_idx) {
                     ARCADE_NEXT_ROW_TEXT.to_string()
-                } else if rc.row.id == RowId::SpeedMod {
-                    rc.fc.state.speed_mod[primary_player_idx].display()
                 } else {
-                    choice_text.clone()
+                    rc.row.display_value(rc.fc.state, primary_player_idx)
                 };
             let mut text_w = crate::engine::present::font::measure_line_width_logical(
                 metrics_font,
@@ -999,15 +990,8 @@ fn draw_value_text(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usi
             let p2_text = if rc.fc.show_p2 && rc.row.id != RowId::MusicRate {
                 if arcade_row_focuses_next_row(rc.fc.state, P2, rc.item_idx) {
                     ARCADE_NEXT_ROW_TEXT.to_string()
-                } else if rc.row.id == RowId::SpeedMod {
-                    rc.fc.state.speed_mod[P2].display()
-                } else if rc.row.id == RowId::TypeOfSpeedMod {
-                    let idx = rc.fc.state.speed_mod[P2].mod_type.choice_index();
-                    rc.row.choices.get(idx).cloned().unwrap_or_default()
                 } else {
-                    let idx = rc.row.selected_choice_index[P2]
-                        .min(rc.row.choices.len().saturating_sub(1));
-                    rc.row.choices.get(idx).cloned().unwrap_or_default()
+                    rc.row.display_value(rc.fc.state, P2)
                 }
             } else {
                 String::new()

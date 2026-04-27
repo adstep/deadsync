@@ -195,6 +195,24 @@ pub(super) fn music_rate_display_name(state: &State) -> String {
     tr_fmt("PlayerOptions", "MusicRate", &[("bpm", &bpm_str)]).replace("\\n", "\n")
 }
 
+/// Display text for the `SpeedMod` row's value column. Mirrors what was
+/// previously inlined in render/layout.
+pub(super) fn speed_mod_display_value(_row: &Row, state: &State, player_idx: usize) -> String {
+    state.speed_mod[player_idx].display()
+}
+
+/// Display text for the `TypeOfSpeedMod` row's value column. Looks up the
+/// label by the live `SpeedMod::mod_type` choice index, not the row's
+/// `selected_choice_index` (which may lag during inline navigation).
+pub(super) fn type_of_speed_mod_display_value(
+    row: &Row,
+    state: &State,
+    player_idx: usize,
+) -> String {
+    let idx = state.speed_mod[player_idx].mod_type.choice_index();
+    row.choices.get(idx).cloned().unwrap_or_default()
+}
+
 #[inline(always)]
 pub(super) fn display_bpm_pair_for_options(
     song: &SongData,

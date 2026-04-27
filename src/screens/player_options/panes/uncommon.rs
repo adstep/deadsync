@@ -154,6 +154,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -175,6 +176,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -193,6 +195,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -211,6 +214,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -234,6 +238,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -252,6 +257,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -268,6 +274,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -285,6 +292,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -300,6 +308,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -312,6 +321,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         choice_difficulty_indices: None,
         visibility_group: None,
         dynamic_title: None,
+        display_text: None,
         mirror_across_players: false,
     });
     b.finish()

@@ -379,14 +379,8 @@ pub(super) fn cursor_dest_for_player(
 
     let display_text = if arcade_row_focuses_next_row(state, player_idx, row_idx) {
         ARCADE_NEXT_ROW_TEXT.to_string()
-    } else if row.id == RowId::SpeedMod {
-        state.speed_mod[player_idx].display()
-    } else if row.id == RowId::TypeOfSpeedMod {
-        let idx = state.speed_mod[player_idx].mod_type.choice_index();
-        row.choices.get(idx).cloned().unwrap_or_default()
     } else {
-        let idx = row.selected_choice_index[player_idx].min(row.choices.len().saturating_sub(1));
-        row.choices.get(idx).cloned().unwrap_or_default()
+        row.display_value(state, player_idx)
     };
 
     let (draw_w, draw_h) = measure_option_text(asset_manager, &display_text, value_zoom);
