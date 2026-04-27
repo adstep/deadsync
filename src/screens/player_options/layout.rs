@@ -154,17 +154,7 @@ pub(super) fn init_row_tweens(
     let w = compute_row_window(visible_rows, selected_visible, active);
     let mid_pos = (VISIBLE_ROWS as f32) * 0.5 - 0.5;
     let bottom_pos = (VISIBLE_ROWS as f32) - 0.5;
-    let measure_counter_anchor_visible_idx =
-        parent_anchor_visible_index(row_map, RowId::MeasureCounter, visibility);
-    let judgment_font_anchor_visible_idx =
-        parent_anchor_visible_index(row_map, RowId::JudgmentFont, visibility);
-    let judgment_tilt_anchor_visible_idx =
-        parent_anchor_visible_index(row_map, RowId::JudgmentTilt, visibility);
-    let combo_font_anchor_visible_idx =
-        parent_anchor_visible_index(row_map, RowId::ComboFont, visibility);
-    let error_bar_anchor_visible_idx =
-        parent_anchor_visible_index(row_map, RowId::ErrorBar, visibility);
-    let hide_anchor_visible_idx = parent_anchor_visible_index(row_map, RowId::Hide, visibility);
+    let anchor_cache = anchor_visible_index_cache(row_map, visibility);
 
     let mut out: Vec<RowTween> = Vec::with_capacity(total_rows);
     let mut visible_idx = 0i32;
@@ -179,15 +169,8 @@ pub(super) fn init_row_tweens(
                 .display_order()
                 .get(i)
                 .and_then(|&id| row_map.get(id))
-                .and_then(|row| match conditional_row_parent(row.id) {
-                    Some(RowId::MeasureCounter) => measure_counter_anchor_visible_idx,
-                    Some(RowId::JudgmentFont) => judgment_font_anchor_visible_idx,
-                    Some(RowId::JudgmentTilt) => judgment_tilt_anchor_visible_idx,
-                    Some(RowId::ComboFont) => combo_font_anchor_visible_idx,
-                    Some(RowId::ErrorBar) => error_bar_anchor_visible_idx,
-                    Some(RowId::Hide) => hide_anchor_visible_idx,
-                    _ => None,
-                });
+                .and_then(|row| row.visibility_group)
+                .and_then(|g| anchor_cache[g.index()]);
             if let Some(anchor_idx) = anchor {
                 let (anchor_f_pos, _) = f_pos_for_visible_idx(anchor_idx, w, mid_pos, bottom_pos);
                 (anchor_f_pos, true)

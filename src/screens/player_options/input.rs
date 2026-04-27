@@ -186,17 +186,7 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
             let w = compute_row_window(visible_rows, selected_visible, active);
             let mid_pos = (VISIBLE_ROWS as f32) * 0.5 - 0.5;
             let bottom_pos = (VISIBLE_ROWS as f32) - 0.5;
-            let measure_counter_anchor_visible_idx = parent_anchor_visible_index(
-                &state.pane().row_map,
-                RowId::MeasureCounter,
-                visibility,
-            );
-            let judgment_tilt_anchor_visible_idx =
-                parent_anchor_visible_index(&state.pane().row_map, RowId::JudgmentTilt, visibility);
-            let error_bar_anchor_visible_idx =
-                parent_anchor_visible_index(&state.pane().row_map, RowId::ErrorBar, visibility);
-            let hide_anchor_visible_idx =
-                parent_anchor_visible_index(&state.pane().row_map, RowId::Hide, visibility);
+            let anchor_cache = anchor_visible_index_cache(&state.pane().row_map, visibility);
             let mut visible_idx = 0i32;
             for i in 0..total_rows {
                 let visible = is_row_visible(&state.pane().row_map, i, visibility);
@@ -205,16 +195,12 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
                     visible_idx += 1;
                     f_pos_for_visible_idx(ii, w, mid_pos, bottom_pos)
                 } else {
-                    let anchor =
-                        state.pane().row_map.get_at(i).and_then(
-                            |row| match conditional_row_parent(row.id) {
-                                Some(RowId::MeasureCounter) => measure_counter_anchor_visible_idx,
-                                Some(RowId::JudgmentTilt) => judgment_tilt_anchor_visible_idx,
-                                Some(RowId::ErrorBar) => error_bar_anchor_visible_idx,
-                                Some(RowId::Hide) => hide_anchor_visible_idx,
-                                _ => None,
-                            },
-                        );
+                    let anchor = state
+                        .pane()
+                        .row_map
+                        .get_at(i)
+                        .and_then(|row| row.visibility_group)
+                        .and_then(|g| anchor_cache[g.index()]);
                     if let Some(anchor_idx) = anchor {
                         let (anchor_f_pos, _) =
                             f_pos_for_visible_idx(anchor_idx, w, mid_pos, bottom_pos);

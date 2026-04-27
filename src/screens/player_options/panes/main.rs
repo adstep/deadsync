@@ -625,6 +625,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -638,6 +639,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -651,6 +653,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -666,6 +669,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -685,6 +689,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -702,6 +707,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -715,6 +721,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -728,6 +735,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -741,6 +749,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -757,6 +766,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -770,6 +780,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -783,6 +794,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -806,6 +818,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -819,6 +832,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: Some(VisibilityGroup::ComboOffsets),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -832,6 +846,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: Some(VisibilityGroup::ComboOffsets),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -848,6 +863,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -863,6 +879,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -876,6 +893,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -889,6 +907,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -902,6 +921,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -915,6 +935,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: Some(VisibilityGroup::GlobalOffsetShift),
         mirror_across_players: false,
     });
     b.push(Row {
@@ -928,6 +949,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -941,6 +963,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: Some(stepchart_choice_indices),
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -954,6 +977,7 @@ pub(super) fn build_main_rows(
             .map(|s| s.to_string())
             .collect(),
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -964,6 +988,7 @@ pub(super) fn build_main_rows(
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![String::new()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.finish()

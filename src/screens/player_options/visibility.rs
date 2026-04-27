@@ -1,5 +1,117 @@
 use super::*;
 
+/// Logical group governing whether a row is visible and, when hidden, which
+/// parent row it should anchor to during the slide-out animation. Rows
+/// without a `VisibilityGroup` are always visible and never anchor.
+///
+/// Each variant is the single source of truth for one "conditional row"
+/// behavior — the visibility predicate and the anchor parent are defined
+/// together via `visible` and `anchor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum VisibilityGroup {
+    MeasureCounterChildren,
+    JudgmentOffsets,
+    JudgmentTiltIntensity,
+    ComboOffsets,
+    ErrorBarChildren,
+    CustomFantasticWindowMs,
+    DensityGraphBackground,
+    ComboRows,
+    LifebarRows,
+    IndicatorScoreType,
+    GlobalOffsetShift,
+}
+
+impl VisibilityGroup {
+    /// Number of variants. Kept in sync manually with `ALL`.
+    pub(super) const COUNT: usize = 11;
+
+    /// All variants in declaration order. Used to seed per-group caches.
+    pub(super) const ALL: [VisibilityGroup; Self::COUNT] = [
+        VisibilityGroup::MeasureCounterChildren,
+        VisibilityGroup::JudgmentOffsets,
+        VisibilityGroup::JudgmentTiltIntensity,
+        VisibilityGroup::ComboOffsets,
+        VisibilityGroup::ErrorBarChildren,
+        VisibilityGroup::CustomFantasticWindowMs,
+        VisibilityGroup::DensityGraphBackground,
+        VisibilityGroup::ComboRows,
+        VisibilityGroup::LifebarRows,
+        VisibilityGroup::IndicatorScoreType,
+        VisibilityGroup::GlobalOffsetShift,
+    ];
+
+    /// Stable index in `Self::ALL`, suitable for use as an array key. Backed
+    /// by `#[repr(u8)]`, so this is a free cast.
+    #[inline(always)]
+    pub(super) const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Lookup the group for a given `RowId`, or `None` if the row is always
+    /// visible. Production code does not need this — every `Row` literal sets
+    /// its own `visibility_group` field — but test fixtures use it to derive
+    /// the field from the id without re-specifying the mapping.
+    #[cfg(test)]
+    pub(super) const fn for_row(id: RowId) -> Option<Self> {
+        Some(match id {
+            RowId::MeasureCounterLookahead | RowId::MeasureCounterOptions => {
+                Self::MeasureCounterChildren
+            }
+            RowId::JudgmentOffsetX | RowId::JudgmentOffsetY => Self::JudgmentOffsets,
+            RowId::JudgmentTiltIntensity => Self::JudgmentTiltIntensity,
+            RowId::ComboOffsetX | RowId::ComboOffsetY => Self::ComboOffsets,
+            RowId::ErrorBarTrim
+            | RowId::ErrorBarOptions
+            | RowId::ErrorBarOffsetX
+            | RowId::ErrorBarOffsetY => Self::ErrorBarChildren,
+            RowId::CustomBlueFantasticWindowMs => Self::CustomFantasticWindowMs,
+            RowId::DensityGraphBackground => Self::DensityGraphBackground,
+            RowId::ComboColors | RowId::ComboColorMode | RowId::CarryCombo => Self::ComboRows,
+            RowId::LifeMeterType | RowId::LifeBarOptions => Self::LifebarRows,
+            RowId::IndicatorScoreType => Self::IndicatorScoreType,
+            RowId::GlobalOffsetShift => Self::GlobalOffsetShift,
+            _ => return None,
+        })
+    }
+
+    /// Whether rows in this group are currently visible.
+    pub(super) fn visible(self, vis: RowVisibility) -> bool {
+        match self {
+            VisibilityGroup::MeasureCounterChildren => vis.show_measure_counter_children,
+            VisibilityGroup::JudgmentOffsets => vis.show_judgment_offsets,
+            VisibilityGroup::JudgmentTiltIntensity => vis.show_judgment_tilt_intensity,
+            VisibilityGroup::ComboOffsets => vis.show_combo_offsets,
+            VisibilityGroup::ErrorBarChildren => vis.show_error_bar_children,
+            VisibilityGroup::CustomFantasticWindowMs => vis.show_custom_fantastic_window_ms,
+            VisibilityGroup::DensityGraphBackground => vis.show_density_graph_background,
+            VisibilityGroup::ComboRows => vis.show_combo_rows,
+            VisibilityGroup::LifebarRows => vis.show_lifebar_rows,
+            VisibilityGroup::IndicatorScoreType => vis.show_indicator_score_type,
+            VisibilityGroup::GlobalOffsetShift => vis.show_global_offset_shift,
+        }
+    }
+
+    /// Parent row that hidden rows in this group should anchor to during the
+    /// slide-out animation, if any. `None` means hidden rows in this group
+    /// fall back to the off-screen sentinel position.
+    pub(super) fn anchor(self) -> Option<RowId> {
+        Some(match self {
+            VisibilityGroup::MeasureCounterChildren => RowId::MeasureCounter,
+            VisibilityGroup::JudgmentOffsets => RowId::JudgmentFont,
+            VisibilityGroup::JudgmentTiltIntensity => RowId::JudgmentTilt,
+            VisibilityGroup::ComboOffsets => RowId::ComboFont,
+            VisibilityGroup::ErrorBarChildren => RowId::ErrorBar,
+            VisibilityGroup::CustomFantasticWindowMs => RowId::CustomBlueFantasticWindow,
+            VisibilityGroup::DensityGraphBackground => RowId::DataVisualizations,
+            VisibilityGroup::ComboRows | VisibilityGroup::LifebarRows => RowId::Hide,
+            VisibilityGroup::IndicatorScoreType => RowId::MiniIndicator,
+            VisibilityGroup::GlobalOffsetShift => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RowVisibility {
     pub(super) show_measure_counter_children: bool,
@@ -16,86 +128,9 @@ pub(super) struct RowVisibility {
 }
 
 #[inline(always)]
-pub(super) fn row_visible_with_flags(id: RowId, visibility: RowVisibility) -> bool {
-    if id == RowId::MeasureCounterLookahead || id == RowId::MeasureCounterOptions {
-        return visibility.show_measure_counter_children;
-    }
-    if id == RowId::JudgmentOffsetX || id == RowId::JudgmentOffsetY {
-        return visibility.show_judgment_offsets;
-    }
-    if id == RowId::JudgmentTiltIntensity {
-        return visibility.show_judgment_tilt_intensity;
-    }
-    if id == RowId::ComboOffsetX || id == RowId::ComboOffsetY {
-        return visibility.show_combo_offsets;
-    }
-    if id == RowId::ErrorBarTrim
-        || id == RowId::ErrorBarOptions
-        || id == RowId::ErrorBarOffsetX
-        || id == RowId::ErrorBarOffsetY
-    {
-        return visibility.show_error_bar_children;
-    }
-    if id == RowId::CustomBlueFantasticWindowMs {
-        return visibility.show_custom_fantastic_window_ms;
-    }
-    if id == RowId::DensityGraphBackground {
-        return visibility.show_density_graph_background;
-    }
-    if id == RowId::ComboColors || id == RowId::ComboColorMode || id == RowId::CarryCombo {
-        return visibility.show_combo_rows;
-    }
-    if id == RowId::LifeMeterType || id == RowId::LifeBarOptions {
-        return visibility.show_lifebar_rows;
-    }
-    if id == RowId::IndicatorScoreType {
-        return visibility.show_indicator_score_type;
-    }
-    if id == RowId::GlobalOffsetShift {
-        return visibility.show_global_offset_shift;
-    }
-    true
-}
-
-#[inline(always)]
-pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
-    if id == RowId::MeasureCounterLookahead || id == RowId::MeasureCounterOptions {
-        return Some(RowId::MeasureCounter);
-    }
-    if id == RowId::JudgmentOffsetX || id == RowId::JudgmentOffsetY {
-        return Some(RowId::JudgmentFont);
-    }
-    if id == RowId::JudgmentTiltIntensity {
-        return Some(RowId::JudgmentTilt);
-    }
-    if id == RowId::ComboOffsetX || id == RowId::ComboOffsetY {
-        return Some(RowId::ComboFont);
-    }
-    if id == RowId::ErrorBarTrim
-        || id == RowId::ErrorBarOptions
-        || id == RowId::ErrorBarOffsetX
-        || id == RowId::ErrorBarOffsetY
-    {
-        return Some(RowId::ErrorBar);
-    }
-    if id == RowId::CustomBlueFantasticWindowMs {
-        return Some(RowId::CustomBlueFantasticWindow);
-    }
-    if id == RowId::DensityGraphBackground {
-        return Some(RowId::DataVisualizations);
-    }
-    if id == RowId::ComboColors
-        || id == RowId::ComboColorMode
-        || id == RowId::CarryCombo
-        || id == RowId::LifeMeterType
-        || id == RowId::LifeBarOptions
-    {
-        return Some(RowId::Hide);
-    }
-    if id == RowId::IndicatorScoreType {
-        return Some(RowId::MiniIndicator);
-    }
-    None
+pub(super) fn row_visible(row: &Row, visibility: RowVisibility) -> bool {
+    row.visibility_group
+        .map_or(true, |g| g.visible(visibility))
 }
 
 pub(super) fn measure_counter_children_visible(
@@ -298,7 +333,7 @@ pub(super) fn is_row_visible(row_map: &RowMap, row_idx: usize, visibility: RowVi
         .display_order()
         .get(row_idx)
         .and_then(|&id| row_map.get(id))
-        .is_some_and(|row| row_visible_with_flags(row.id, visibility))
+        .is_some_and(|row| row_visible(row, visibility))
 }
 
 pub(super) fn count_visible_rows(row_map: &RowMap, visibility: RowVisibility) -> usize {
@@ -306,7 +341,7 @@ pub(super) fn count_visible_rows(row_map: &RowMap, visibility: RowVisibility) ->
         .display_order()
         .iter()
         .filter_map(|&id| row_map.get(id))
-        .filter(|row| row_visible_with_flags(row.id, visibility))
+        .filter(|row| row_visible(row, visibility))
         .count()
 }
 
@@ -406,6 +441,22 @@ pub(super) fn parent_anchor_visible_index(
         .position(|&id| id == parent_id)
         .and_then(|idx| row_to_visible_index(row_map, idx, visibility))
         .map(|idx| idx as i32)
+}
+
+/// Precompute the visible-index of the anchor parent for every
+/// `VisibilityGroup`, indexed by `VisibilityGroup::index()`. Returns `None`
+/// for groups whose anchor is missing from `row_map` or itself hidden, and
+/// for `GlobalOffsetShift` (which has no anchor by design). Callers look up
+/// per-row anchors via `row.visibility_group.and_then(|g| cache[g.index()])`.
+pub(super) fn anchor_visible_index_cache(
+    row_map: &RowMap,
+    visibility: RowVisibility,
+) -> [Option<i32>; VisibilityGroup::COUNT] {
+    std::array::from_fn(|i| {
+        VisibilityGroup::ALL[i]
+            .anchor()
+            .and_then(|parent| parent_anchor_visible_index(row_map, parent, visibility))
+    })
 }
 
 pub(super) fn sync_selected_rows_with_visibility(state: &mut State, active: [bool; PLAYER_SLOTS]) {

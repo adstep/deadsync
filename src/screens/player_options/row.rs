@@ -607,6 +607,11 @@ pub struct Row {
     /// slot. Also consulted by inline-nav focus commit. Use for rows whose
     /// state is conceptually shared across players (e.g. `WhatComesNext`).
     pub mirror_across_players: bool,
+    /// Conditional-row classification. `None` means the row is always visible
+    /// and never anchors. `Some(group)` makes visibility and (optional)
+    /// hidden-row anchor parent both flow from the group via
+    /// `VisibilityGroup::visible` / `VisibilityGroup::anchor`.
+    pub visibility_group: Option<VisibilityGroup>,
 }
 
 #[derive(Clone, Debug)]

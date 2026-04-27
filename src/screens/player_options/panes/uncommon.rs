@@ -152,6 +152,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "InsertHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -171,6 +172,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "RemoveHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -187,6 +189,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "HoldsHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -203,6 +206,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "AccelHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -224,6 +228,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "EffectHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -240,6 +245,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "AppearanceHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -254,6 +260,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "AttacksHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -269,6 +276,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![tr("PlayerOptionsHelp", "HideLightTypeHelp").to_string()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -282,6 +290,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
             tr("PlayerOptionsHelp", "WhatComesNextHelp2").to_string(),
         ],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -292,6 +301,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         selected_choice_index: [0; PLAYER_SLOTS],
         help: vec![String::new()],
         choice_difficulty_indices: None,
+        visibility_group: None,
         mirror_across_players: false,
     });
     b.finish()
