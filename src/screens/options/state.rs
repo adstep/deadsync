@@ -396,7 +396,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::System].choice_indices,
         SYSTEM_OPTIONS_ROWS,
         SubRowId::LogLevel,
-        log_level_choice_index(cfg.log_level),
+        cfg.log_level.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::System].choice_indices,
@@ -422,7 +422,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
         SubRowId::PresentMode,
-        present_mode_choice_index(cfg.present_mode_policy),
+        cfg.present_mode_policy.choice_index(),
     );
     sync_max_fps(&mut state, cfg.max_fps);
     set_choice_by_id(
@@ -506,7 +506,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::Machine].choice_indices,
         MACHINE_OPTIONS_ROWS,
         SubRowId::PreferredStyle,
-        machine_preferred_style_choice_index(cfg.machine_preferred_style),
+        cfg.machine_preferred_style.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Machine].choice_indices,
@@ -518,13 +518,13 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::Machine].choice_indices,
         MACHINE_OPTIONS_ROWS,
         SubRowId::PreferredMode,
-        machine_preferred_mode_choice_index(cfg.machine_preferred_play_mode),
+        cfg.machine_preferred_play_mode.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Machine].choice_indices,
         MACHINE_OPTIONS_ROWS,
         SubRowId::Font,
-        machine_font_choice_index(cfg.machine_font),
+        cfg.machine_font.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Machine].choice_indices,
@@ -554,7 +554,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::Machine].choice_indices,
         MACHINE_OPTIONS_ROWS,
         SubRowId::MenuBackground,
-        menu_background_style_choice_index(cfg.menu_background_style),
+        cfg.menu_background_style.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Machine].choice_indices,
@@ -590,7 +590,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::Advanced].choice_indices,
         ADVANCED_OPTIONS_ROWS,
         SubRowId::DefaultFailType,
-        default_fail_type_choice_index(cfg.default_fail_type),
+        cfg.default_fail_type.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Advanced].choice_indices,
@@ -628,7 +628,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::NullOrDieOptions].choice_indices,
         NULL_OR_DIE_OPTIONS_ROWS,
         SubRowId::SyncGraph,
-        sync_graph_mode_choice_index(cfg.null_or_die_sync_graph),
+        cfg.null_or_die_sync_graph.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::NullOrDieOptions].choice_indices,
@@ -649,13 +649,13 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::NullOrDieOptions].choice_indices,
         NULL_OR_DIE_OPTIONS_ROWS,
         SubRowId::KernelTarget,
-        null_or_die_kernel_target_choice_index(cfg.null_or_die_kernel_target),
+        cfg.null_or_die_kernel_target.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::NullOrDieOptions].choice_indices,
         NULL_OR_DIE_OPTIONS_ROWS,
         SubRowId::KernelType,
-        null_or_die_kernel_type_choice_index(cfg.null_or_die_kernel_type),
+        cfg.null_or_die_kernel_type.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::NullOrDieOptions].choice_indices,
@@ -796,7 +796,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::BreakdownStyle,
-        breakdown_style_choice_index(cfg.select_music_breakdown_style),
+        cfg.select_music_breakdown_style.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
@@ -814,7 +814,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::MusicWheelStyle,
-        select_music_wheel_style_choice_index(cfg.select_music_wheel_style),
+        cfg.select_music_wheel_style.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
@@ -838,25 +838,25 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::ItlRank,
-        select_music_itl_rank_choice_index(cfg.select_music_itl_rank_mode),
+        cfg.select_music_itl_rank_mode.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::ItlWheelData,
-        select_music_itl_wheel_choice_index(cfg.select_music_itl_wheel_mode),
+        cfg.select_music_itl_wheel_mode.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::NewPackBadge,
-        new_pack_mode_choice_index(cfg.select_music_new_pack_mode),
+        cfg.select_music_new_pack_mode.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::ShowPatternInfo,
-        select_music_pattern_info_choice_index(cfg.select_music_pattern_info_mode),
+        cfg.select_music_pattern_info_mode.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
@@ -901,7 +901,7 @@ pub fn init() -> State {
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::GsBoxPlacement,
-        select_music_scorebox_placement_choice_index(cfg.select_music_scorebox_placement),
+        cfg.select_music_scorebox_placement.choice_index(),
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,

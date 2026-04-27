@@ -303,81 +303,28 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
 
 
 
-pub(in crate::screens::options) const fn machine_preferred_style_choice_index(style: MachinePreferredPlayStyle) -> usize {
-    match style {
-        MachinePreferredPlayStyle::Single => 0,
-        MachinePreferredPlayStyle::Versus => 1,
-        MachinePreferredPlayStyle::Double => 2,
-    }
+impl ChoiceEnum for MachinePreferredPlayStyle {
+    const ALL: &'static [Self] = &[Self::Single, Self::Versus, Self::Double];
+    const DEFAULT: Self = Self::Single;
 }
 
-pub(in crate::screens::options) const fn machine_preferred_style_from_choice(idx: usize) -> MachinePreferredPlayStyle {
-    match idx {
-        1 => MachinePreferredPlayStyle::Versus,
-        2 => MachinePreferredPlayStyle::Double,
-        _ => MachinePreferredPlayStyle::Single,
-    }
+impl ChoiceEnum for MachinePreferredPlayMode {
+    const ALL: &'static [Self] = &[Self::Regular, Self::Marathon];
+    const DEFAULT: Self = Self::Regular;
 }
 
-pub(in crate::screens::options) const fn machine_preferred_mode_choice_index(mode: MachinePreferredPlayMode) -> usize {
-    match mode {
-        MachinePreferredPlayMode::Regular => 0,
-        MachinePreferredPlayMode::Marathon => 1,
-    }
+impl ChoiceEnum for MachineFont {
+    const ALL: &'static [Self] = &[Self::Common, Self::Mega];
+    const DEFAULT: Self = Self::Common;
 }
 
-pub(in crate::screens::options) const fn machine_preferred_mode_from_choice(idx: usize) -> MachinePreferredPlayMode {
-    match idx {
-        1 => MachinePreferredPlayMode::Marathon,
-        _ => MachinePreferredPlayMode::Regular,
-    }
+impl ChoiceEnum for MenuBackgroundStyle {
+    const ALL: &'static [Self] = &[Self::Hearts, Self::Technique];
+    const DEFAULT: Self = Self::Hearts;
 }
 
-pub(in crate::screens::options) const fn machine_font_choice_index(font: MachineFont) -> usize {
-    match font {
-        MachineFont::Common => 0,
-        MachineFont::Mega => 1,
-    }
-}
-
-pub(in crate::screens::options) const fn machine_font_from_choice(idx: usize) -> MachineFont {
-    match idx {
-        1 => MachineFont::Mega,
-        _ => MachineFont::Common,
-    }
-}
-
-pub(in crate::screens::options) const fn menu_background_style_choice_index(style: MenuBackgroundStyle) -> usize {
-    match style {
-        MenuBackgroundStyle::Hearts => 0,
-        MenuBackgroundStyle::Technique => 1,
-    }
-}
-
-pub(in crate::screens::options) const fn menu_background_style_from_choice(idx: usize) -> MenuBackgroundStyle {
-    match idx {
-        1 => MenuBackgroundStyle::Technique,
-        _ => MenuBackgroundStyle::Hearts,
-    }
-}
-
-pub(in crate::screens::options) const fn log_level_choice_index(level: LogLevel) -> usize {
-    match level {
-        LogLevel::Error => 0,
-        LogLevel::Warn => 1,
-        LogLevel::Info => 2,
-        LogLevel::Debug => 3,
-        LogLevel::Trace => 4,
-    }
-}
-
-pub(in crate::screens::options) const fn log_level_from_choice(idx: usize) -> LogLevel {
-    match idx {
-        0 => LogLevel::Error,
-        1 => LogLevel::Warn,
-        2 => LogLevel::Info,
-        3 => LogLevel::Debug,
-        _ => LogLevel::Trace,
-    }
+impl ChoiceEnum for LogLevel {
+    const ALL: &'static [Self] = &[Self::Error, Self::Warn, Self::Info, Self::Debug, Self::Trace];
+    const DEFAULT: Self = Self::Trace;
 }
 
