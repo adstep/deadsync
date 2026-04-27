@@ -635,80 +635,64 @@ const MINI_INDICATOR: CustomBinding = CustomBinding {
     },
 };
 
-const JUDGMENT_TILT_INTENSITY: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
-        let Some(choice) = state
-            .pane()
-            .row_map
-            .get(row_id)
-            .and_then(|r| r.choices.get(new_index))
-            .cloned()
-        else {
-            return Outcome::NONE;
-        };
-        let Ok(mult) = choice.parse::<f32>() else {
-            return Outcome::persisted();
-        };
-        let mult =
-            round_to_step(mult, TILT_INTENSITY_STEP).clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX);
-        state.player_profiles[player_idx].tilt_multiplier = mult;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_tilt_multiplier_for_side(side, mult);
-        }
+/// Computes the `tilt_multiplier` value for a given choice index. Used by
+/// `JUDGMENT_TILT_INTENSITY`'s `apply` and `persist_for_side` so both sides
+/// see the same f32 (round_to_step + clamped to range).
+fn tilt_intensity_value_at(index: usize) -> f32 {
+    let raw = TILT_INTENSITY_MIN + (index as f32) * TILT_INTENSITY_STEP;
+    round_to_step(
+        raw.clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX),
+        TILT_INTENSITY_STEP,
+    )
+    .clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX)
+}
+
+const JUDGMENT_TILT_INTENSITY: ChoiceBinding<usize> = ChoiceBinding::<usize> {
+    apply: |p, i| {
+        p.tilt_multiplier = tilt_intensity_value_at(i);
         Outcome::persisted()
     },
+    persist_for_side: |s, i| gp::update_tilt_multiplier_for_side(s, tilt_intensity_value_at(i)),
+    init: Some(CycleInit {
+        from_profile: |p| {
+            let v = p.tilt_multiplier.clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX);
+            ((v - TILT_INTENSITY_MIN) / TILT_INTENSITY_STEP).round() as usize
+        },
+    }),
 };
 
-const MEASURE_COUNTER_LOOKAHEAD: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
-        let lookahead = (new_index as u8).min(4);
-        state.player_profiles[player_idx].measure_counter_lookahead = lookahead;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_measure_counter_lookahead_for_side(side, lookahead);
+const LOOKAHEAD_VARIANTS: [u8; 5] = [0, 1, 2, 3, 4];
+const MEASURE_COUNTER_LOOKAHEAD: ChoiceBinding<usize> = index_binding!(
+    LOOKAHEAD_VARIANTS,
+    0u8,
+    measure_counter_lookahead,
+    gp::update_measure_counter_lookahead_for_side,
+    false,
+    Some(CycleInit {
+        from_profile: |p| {
+            LOOKAHEAD_VARIANTS
+                .iter()
+                .position(|&v| v == p.measure_counter_lookahead)
+                .unwrap_or(0)
         }
-        Outcome::persisted()
-    },
-};
+    })
+);
 
-const CUSTOM_BLUE_FANTASTIC_WINDOW_MS: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
-        let Some(choice) = state
-            .pane()
-            .row_map
-            .get(row_id)
-            .and_then(|r| r.choices.get(new_index))
-            .cloned()
-        else {
-            return Outcome::NONE;
-        };
-        let Ok(raw) = choice.trim_end_matches("ms").parse::<u8>() else {
-            return Outcome::persisted();
-        };
-        let ms = gp::clamp_custom_fantastic_window_ms(raw);
-        state.player_profiles[player_idx].custom_fantastic_window_ms = ms;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_custom_fantastic_window_ms_for_side(side, ms);
-        }
+const CUSTOM_BLUE_FANTASTIC_WINDOW_MS: NumericBinding = NumericBinding {
+    parse: parse_i32_ms,
+    apply: |p, v| {
+        let ms = gp::clamp_custom_fantastic_window_ms(v.clamp(0, u8::MAX as i32) as u8);
+        p.custom_fantastic_window_ms = ms;
         Outcome::persisted()
     },
+    persist_for_side: |s, v| {
+        let ms = gp::clamp_custom_fantastic_window_ms(v.clamp(0, u8::MAX as i32) as u8);
+        gp::update_custom_fantastic_window_ms_for_side(s, ms);
+    },
+    init: Some(NumericInit {
+        from_profile: |p| gp::clamp_custom_fantastic_window_ms(p.custom_fantastic_window_ms) as i32,
+        format: |v| format!("{v}ms"),
+    }),
 };
 
 pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
@@ -970,7 +954,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
     });
     b.push(Row {
         id: RowId::JudgmentTiltIntensity,
-        behavior: RowBehavior::Custom(JUDGMENT_TILT_INTENSITY),
+        behavior: RowBehavior::Cycle(CycleBinding::Index(JUDGMENT_TILT_INTENSITY)),
         name: lookup_key("PlayerOptions", "JudgmentTiltIntensity"),
         choices: tilt_intensity_choices(),
         selected_choice_index: [0; PLAYER_SLOTS],
@@ -1087,7 +1071,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
     });
     b.push(Row {
         id: RowId::MeasureCounterLookahead,
-        behavior: RowBehavior::Custom(MEASURE_COUNTER_LOOKAHEAD),
+        behavior: RowBehavior::Cycle(CycleBinding::Index(MEASURE_COUNTER_LOOKAHEAD)),
         name: lookup_key("PlayerOptions", "MeasureCounterLookahead"),
         choices: vec![
             tr("PlayerOptions", "MeasureCounterLookahead0").to_string(),
@@ -1219,7 +1203,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
     });
     b.push(Row {
         id: RowId::CustomBlueFantasticWindowMs,
-        behavior: RowBehavior::Custom(CUSTOM_BLUE_FANTASTIC_WINDOW_MS),
+        behavior: RowBehavior::Numeric(CUSTOM_BLUE_FANTASTIC_WINDOW_MS),
         name: lookup_key("PlayerOptions", "CustomBlueFantasticWindowMs"),
         choices: custom_fantastic_window_choices(),
         selected_choice_index: [0; PLAYER_SLOTS],

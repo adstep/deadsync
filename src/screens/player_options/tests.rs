@@ -1496,6 +1496,10 @@ pub(super) mod tests {
         p.note_field_offset_y = -22;
         p.visual_delay_ms = 35;
         p.global_offset_shift_ms = -45;
+        // Mini, JudgmentFont, HoldJudgment migrated to typed bindings in PR 8a.
+        p.mini_percent = 75;
+        p.judgment_graphic = profile::JudgmentGraphic::new("Wendy");
+        p.hold_judgment_graphic = profile::HoldJudgmentGraphic::new("ITG2");
 
         let profile = state.player_profiles[P1].clone();
         let noteskin_names = super::discover_noteskin_names();
@@ -1539,6 +1543,28 @@ pub(super) mod tests {
         assert_choice_at_cursor(&row_map, RowId::NoteFieldOffsetY, "-22");
         assert_choice_at_cursor(&row_map, RowId::VisualDelay, "35ms");
         assert_choice_at_cursor(&row_map, RowId::GlobalOffsetShift, "-45ms");
+        assert_choice_at_cursor(&row_map, RowId::Mini, "75%");
+
+        // JudgmentFont / HoldJudgment cursors must point at the choice that
+        // matches the runtime-discovered asset table key for the profile value.
+        let jf_idx = crate::assets::judgment_texture_choices()
+            .iter()
+            .position(|c| c.key.eq_ignore_ascii_case(profile.judgment_graphic.as_str()))
+            .expect("judgment_graphic must exist in asset table for test profile");
+        let jf_row = row_map.get(RowId::JudgmentFont).expect("JudgmentFont row");
+        assert_eq!(
+            jf_row.selected_choice_index[P1], jf_idx,
+            "JudgmentFont cursor must match asset-table index"
+        );
+        let hj_idx = crate::assets::hold_judgment_texture_choices()
+            .iter()
+            .position(|c| c.key.eq_ignore_ascii_case(profile.hold_judgment_graphic.as_str()))
+            .expect("hold_judgment_graphic must exist in asset table for test profile");
+        let hj_row = row_map.get(RowId::HoldJudgment).expect("HoldJudgment row");
+        assert_eq!(
+            hj_row.selected_choice_index[P1], hj_idx,
+            "HoldJudgment cursor must match asset-table index"
+        );
     }
 
     /// Numeric values outside the row's choice range (clamped by the binding's
@@ -1609,6 +1635,11 @@ pub(super) mod tests {
         p.custom_fantastic_window = true;
         p.error_bar_offset_x = -25;
         p.error_bar_offset_y = 30;
+        // JudgmentTiltIntensity, MeasureCounterLookahead, CustomBlueFantasticWindowMs
+        // migrated to typed bindings in PR 8a.
+        p.tilt_multiplier = 0.50;
+        p.measure_counter_lookahead = 3;
+        p.custom_fantastic_window_ms = 7;
 
         let profile = state.player_profiles[P1].clone();
         let noteskin_names = super::discover_noteskin_names();
@@ -1653,6 +1684,17 @@ pub(super) mod tests {
 
         assert_choice_at_cursor(&row_map, RowId::ErrorBarOffsetX, "-25");
         assert_choice_at_cursor(&row_map, RowId::ErrorBarOffsetY, "30");
+        assert_choice_at_cursor(&row_map, RowId::JudgmentTiltIntensity, "0.50");
+        assert_choice_at_cursor(&row_map, RowId::CustomBlueFantasticWindowMs, "7ms");
+        // MeasureCounterLookahead choices are i18n labels keyed by index;
+        // assert cursor lands on the index matching the profile value.
+        let lookahead_row = row_map
+            .get(RowId::MeasureCounterLookahead)
+            .expect("MeasureCounterLookahead row");
+        assert_eq!(
+            lookahead_row.selected_choice_index[P1], 3,
+            "MeasureCounterLookahead cursor must equal the profile u8 value"
+        );
     }
 
     #[test]

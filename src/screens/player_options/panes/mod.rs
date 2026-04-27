@@ -128,17 +128,6 @@ pub(super) fn apply_profile_defaults(
 
     let match_ns_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
     let no_tap_label = tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL);
-    // Initialize Judgment Font row from profile setting
-    if let Some(row) = row_map.get_mut(RowId::JudgmentFont) {
-        row.selected_choice_index[player_idx] = assets::judgment_texture_choices()
-            .iter()
-            .position(|choice| {
-                choice
-                    .key
-                    .eq_ignore_ascii_case(profile.judgment_graphic.as_str())
-            })
-            .unwrap_or(0);
-    }
     // Initialize NoteSkin row from profile setting
     if let Some(row) = row_map.get_mut(RowId::NoteSkin) {
         row.selected_choice_index[player_idx] = row
@@ -176,61 +165,12 @@ pub(super) fn apply_profile_defaults(
             Some(no_tap_label.as_ref()),
         );
     }
-    // Initialize Hold Judgment row from profile setting (Love, mute, ITG2, None)
-    if let Some(row) = row_map.get_mut(RowId::HoldJudgment) {
-        row.selected_choice_index[player_idx] = assets::hold_judgment_texture_choices()
-            .iter()
-            .position(|choice| {
-                choice
-                    .key
-                    .eq_ignore_ascii_case(profile.hold_judgment_graphic.as_str())
-            })
-            .unwrap_or(0);
-    }
-    // Initialize Mini row from profile (range -100..150, stored as percent).
-    if let Some(row) = row_map.get_mut(RowId::Mini) {
-        let val = profile.mini_percent.clamp(-100, 150);
-        let needle = format!("{val}%");
-        if let Some(idx) = row.choices.iter().position(|c| c == &needle) {
-            row.selected_choice_index[player_idx] = idx;
-        }
-    }
-    // Initialize Judgment Tilt rows from profile (Simply Love semantics).
-    if let Some(row) = row_map.get_mut(RowId::JudgmentTiltIntensity) {
-        let stepped = round_to_step(
-            profile
-                .tilt_multiplier
-                .clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX),
-            TILT_INTENSITY_STEP,
-        )
-        .clamp(TILT_INTENSITY_MIN, TILT_INTENSITY_MAX);
-        let needle = fmt_tilt_intensity(stepped);
-        row.selected_choice_index[player_idx] = row
-            .choices
-            .iter()
-            .position(|c| c == &needle)
-            .unwrap_or(0)
-            .min(row.choices.len().saturating_sub(1));
-    }
-    if let Some(row) = row_map.get_mut(RowId::MeasureCounterLookahead) {
-        row.selected_choice_index[player_idx] = (profile.measure_counter_lookahead.min(4) as usize)
-            .min(row.choices.len().saturating_sub(1));
-    }
     if let Some(row) = row_map.get_mut(RowId::MiniIndicator) {
         row.selected_choice_index[player_idx] = MINI_INDICATOR_VARIANTS
             .iter()
             .position(|&v| v == profile.mini_indicator)
             .unwrap_or(0)
             .min(row.choices.len().saturating_sub(1));
-    }
-    if let Some(row) = row_map.get_mut(RowId::CustomBlueFantasticWindowMs) {
-        let ms = crate::game::profile::clamp_custom_fantastic_window_ms(
-            profile.custom_fantastic_window_ms,
-        );
-        let target = format!("{ms}ms");
-        if let Some(idx) = row.choices.iter().position(|c| c == &target) {
-            row.selected_choice_index[player_idx] = idx;
-        }
     }
 }
 

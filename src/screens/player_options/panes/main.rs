@@ -395,80 +395,69 @@ const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
     },
 };
 
-const MINI: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
-        let Some(choice) = state
-            .pane()
-            .row_map
-            .get(row_id)
-            .and_then(|r| r.choices.get(new_index))
-            .cloned()
-        else {
-            return Outcome::NONE;
-        };
-        let Ok(val) = choice.trim_end_matches('%').parse::<i32>() else {
-            return Outcome::persisted();
-        };
-        state.player_profiles[player_idx].mini_percent = val;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_mini_percent_for_side(side, val);
-        }
+const MINI: NumericBinding = NumericBinding {
+    parse: parse_i32_percent,
+    apply: |p, v| {
+        p.mini_percent = v;
         Outcome::persisted()
     },
+    persist_for_side: gp::update_mini_percent_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.mini_percent.clamp(-100, 150),
+        format: |v| format!("{v}%"),
+    }),
 };
 
-const JUDGMENT_FONT: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
+const JUDGMENT_FONT: ChoiceBinding<usize> = ChoiceBinding::<usize> {
+    apply: |p, i| {
         let setting = assets::judgment_texture_choices()
-            .get(new_index)
+            .get(i)
             .map(|choice| gp::JudgmentGraphic::new(&choice.key))
             .unwrap_or_default();
-        state.player_profiles[player_idx].judgment_graphic = setting;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_judgment_graphic_for_side(
-                side,
-                state.player_profiles[player_idx].judgment_graphic.clone(),
-            );
-        }
+        p.judgment_graphic = setting;
         Outcome::persisted_with_visibility()
     },
+    persist_for_side: |s, i| {
+        let setting = assets::judgment_texture_choices()
+            .get(i)
+            .map(|choice| gp::JudgmentGraphic::new(&choice.key))
+            .unwrap_or_default();
+        gp::update_judgment_graphic_for_side(s, setting);
+    },
+    init: Some(CycleInit {
+        from_profile: |p| {
+            assets::judgment_texture_choices()
+                .iter()
+                .position(|c| c.key.eq_ignore_ascii_case(p.judgment_graphic.as_str()))
+                .unwrap_or(0)
+        },
+    }),
 };
 
-const HOLD_JUDGMENT: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta, wrap| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
-        else {
-            return Outcome::NONE;
-        };
+const HOLD_JUDGMENT: ChoiceBinding<usize> = ChoiceBinding::<usize> {
+    apply: |p, i| {
         let setting = assets::hold_judgment_texture_choices()
-            .get(new_index)
+            .get(i)
             .map(|choice| gp::HoldJudgmentGraphic::new(&choice.key))
             .unwrap_or_default();
-        state.player_profiles[player_idx].hold_judgment_graphic = setting;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
-        if should_persist {
-            gp::update_hold_judgment_graphic_for_side(
-                side,
-                state.player_profiles[player_idx]
-                    .hold_judgment_graphic
-                    .clone(),
-            );
-        }
+        p.hold_judgment_graphic = setting;
         Outcome::persisted()
     },
+    persist_for_side: |s, i| {
+        let setting = assets::hold_judgment_texture_choices()
+            .get(i)
+            .map(|choice| gp::HoldJudgmentGraphic::new(&choice.key))
+            .unwrap_or_default();
+        gp::update_hold_judgment_graphic_for_side(s, setting);
+    },
+    init: Some(CycleInit {
+        from_profile: |p| {
+            assets::hold_judgment_texture_choices()
+                .iter()
+                .position(|c| c.key.eq_ignore_ascii_case(p.hold_judgment_graphic.as_str()))
+                .unwrap_or(0)
+        },
+    }),
 };
 
 const STEPCHART: CustomBinding = CustomBinding {
@@ -631,7 +620,7 @@ pub(super) fn build_main_rows(
     });
     b.push(Row {
         id: RowId::Mini,
-        behavior: RowBehavior::Custom(MINI),
+        behavior: RowBehavior::Numeric(MINI),
         name: lookup_key("PlayerOptions", "Mini"),
         choices: (-100..=150).map(|v| format!("{v}%")).collect(),
         selected_choice_index: [0; PLAYER_SLOTS],
@@ -734,7 +723,7 @@ pub(super) fn build_main_rows(
     });
     b.push(Row {
         id: RowId::JudgmentFont,
-        behavior: RowBehavior::Custom(JUDGMENT_FONT),
+        behavior: RowBehavior::Cycle(CycleBinding::Index(JUDGMENT_FONT)),
         name: lookup_key("PlayerOptions", "JudgmentFont"),
         choices: assets::judgment_texture_choices()
             .iter()
@@ -825,7 +814,7 @@ pub(super) fn build_main_rows(
     });
     b.push(Row {
         id: RowId::HoldJudgment,
-        behavior: RowBehavior::Custom(HOLD_JUDGMENT),
+        behavior: RowBehavior::Cycle(CycleBinding::Index(HOLD_JUDGMENT)),
         name: lookup_key("PlayerOptions", "HoldJudgment"),
         choices: assets::hold_judgment_texture_choices()
             .iter()
