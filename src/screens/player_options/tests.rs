@@ -43,6 +43,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: super::VisibilityGroup::for_row(id),
+            dynamic_title: None,
             mirror_across_players: false,
         }
     }
@@ -62,6 +63,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: super::VisibilityGroup::for_row(id),
+            dynamic_title: None,
             mirror_across_players: false,
         }
     }
@@ -806,6 +808,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
@@ -847,6 +850,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         };
         let tilt_intensity_row = test_row(
@@ -1104,6 +1108,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
@@ -1270,6 +1275,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: true,
         };
         state.pane_mut().row_map.display_order.push(RowId::Hide);
@@ -1361,6 +1367,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         }
     }
@@ -1375,6 +1382,7 @@ pub(super) mod tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         }
     }

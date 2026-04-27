@@ -153,6 +153,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "InsertHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -173,6 +174,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "RemoveHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -190,6 +192,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HoldsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -207,6 +210,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AccelHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -229,6 +233,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "EffectHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -246,6 +251,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AppearanceHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -261,6 +267,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "AttacksHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -277,6 +284,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HideLightTypeHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -291,6 +299,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         ],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -302,6 +311,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         help: vec![String::new()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.finish()

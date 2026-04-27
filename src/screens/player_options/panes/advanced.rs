@@ -735,6 +735,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TurnHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -752,6 +753,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ScrollHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -771,6 +773,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "HideHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -786,6 +789,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "LifeMeterTypeHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::LifebarRows),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -801,6 +805,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "LifeBarOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::LifebarRows),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -816,6 +821,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "DataVisualizationsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -830,6 +836,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "DensityGraphBackgroundHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::DensityGraphBackground),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -856,6 +863,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TargetScoreHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -871,6 +879,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TargetScoreMissPolicyHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -890,6 +899,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MiniIndicatorHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -905,6 +915,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "IndicatorScoreTypeHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::IndicatorScoreType),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -916,6 +927,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "GameplayExtrasHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -933,6 +945,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ComboColorsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -947,6 +960,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ComboColorModeHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -961,6 +975,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CarryComboHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ComboRows),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -975,6 +990,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentTiltHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -986,6 +1002,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentTiltIntensityHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::JudgmentTiltIntensity),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1000,6 +1017,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "JudgmentBehindArrowsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1014,6 +1032,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "OffsetIndicatorHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1031,6 +1050,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1047,6 +1067,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarTrimHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1061,6 +1082,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1072,6 +1094,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetXHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1083,6 +1106,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ErrorBarOffsetYHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1101,6 +1125,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1118,6 +1143,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterLookaheadHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1135,6 +1161,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureCounterOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1151,6 +1178,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "MeasureLinesHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1165,6 +1193,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "RescoreEarlyHitsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1183,6 +1212,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "EarlyDecentWayOffOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1194,6 +1224,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "ResultsExtrasHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1210,6 +1241,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "TimingWindowsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1228,6 +1260,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "FAPlusOptionsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1242,6 +1275,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1253,6 +1287,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "CustomBlueFantasticWindowMsHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: Some(VisibilityGroup::CustomFantasticWindowMs),
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1264,6 +1299,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![tr("PlayerOptionsHelp", "WhatComesNextAdvancedHelp").to_string()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -1275,6 +1311,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         help: vec![String::new()],
         choice_difficulty_indices: None,
         visibility_group: None,
+        dynamic_title: None,
         mirror_across_players: false,
     });
     b.finish()
@@ -1309,6 +1346,7 @@ mod bitmask_binding_init_tests {
             help: Vec::new(),
             choice_difficulty_indices: None,
             visibility_group: None,
+            dynamic_title: None,
             mirror_across_players: false,
         }
     }

@@ -612,6 +612,12 @@ pub struct Row {
     /// hidden-row anchor parent both flow from the group via
     /// `VisibilityGroup::visible` / `VisibilityGroup::anchor`.
     pub visibility_group: Option<VisibilityGroup>,
+    /// When `Some`, the renderer uses `(f)(state)` as the row's title text
+    /// instead of `tr(name)`. Lets a row publish a title that depends on live
+    /// session state (e.g. `MusicRate` shows the effective BPM). The string
+    /// may contain `\n` to render two stacked lines (the renderer splits on
+    /// the literal newline).
+    pub dynamic_title: Option<fn(&State) -> String>,
 }
 
 #[derive(Clone, Debug)]

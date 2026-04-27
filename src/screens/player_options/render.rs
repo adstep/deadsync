@@ -203,9 +203,10 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
                 [1.0, 1.0, 1.0, 1.0]
             };
             title_color[3] *= a;
-            // Handle multi-line row titles (e.g., "Music Rate\nbpm: 120")
-            if row.id == RowId::MusicRate {
-                let display = music_rate_display_name(state);
+            // Multi-line row titles (e.g. MusicRate publishes "Music Rate\nbpm: 120"
+            // via row.dynamic_title) split on the literal newline.
+            if let Some(title_fn) = row.dynamic_title {
+                let display = title_fn(state);
                 let lines: Vec<&str> = display.split('\n').collect();
                 if lines.len() == 2 {
                     actors.push(act!(text: font("miso"): settext(lines[0].to_string()):
