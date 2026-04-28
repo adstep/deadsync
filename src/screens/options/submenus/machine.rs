@@ -1,12 +1,30 @@
 use super::super::*;
 
+const SELECT_PROFILE_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_select_profile);
+const SELECT_COLOR_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_select_color);
+const SELECT_STYLE_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_select_style);
+const PREFERRED_STYLE_BINDING: CycleBinding = CycleBinding::Index(|i| config::update_machine_preferred_style(MachinePreferredPlayStyle::from_choice(i)));
+const SELECT_PLAY_MODE_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_select_play_mode);
+const PREFERRED_MODE_BINDING: CycleBinding = CycleBinding::Index(|i| config::update_machine_preferred_play_mode(MachinePreferredPlayMode::from_choice(i)));
+const FONT_BINDING: CycleBinding = CycleBinding::Index(|i| config::update_machine_font(MachineFont::from_choice(i)));
+const EVAL_SUMMARY_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_eval_summary);
+const NAME_ENTRY_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_name_entry);
+const GAMEOVER_SCREEN_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_show_gameover);
+const WRITE_CURRENT_SCREEN_BINDING: CycleBinding = CycleBinding::Bool(config::update_write_current_screen);
+const MENU_MUSIC_BINDING: CycleBinding = CycleBinding::Bool(config::update_menu_music);
+const VISUAL_STYLE_BINDING: CycleBinding = CycleBinding::Index(|i| config::update_visual_style(VisualStyle::from_choice(i)));
+const REPLAYS_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_enable_replays);
+const PER_PLAYER_GLOBAL_OFFSETS_BINDING: CycleBinding = CycleBinding::Bool(config::update_machine_allow_per_player_global_offsets);
+const KEYBOARD_FEATURES_BINDING: CycleBinding = CycleBinding::Bool(config::update_keyboard_features);
+const VIDEO_BGS_BINDING: CycleBinding = CycleBinding::Bool(config::update_show_video_backgrounds);
+
 pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::VisualStyle,
         label: lookup_key("OptionsMachine", "VisualStyle"),
         choices: VISUAL_STYLE_CHOICES,
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(VISUAL_STYLE_BINDING),
     },
     SubRow {
         id: SubRowId::SelectProfile,
@@ -16,7 +34,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SELECT_PROFILE_BINDING),
     },
     SubRow {
         id: SubRowId::SelectColor,
@@ -26,7 +44,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SELECT_COLOR_BINDING),
     },
     SubRow {
         id: SubRowId::SelectStyle,
@@ -36,7 +54,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SELECT_STYLE_BINDING),
     },
     SubRow {
         id: SubRowId::PreferredStyle,
@@ -47,7 +65,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsMachine", "PreferredStyleDouble"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(PREFERRED_STYLE_BINDING),
     },
     SubRow {
         id: SubRowId::SelectPlayMode,
@@ -57,7 +75,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SELECT_PLAY_MODE_BINDING),
     },
     SubRow {
         id: SubRowId::PreferredMode,
@@ -67,7 +85,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsMachine", "PreferredModeMarathon"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(PREFERRED_MODE_BINDING),
     },
     SubRow {
         id: SubRowId::Font,
@@ -77,7 +95,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsMachine", "MachineFontMega"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(FONT_BINDING),
     },
     SubRow {
         id: SubRowId::EvalSummary,
@@ -87,7 +105,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(EVAL_SUMMARY_BINDING),
     },
     SubRow {
         id: SubRowId::NameEntry,
@@ -97,7 +115,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(NAME_ENTRY_BINDING),
     },
     SubRow {
         id: SubRowId::GameoverScreen,
@@ -107,7 +125,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(GAMEOVER_SCREEN_BINDING),
     },
     SubRow {
         id: SubRowId::WriteCurrentScreen,
@@ -117,7 +135,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(WRITE_CURRENT_SCREEN_BINDING),
     },
     SubRow {
         id: SubRowId::MenuMusic,
@@ -127,7 +145,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MENU_MUSIC_BINDING),
     },
     SubRow {
         id: SubRowId::Replays,
@@ -137,7 +155,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(REPLAYS_BINDING),
     },
     SubRow {
         id: SubRowId::PerPlayerGlobalOffsets,
@@ -147,7 +165,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(PER_PLAYER_GLOBAL_OFFSETS_BINDING),
     },
     SubRow {
         id: SubRowId::KeyboardFeatures,
@@ -157,7 +175,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(KEYBOARD_FEATURES_BINDING),
     },
     SubRow {
         id: SubRowId::VideoBgs,
@@ -167,7 +185,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(VIDEO_BGS_BINDING),
     },
 ];
 

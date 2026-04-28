@@ -33,6 +33,18 @@ const MAGIC_OFFSET_BINDING: NumericBinding = NumericBinding {
     persist: |v| config::update_null_or_die_magic_offset_ms(f64_from_tenths(v)),
 };
 
+const SYNC_GRAPH_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_null_or_die_sync_graph(SyncGraphMode::from_choice(i)));
+const SYNC_CONFIDENCE_BINDING: CycleBinding = CycleBinding::Index(|i| {
+    config::update_null_or_die_confidence_percent(sync_confidence_from_choice(i))
+});
+const KERNEL_TARGET_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_null_or_die_kernel_target(KernelTarget::from_choice(i)));
+const KERNEL_TYPE_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_null_or_die_kernel_type(BiasKernel::from_choice(i)));
+const FULL_SPECTROGRAM_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_null_or_die_full_spectrogram);
+
 pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::NullOrDieOptions,
@@ -60,7 +72,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "SyncGraphPostKernelFingerprint"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SYNC_GRAPH_BINDING),
     },
     SubRow {
         id: SubRowId::SyncConfidence,
@@ -89,7 +101,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("100%"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SYNC_CONFIDENCE_BINDING),
     },
     SubRow {
         id: SubRowId::PackSyncThreads,
@@ -134,7 +146,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "KernelTargetAccumulator"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(KERNEL_TARGET_BINDING),
     },
     SubRow {
         id: SubRowId::KernelType,
@@ -144,7 +156,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "KernelTypeLoudest"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(KERNEL_TYPE_BINDING),
     },
     SubRow {
         id: SubRowId::FullSpectrogram,
@@ -154,7 +166,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(FULL_SPECTROGRAM_BINDING),
     },
 ];
 

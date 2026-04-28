@@ -104,15 +104,11 @@ pub(super) fn apply_submenu_choice_delta(
     if matches!(kind, SubmenuKind::System) {
         let row = &rows[row_index];
         match row.id {
-            SubRowId::Game => config::update_game_flag(config::GameFlag::Dance),
-            SubRowId::Theme => config::update_theme_flag(config::ThemeFlag::SimplyLove),
             SubRowId::Language => {
                 let flag = language_flag_from_choice(new_index);
                 config::update_language_flag(flag);
                 assets::i18n::set_locale(&assets::i18n::resolve_locale(flag));
             }
-            SubRowId::LogLevel => config::update_log_level(LogLevel::from_choice(new_index)),
-            SubRowId::LogFile => config::update_log_to_file(new_index == 1),
             SubRowId::DefaultNoteSkin => {
                 if let Some(skin_name) = selected_choice.as_deref() {
                     profile::update_machine_default_noteskin(profile::NoteSkin::new(skin_name));
@@ -172,91 +168,17 @@ pub(super) fn apply_submenu_choice_delta(
         if row.id == SubRowId::MenuButtons {
             state.pending_dedicated_menu_buttons = Some(new_index == 1);
         }
-    } else if matches!(kind, SubmenuKind::Machine) {
-        let row = &rows[row_index];
-        let enabled = new_index == 1;
-        match row.id {
-            SubRowId::SelectProfile => config::update_machine_show_select_profile(enabled),
-            SubRowId::SelectColor => config::update_machine_show_select_color(enabled),
-            SubRowId::SelectStyle => config::update_machine_show_select_style(enabled),
-            SubRowId::PreferredStyle => config::update_machine_preferred_style(
-                MachinePreferredPlayStyle::from_choice(new_index),
-            ),
-            SubRowId::SelectPlayMode => config::update_machine_show_select_play_mode(enabled),
-            SubRowId::PreferredMode => config::update_machine_preferred_play_mode(
-                MachinePreferredPlayMode::from_choice(new_index),
-            ),
-            SubRowId::Font => config::update_machine_font(MachineFont::from_choice(new_index)),
-            SubRowId::EvalSummary => config::update_machine_show_eval_summary(enabled),
-            SubRowId::NameEntry => config::update_machine_show_name_entry(enabled),
-            SubRowId::GameoverScreen => config::update_machine_show_gameover(enabled),
-            SubRowId::MenuMusic => config::update_menu_music(enabled),
-            SubRowId::VisualStyle => {
-                config::update_visual_style(VisualStyle::from_choice(new_index))
-            }
-            SubRowId::Replays => config::update_machine_enable_replays(enabled),
-            SubRowId::PerPlayerGlobalOffsets => {
-                config::update_machine_allow_per_player_global_offsets(enabled)
-            }
-            SubRowId::KeyboardFeatures => config::update_keyboard_features(enabled),
-            SubRowId::VideoBgs => config::update_show_video_backgrounds(enabled),
-            SubRowId::WriteCurrentScreen => config::update_write_current_screen(enabled),
-            _ => {}
-        }
     } else if matches!(kind, SubmenuKind::Advanced) {
         let row = &rows[row_index];
-        if row.id == SubRowId::DefaultFailType {
-            config::update_default_fail_type(DefaultFailType::from_choice(new_index));
-        } else if row.id == SubRowId::BannerCache {
-            config::update_banner_cache(new_index == 1);
-        } else if row.id == SubRowId::CdTitleCache {
-            config::update_cdtitle_cache(new_index == 1);
-        } else if row.id == SubRowId::SongParsingThreads {
+        if row.id == SubRowId::SongParsingThreads {
             let threads = software_thread_from_choice(&state.software_thread_choices, new_index);
             config::update_song_parsing_threads(threads);
-        } else if row.id == SubRowId::CacheSongs {
-            config::update_cache_songs(new_index == 1);
-        } else if row.id == SubRowId::FastLoad {
-            config::update_fastload(new_index == 1);
         }
     } else if matches!(kind, SubmenuKind::NullOrDieOptions) {
         let row = &rows[row_index];
-        if row.id == SubRowId::SyncGraph {
-            config::update_null_or_die_sync_graph(SyncGraphMode::from_choice(new_index));
-        } else if row.id == SubRowId::SyncConfidence {
-            config::update_null_or_die_confidence_percent(sync_confidence_from_choice(new_index));
-        } else if row.id == SubRowId::PackSyncThreads {
+        if row.id == SubRowId::PackSyncThreads {
             let threads = software_thread_from_choice(&state.software_thread_choices, new_index);
             config::update_null_or_die_pack_sync_threads(threads);
-        } else if row.id == SubRowId::KernelTarget {
-            config::update_null_or_die_kernel_target(::null_or_die::KernelTarget::from_choice(new_index));
-        } else if row.id == SubRowId::KernelType {
-            config::update_null_or_die_kernel_type(::null_or_die::BiasKernel::from_choice(new_index));
-        } else if row.id == SubRowId::FullSpectrogram {
-            config::update_null_or_die_full_spectrogram(yes_no_from_choice(new_index));
-        }
-    } else if matches!(kind, SubmenuKind::Course) {
-        let row = &rows[row_index];
-        let enabled = yes_no_from_choice(new_index);
-        match row.id {
-            SubRowId::ShowRandomCourses => config::update_show_random_courses(enabled),
-            SubRowId::ShowMostPlayed => config::update_show_most_played_courses(enabled),
-            SubRowId::ShowIndividualScores => config::update_show_course_individual_scores(enabled),
-            SubRowId::AutosubmitIndividual => {
-                config::update_autosubmit_course_scores_individually(enabled)
-            }
-            _ => {}
-        }
-    } else if matches!(kind, SubmenuKind::Gameplay) {
-        let row = &rows[row_index];
-        if row.id == SubRowId::BgBrightness {
-            config::update_bg_brightness(bg_brightness_from_choice(new_index));
-        } else if row.id == SubRowId::CenteredP1Notefield {
-            config::update_center_1player_notefield(new_index == 1);
-        } else if row.id == SubRowId::ZmodRatingBox {
-            config::update_zmod_rating_box_text(new_index == 1);
-        } else if row.id == SubRowId::BpmDecimal {
-            config::update_show_bpm_decimal(new_index == 1);
         }
     } else if matches!(kind, SubmenuKind::Sound) {
         let row = &rows[row_index];

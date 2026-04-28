@@ -1,5 +1,14 @@
 use super::super::*;
 
+const BG_BRIGHTNESS_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_bg_brightness(bg_brightness_from_choice(i)));
+const CENTERED_P1_NOTEFIELD_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_center_1player_notefield);
+const ZMOD_RATING_BOX_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_zmod_rating_box_text);
+const BPM_DECIMAL_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_bpm_decimal);
+
 pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::BgBrightness,
@@ -18,7 +27,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("100%"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(BG_BRIGHTNESS_BINDING),
     },
     SubRow {
         id: SubRowId::CenteredP1Notefield,
@@ -28,7 +37,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(CENTERED_P1_NOTEFIELD_BINDING),
     },
     SubRow {
         id: SubRowId::ZmodRatingBox,
@@ -38,7 +47,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ZMOD_RATING_BOX_BINDING),
     },
     SubRow {
         id: SubRowId::BpmDecimal,
@@ -48,7 +57,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(BPM_DECIMAL_BINDING),
     },
     SubRow {
         id: SubRowId::AutoScreenshot,

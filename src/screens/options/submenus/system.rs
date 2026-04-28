@@ -1,19 +1,27 @@
 use super::super::*;
 
+const GAME_BINDING: CycleBinding =
+    CycleBinding::Index(|_| config::update_game_flag(config::GameFlag::Dance));
+const THEME_BINDING: CycleBinding =
+    CycleBinding::Index(|_| config::update_theme_flag(config::ThemeFlag::SimplyLove));
+const LOG_LEVEL_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_log_level(LogLevel::from_choice(i)));
+const LOG_FILE_BINDING: CycleBinding = CycleBinding::Bool(config::update_log_to_file);
+
 pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::Game,
         label: lookup_key("OptionsSystem", "Game"),
         choices: &[localized_choice("OptionsSystem", "DanceGame")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(GAME_BINDING),
     },
     SubRow {
         id: SubRowId::Theme,
         label: lookup_key("OptionsSystem", "Theme"),
         choices: &[localized_choice("OptionsSystem", "SimplyLoveTheme")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(THEME_BINDING),
     },
     SubRow {
         id: SubRowId::Language,
@@ -33,7 +41,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSystem", "LogLevelTrace"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(LOG_LEVEL_BINDING),
     },
     SubRow {
         id: SubRowId::LogFile,
@@ -43,7 +51,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(LOG_FILE_BINDING),
     },
     SubRow {
         id: SubRowId::DefaultNoteSkin,

@@ -1,5 +1,14 @@
 use super::super::*;
 
+const SHOW_RANDOM_COURSES_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_random_courses);
+const SHOW_MOST_PLAYED_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_most_played_courses);
+const SHOW_INDIVIDUAL_SCORES_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_course_individual_scores);
+const AUTOSUBMIT_INDIVIDUAL_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_autosubmit_course_scores_individually);
+
 pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ShowRandomCourses,
@@ -9,7 +18,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_RANDOM_COURSES_BINDING),
     },
     SubRow {
         id: SubRowId::ShowMostPlayed,
@@ -19,7 +28,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_MOST_PLAYED_BINDING),
     },
     SubRow {
         id: SubRowId::ShowIndividualScores,
@@ -29,7 +38,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_INDIVIDUAL_SCORES_BINDING),
     },
     SubRow {
         id: SubRowId::AutosubmitIndividual,
@@ -39,7 +48,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(AUTOSUBMIT_INDIVIDUAL_BINDING),
     },
 ];
 

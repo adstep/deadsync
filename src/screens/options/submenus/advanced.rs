@@ -1,5 +1,12 @@
 use super::super::*;
 
+const DEFAULT_FAIL_TYPE_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_default_fail_type(DefaultFailType::from_choice(i)));
+const BANNER_CACHE_BINDING: CycleBinding = CycleBinding::Bool(config::update_banner_cache);
+const CDTITLE_CACHE_BINDING: CycleBinding = CycleBinding::Bool(config::update_cdtitle_cache);
+const CACHE_SONGS_BINDING: CycleBinding = CycleBinding::Bool(config::update_cache_songs);
+const FAST_LOAD_BINDING: CycleBinding = CycleBinding::Bool(config::update_fastload);
+
 pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::DefaultFailType,
@@ -9,7 +16,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsAdvanced", "FailImmediateContinue"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFAULT_FAIL_TYPE_BINDING),
     },
     SubRow {
         id: SubRowId::BannerCache,
@@ -19,7 +26,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(BANNER_CACHE_BINDING),
     },
     SubRow {
         id: SubRowId::CdTitleCache,
@@ -29,7 +36,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(CDTITLE_CACHE_BINDING),
     },
     SubRow {
         id: SubRowId::SongParsingThreads,
@@ -46,7 +53,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(CACHE_SONGS_BINDING),
     },
     SubRow {
         id: SubRowId::FastLoad,
@@ -56,7 +63,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(FAST_LOAD_BINDING),
     },
 ];
 
