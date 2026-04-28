@@ -54,7 +54,7 @@ pub(super) fn row_choices(
 ) -> Vec<Cow<'static, str>> {
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::System)
-        && row.id == SubRowId::DefaultNoteSkin
+        && row.id == RowId::SysDefaultNoteSkin
     {
         return state
             .system_noteskin_choices
@@ -66,7 +66,7 @@ pub(super) fn row_choices(
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::Graphics)
     {
-        if row.id == SubRowId::SoftwareRendererThreads {
+        if row.id == RowId::GfxSoftwareThreads {
             return state
                 .software_thread_labels
                 .iter()
@@ -74,10 +74,10 @@ pub(super) fn row_choices(
                 .map(Cow::Owned)
                 .collect();
         }
-        if row.id == SubRowId::MaxFpsValue {
+        if row.id == RowId::GfxMaxFpsValue {
             return vec![Cow::Owned(selected_max_fps_label(state))];
         }
-        if row.id == SubRowId::DisplayMode {
+        if row.id == RowId::GfxDisplayMode {
             return state
                 .display_mode_choices
                 .iter()
@@ -85,14 +85,14 @@ pub(super) fn row_choices(
                 .map(Cow::Owned)
                 .collect();
         }
-        if row.id == SubRowId::DisplayResolution {
+        if row.id == RowId::GfxDisplayResolution {
             return state
                 .resolution_choices
                 .iter()
                 .map(|&(w, h)| Cow::Owned(format!("{w}x{h}")))
                 .collect();
         }
-        if row.id == SubRowId::RefreshRate {
+        if row.id == RowId::GfxRefreshRate {
             return state
                 .refresh_rate_choices
                 .iter()
@@ -114,7 +114,7 @@ pub(super) fn row_choices(
     }
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::Advanced)
-        && row.id == SubRowId::SongParsingThreads
+        && row.id == RowId::AdvSongParsingThreads
     {
         return state
             .software_thread_labels
@@ -125,7 +125,7 @@ pub(super) fn row_choices(
     }
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::NullOrDieOptions)
-        && row.id == SubRowId::PackSyncThreads
+        && row.id == RowId::NodPackSyncThreads
     {
         return state
             .software_thread_labels
@@ -137,14 +137,14 @@ pub(super) fn row_choices(
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::Sound)
     {
-        if row.id == SubRowId::SoundDevice {
+        if row.id == RowId::SndDevice {
             return state
                 .sound_device_options
                 .iter()
                 .map(|opt| Cow::Owned(opt.label.clone()))
                 .collect();
         }
-        if row.id == SubRowId::AudioSampleRate {
+        if row.id == RowId::SndSampleRate {
             return sound_sample_rate_choices(state)
                 .into_iter()
                 .map(|rate| match rate {
@@ -154,7 +154,7 @@ pub(super) fn row_choices(
                 .collect();
         }
         #[cfg(target_os = "linux")]
-        if row.id == SubRowId::LinuxAudioBackend {
+        if row.id == RowId::SndLinuxBackend {
             return state
                 .linux_backend_choices
                 .iter()
@@ -166,7 +166,7 @@ pub(super) fn row_choices(
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::ScoreImport)
     {
-        if row.id == SubRowId::ScoreImportProfile {
+        if row.id == RowId::SiProfile {
             return state
                 .score_import_profile_choices
                 .iter()
@@ -174,7 +174,7 @@ pub(super) fn row_choices(
                 .map(Cow::Owned)
                 .collect();
         }
-        if row.id == SubRowId::ScoreImportPack {
+        if row.id == RowId::SiPack {
             return state
                 .score_import_pack_choices
                 .iter()
@@ -185,7 +185,7 @@ pub(super) fn row_choices(
     }
     if let Some(row) = rows.get(row_idx)
         && matches!(kind, SubmenuKind::SyncPacks)
-        && row.id == SubRowId::SyncPackPack
+        && row.id == RowId::SpPack
     {
         return state
             .sync_pack_choices
@@ -217,27 +217,27 @@ pub(super) fn submenu_display_choice_texts(
     if choice_texts.is_empty() {
         return choice_texts;
     }
-    if row.id == SubRowId::GlobalOffset {
+    if row.id == RowId::SndGlobalOffset {
         choice_texts[0] = Cow::Owned(format_ms(state.global_offset_ms));
-    } else if row.id == SubRowId::MasterVolume {
+    } else if row.id == RowId::SndMasterVolume {
         choice_texts[0] = Cow::Owned(format_percent(state.master_volume_pct));
-    } else if row.id == SubRowId::SfxVolume {
+    } else if row.id == RowId::SndSfxVolume {
         choice_texts[0] = Cow::Owned(format_percent(state.sfx_volume_pct));
-    } else if row.id == SubRowId::AssistTickVolume {
+    } else if row.id == RowId::SndAssistTickVolume {
         choice_texts[0] = Cow::Owned(format_percent(state.assist_tick_volume_pct));
-    } else if row.id == SubRowId::MusicVolume {
+    } else if row.id == RowId::SndMusicVolume {
         choice_texts[0] = Cow::Owned(format_percent(state.music_volume_pct));
-    } else if row.id == SubRowId::VisualDelay {
+    } else if row.id == RowId::GfxVisualDelay {
         choice_texts[0] = Cow::Owned(format_ms(state.visual_delay_ms));
-    } else if row.id == SubRowId::Debounce {
+    } else if row.id == RowId::InpDebounce {
         choice_texts[0] = Cow::Owned(format_ms(state.input_debounce_ms));
-    } else if row.id == SubRowId::Fingerprint {
+    } else if row.id == RowId::NodFingerprint {
         choice_texts[0] = Cow::Owned(format_tenths_ms(state.null_or_die_fingerprint_tenths));
-    } else if row.id == SubRowId::Window {
+    } else if row.id == RowId::NodWindow {
         choice_texts[0] = Cow::Owned(format_tenths_ms(state.null_or_die_window_tenths));
-    } else if row.id == SubRowId::Step {
+    } else if row.id == RowId::NodStep {
         choice_texts[0] = Cow::Owned(format_tenths_ms(state.null_or_die_step_tenths));
-    } else if row.id == SubRowId::MagicOffset {
+    } else if row.id == RowId::NodMagicOffset {
         choice_texts[0] = Cow::Owned(format_tenths_ms(state.null_or_die_magic_offset_tenths));
     }
     choice_texts
@@ -255,7 +255,7 @@ pub(super) fn build_submenu_row_layout(
     if choice_texts.is_empty() {
         return None;
     }
-    let is_visual_style = row.id == SubRowId::VisualStyle;
+    let is_visual_style = row.id == RowId::MchVisualStyle;
     let value_zoom = if is_visual_style {
         VISUAL_STYLE_VALUE_ZOOM
     } else {
@@ -597,11 +597,11 @@ pub(super) fn update_graphics_row_tweens(state: &mut State, s: f32, list_y: f32,
 
         let parent_from = old_visible_rows
             .iter()
-            .position(|&idx| rows.get(idx).map_or(false, |r| r.id == SubRowId::VideoRenderer))
+            .position(|&idx| rows.get(idx).map_or(false, |r| r.id == RowId::GfxVideoRenderer))
             .and_then(|old_idx| old_tweens.get(old_idx))
             .map(|tw| (tw.y(), tw.a()))
             .unwrap_or_else(|| {
-                let renderer_vis_idx = visible_rows.iter().position(|&idx| rows.get(idx).map_or(false, |r| r.id == SubRowId::VideoRenderer)).unwrap_or(0);
+                let renderer_vis_idx = visible_rows.iter().position(|&idx| rows.get(idx).map_or(false, |r| r.id == RowId::GfxVideoRenderer)).unwrap_or(0);
                 row_dest_for_index(total_rows, selected, renderer_vis_idx, s, list_y)
             });
         let old_exit_from = old_tweens
@@ -616,7 +616,7 @@ pub(super) fn update_graphics_row_tweens(state: &mut State, s: f32, list_y: f32,
                 .position(|&old_actual| old_actual == actual_idx)
                 .and_then(|old_idx| old_tweens.get(old_idx).map(|tw| (tw.y(), tw.a())))
                 .or({
-                    if rows.get(actual_idx).map_or(false, |r| r.id == SubRowId::SoftwareRendererThreads) {
+                    if rows.get(actual_idx).map_or(false, |r| r.id == RowId::GfxSoftwareThreads) {
                         Some((parent_from.0, 0.0))
                     } else {
                         None
@@ -741,11 +741,11 @@ pub(super) fn update_advanced_row_tweens(state: &mut State, s: f32, list_y: f32,
 fn select_music_parent_row(rows: &[SubRow], actual_idx: usize) -> Option<usize> {
     let child_id = rows.get(actual_idx)?.id;
     let parent_id = match child_id {
-        SubRowId::ShowVideoBanners => SubRowId::ShowBanners,
-        SubRowId::BreakdownStyle => SubRowId::ShowBreakdown,
-        SubRowId::LoopMusic => SubRowId::MusicPreviews,
-        SubRowId::GsBoxPlacement => SubRowId::ShowGsBox,
-        SubRowId::GsBoxLeaderboards => SubRowId::ShowGsBox,
+        RowId::SmShowVideoBanners => RowId::SmShowBanners,
+        RowId::SmBreakdownStyle => RowId::SmShowBreakdown,
+        RowId::SmPreviewLoop => RowId::SmPreviews,
+        RowId::SmScoreboxPlacement => RowId::SmShowRivals,
+        RowId::SmScoreboxCycle => RowId::SmShowRivals,
         _ => return None,
     };
     rows.iter().position(|r| r.id == parent_id)

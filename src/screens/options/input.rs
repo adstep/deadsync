@@ -162,86 +162,86 @@ pub(super) fn activate_current_selection(
             state.pending_submenu_parent_kind = None;
 
             match item.id {
-                ItemId::SystemOptions => {
+                RowId::SystemOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::System);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::GraphicsOptions => {
+                RowId::GraphicsOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Graphics);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::InputOptions => {
+                RowId::InputOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Input);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::MachineOptions => {
+                RowId::MachineOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Machine);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::AdvancedOptions => {
+                RowId::AdvancedOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Advanced);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::CourseOptions => {
+                RowId::CourseOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Course);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::GameplayOptions => {
+                RowId::GameplayOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Gameplay);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::SoundOptions => {
+                RowId::SoundOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::Sound);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::SelectMusicOptions => {
+                RowId::SelectMusicOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::SelectMusic);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::OnlineScoreServices => {
+                RowId::OnlineScoreServices => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     state.pending_submenu_kind = Some(SubmenuKind::OnlineScoring);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::NullOrDieOptions => {
+                RowId::NullOrDieOptions => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     refresh_null_or_die_options(state);
                     state.pending_submenu_kind = Some(SubmenuKind::NullOrDie);
                     state.submenu_transition = SubmenuTransition::FadeOutToSubmenu;
                     state.submenu_fade_t = 0.0;
                 }
-                ItemId::ManageLocalProfiles => {
+                RowId::ManageLocalProfiles => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::Navigate(Screen::ManageLocalProfiles);
                 }
-                ItemId::ReloadSongsCourses => {
+                RowId::ReloadSongsCourses => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     start_reload_songs_and_courses(state);
                 }
-                ItemId::Credits => {
+                RowId::Credits => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::NavigateNoFade(Screen::Credits);
                 }
-                ItemId::Exit => {
+                RowId::Exit => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::Navigate(Screen::Menu);
                 }
@@ -260,7 +260,7 @@ pub(super) fn activate_current_selection(
             {
                 let rows = submenu_rows(kind);
                 let row_id = rows.get(row_idx).map(|row| row.id);
-                if row_id == Some(SubRowId::GsBoxLeaderboards) {
+                if row_id == Some(RowId::SmScoreboxCycle) {
                     let choice_idx = submenu_cursor_indices(state, kind)
                         .get(row_idx)
                         .copied()
@@ -268,7 +268,7 @@ pub(super) fn activate_current_selection(
                         .min(SELECT_MUSIC_SCOREBOX_CYCLE_NUM_CHOICES.saturating_sub(1));
                     toggle_select_music_scorebox_cycle_option(state, choice_idx);
                     return ScreenAction::None;
-                } else if row_id == Some(SubRowId::ChartInfo) {
+                } else if row_id == Some(RowId::SmChartInfo) {
                     let choice_idx = submenu_cursor_indices(state, kind)
                         .get(row_idx)
                         .copied()
@@ -282,7 +282,7 @@ pub(super) fn activate_current_selection(
                 && let Some(row_idx) = submenu_visible_row_to_actual(state, kind, selected_row)
             {
                 let rows = submenu_rows(kind);
-                if rows.get(row_idx).map(|row| row.id) == Some(SubRowId::AutoScreenshot) {
+                if rows.get(row_idx).map(|row| row.id) == Some(RowId::GpAutoScreenshot) {
                     let choice_idx = submenu_cursor_indices(state, kind)
                         .get(row_idx)
                         .copied()
@@ -311,15 +311,15 @@ pub(super) fn activate_current_selection(
                 };
                 if let Some(row) = rows.get(row_idx) {
                     match row.id {
-                        SubRowId::ConfigureMappings => {
+                        RowId::InpConfigureMappings => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             return ScreenAction::Navigate(Screen::Mappings);
                         }
-                        SubRowId::TestInput => {
+                        RowId::InpTestInput => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             return ScreenAction::Navigate(Screen::Input);
                         }
-                        SubRowId::InputOptions => {
+                        RowId::InpInputOptions => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             state.pending_submenu_kind = Some(SubmenuKind::InputBackend);
                             state.pending_submenu_parent_kind = Some(SubmenuKind::Input);
@@ -337,7 +337,7 @@ pub(super) fn activate_current_selection(
                 };
                 if let Some(row) = rows.get(row_idx) {
                     match row.id {
-                        SubRowId::GsBsOptions => {
+                        RowId::OsGsBsOptions => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             state.pending_submenu_kind = Some(SubmenuKind::GrooveStats);
                             state.pending_submenu_parent_kind = Some(SubmenuKind::OnlineScoring);
@@ -345,7 +345,7 @@ pub(super) fn activate_current_selection(
                             state.submenu_fade_t = 0.0;
                             return ScreenAction::None;
                         }
-                        SubRowId::ArrowCloudOptions => {
+                        RowId::OsArrowCloudOptions => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             state.pending_submenu_kind = Some(SubmenuKind::ArrowCloud);
                             state.pending_submenu_parent_kind = Some(SubmenuKind::OnlineScoring);
@@ -353,7 +353,7 @@ pub(super) fn activate_current_selection(
                             state.submenu_fade_t = 0.0;
                             return ScreenAction::None;
                         }
-                        SubRowId::ScoreImport => {
+                        RowId::OsScoreImport => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             refresh_score_import_options(state);
                             state.pending_submenu_kind = Some(SubmenuKind::ScoreImport);
@@ -372,7 +372,7 @@ pub(super) fn activate_current_selection(
                 };
                 if let Some(row) = rows.get(row_idx) {
                     match row.id {
-                        SubRowId::NullOrDieOptions => {
+                        RowId::NodOptions => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             state.pending_submenu_kind = Some(SubmenuKind::NullOrDieOptions);
                             state.pending_submenu_parent_kind = Some(SubmenuKind::NullOrDie);
@@ -380,7 +380,7 @@ pub(super) fn activate_current_selection(
                             state.submenu_fade_t = 0.0;
                             return ScreenAction::None;
                         }
-                        SubRowId::SyncPacks => {
+                        RowId::NodSyncPacks => {
                             audio::play_sfx("assets/sounds/start.ogg");
                             refresh_sync_pack_options(state);
                             state.pending_submenu_kind = Some(SubmenuKind::SyncPacks);
@@ -398,7 +398,7 @@ pub(super) fn activate_current_selection(
                     return ScreenAction::None;
                 };
                 if let Some(row) = rows.get(row_idx)
-                    && row.id == SubRowId::ScoreImportStart
+                    && row.id == RowId::SiStart
                 {
                     audio::play_sfx("assets/sounds/start.ogg");
                     if let Some(selection) = selected_score_import_selection(state) {
@@ -424,7 +424,7 @@ pub(super) fn activate_current_selection(
                     return ScreenAction::None;
                 };
                 if let Some(row) = rows.get(row_idx)
-                    && row.id == SubRowId::SyncPackStart
+                    && row.id == RowId::SpStart
                 {
                     audio::play_sfx("assets/sounds/start.ogg");
                     let selection = selected_sync_pack_selection(state);

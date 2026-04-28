@@ -20,14 +20,14 @@ const VIDEO_BGS_BINDING: CycleBinding = CycleBinding::Bool(config::update_show_v
 
 pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::VisualStyle,
+        id: RowId::MchVisualStyle,
         label: lookup_key("OptionsMachine", "VisualStyle"),
         choices: VISUAL_STYLE_CHOICES,
         inline: true,
         behavior: RowBehavior::Cycle(VISUAL_STYLE_BINDING),
     },
     SubRow {
-        id: SubRowId::SelectProfile,
+        id: RowId::MchSelectProfile,
         label: lookup_key("OptionsMachine", "SelectProfile"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -37,7 +37,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SELECT_PROFILE_BINDING),
     },
     SubRow {
-        id: SubRowId::SelectColor,
+        id: RowId::MchSelectColor,
         label: lookup_key("OptionsMachine", "SelectColor"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -47,7 +47,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SELECT_COLOR_BINDING),
     },
     SubRow {
-        id: SubRowId::SelectStyle,
+        id: RowId::MchSelectStyle,
         label: lookup_key("OptionsMachine", "SelectStyle"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -57,7 +57,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SELECT_STYLE_BINDING),
     },
     SubRow {
-        id: SubRowId::PreferredStyle,
+        id: RowId::MchPreferredStyle,
         label: lookup_key("OptionsMachine", "PreferredStyle"),
         choices: &[
             localized_choice("OptionsMachine", "PreferredStyleSingle"),
@@ -68,7 +68,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(PREFERRED_STYLE_BINDING),
     },
     SubRow {
-        id: SubRowId::SelectPlayMode,
+        id: RowId::MchSelectPlayMode,
         label: lookup_key("OptionsMachine", "SelectPlayMode"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -78,7 +78,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SELECT_PLAY_MODE_BINDING),
     },
     SubRow {
-        id: SubRowId::PreferredMode,
+        id: RowId::MchPreferredMode,
         label: lookup_key("OptionsMachine", "PreferredMode"),
         choices: &[
             localized_choice("OptionsMachine", "PreferredModeRegular"),
@@ -88,7 +88,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(PREFERRED_MODE_BINDING),
     },
     SubRow {
-        id: SubRowId::Font,
+        id: RowId::MchFont,
         label: lookup_key("OptionsMachine", "MachineFont"),
         choices: &[
             localized_choice("OptionsMachine", "MachineFontCommon"),
@@ -98,7 +98,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(FONT_BINDING),
     },
     SubRow {
-        id: SubRowId::EvalSummary,
+        id: RowId::MchEvalSummary,
         label: lookup_key("OptionsMachine", "EvalSummary"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -108,7 +108,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(EVAL_SUMMARY_BINDING),
     },
     SubRow {
-        id: SubRowId::NameEntry,
+        id: RowId::MchNameEntry,
         label: lookup_key("OptionsMachine", "NameEntry"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -118,7 +118,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(NAME_ENTRY_BINDING),
     },
     SubRow {
-        id: SubRowId::GameoverScreen,
+        id: RowId::MchGameoverScreen,
         label: lookup_key("OptionsMachine", "GameoverScreen"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -128,7 +128,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(GAMEOVER_SCREEN_BINDING),
     },
     SubRow {
-        id: SubRowId::WriteCurrentScreen,
+        id: RowId::MchWriteCurrentScreen,
         label: lookup_key("OptionsMachine", "WriteCurrentScreen"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -138,7 +138,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(WRITE_CURRENT_SCREEN_BINDING),
     },
     SubRow {
-        id: SubRowId::MenuMusic,
+        id: RowId::MchMenuMusic,
         label: lookup_key("OptionsMachine", "MenuMusic"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -148,7 +148,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(MENU_MUSIC_BINDING),
     },
     SubRow {
-        id: SubRowId::Replays,
+        id: RowId::MchReplays,
         label: lookup_key("OptionsMachine", "Replays"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -158,7 +158,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(REPLAYS_BINDING),
     },
     SubRow {
-        id: SubRowId::PerPlayerGlobalOffsets,
+        id: RowId::MchPerPlayerGlobalOffsets,
         label: lookup_key("OptionsMachine", "PerPlayerGlobalOffsets"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -168,7 +168,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(PER_PLAYER_GLOBAL_OFFSETS_BINDING),
     },
     SubRow {
-        id: SubRowId::KeyboardFeatures,
+        id: RowId::MchKeyboardFeatures,
         label: lookup_key("OptionsMachine", "KeyboardFeatures"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -178,7 +178,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(KEYBOARD_FEATURES_BINDING),
     },
     SubRow {
-        id: SubRowId::VideoBgs,
+        id: RowId::MchVideoBgs,
         label: lookup_key("OptionsMachine", "VideoBGs"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -191,7 +191,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::MchVisualStyle,
+        id: RowId::MchVisualStyle,
         name: lookup_key("OptionsMachine", "VisualStyle"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -199,7 +199,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchSelectProfile,
+        id: RowId::MchSelectProfile,
         name: lookup_key("OptionsMachine", "SelectProfile"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -207,7 +207,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchSelectColor,
+        id: RowId::MchSelectColor,
         name: lookup_key("OptionsMachine", "SelectColor"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -215,7 +215,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchSelectStyle,
+        id: RowId::MchSelectStyle,
         name: lookup_key("OptionsMachine", "SelectStyle"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -223,7 +223,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchPreferredStyle,
+        id: RowId::MchPreferredStyle,
         name: lookup_key("OptionsMachine", "PreferredStyle"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -231,7 +231,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchSelectPlayMode,
+        id: RowId::MchSelectPlayMode,
         name: lookup_key("OptionsMachine", "SelectPlayMode"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -239,7 +239,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchPreferredMode,
+        id: RowId::MchPreferredMode,
         name: lookup_key("OptionsMachine", "PreferredMode"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -247,7 +247,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchFont,
+        id: RowId::MchFont,
         name: lookup_key("OptionsMachine", "MachineFont"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -255,7 +255,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchEvalSummary,
+        id: RowId::MchEvalSummary,
         name: lookup_key("OptionsMachine", "EvalSummary"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -263,7 +263,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchNameEntry,
+        id: RowId::MchNameEntry,
         name: lookup_key("OptionsMachine", "NameEntry"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -271,7 +271,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchGameoverScreen,
+        id: RowId::MchGameoverScreen,
         name: lookup_key("OptionsMachine", "GameoverScreen"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -279,7 +279,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchWriteCurrentScreen,
+        id: RowId::MchWriteCurrentScreen,
         name: lookup_key("OptionsMachine", "WriteCurrentScreen"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -287,7 +287,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchMenuMusic,
+        id: RowId::MchMenuMusic,
         name: lookup_key("OptionsMachine", "MenuMusic"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -295,7 +295,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchReplays,
+        id: RowId::MchReplays,
         name: lookup_key("OptionsMachine", "Replays"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -303,7 +303,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchPerPlayerGlobalOffsets,
+        id: RowId::MchPerPlayerGlobalOffsets,
         name: lookup_key("OptionsMachine", "PerPlayerGlobalOffsets"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -311,7 +311,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchKeyboardFeatures,
+        id: RowId::MchKeyboardFeatures,
         name: lookup_key("OptionsMachine", "KeyboardFeatures"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -319,7 +319,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::MchVideoBgs,
+        id: RowId::MchVideoBgs,
         name: lookup_key("OptionsMachine", "VideoBGs"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
@@ -327,7 +327,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

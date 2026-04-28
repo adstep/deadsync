@@ -20,14 +20,14 @@ fn apply_sound_device(state: &mut State, new_idx: usize) -> Outcome {
     if current_rate.is_some() && rate_choice == 0 {
         config::update_audio_sample_rate(None);
     }
-    set_sound_choice_index(state, SubRowId::AudioSampleRate, rate_choice);
+    set_sound_choice_index(state, RowId::SndSampleRate, rate_choice);
     Outcome::changed()
 }
 
 fn apply_audio_output_mode(_state: &mut State, new_idx: usize) -> Outcome {
     config::update_audio_output_mode(audio_output_mode_from_choice(new_idx));
     #[cfg(target_os = "linux")]
-    set_sound_choice_index(_state, SubRowId::AlsaExclusive, 0);
+    set_sound_choice_index(_state, RowId::SndAlsaExclusive, 0);
     Outcome::changed()
 }
 
@@ -44,7 +44,7 @@ fn apply_linux_audio_backend(state: &mut State, new_idx: usize) -> Outcome {
     if matches!(backend, config::LinuxAudioBackend::Alsa) {
         set_sound_choice_index(
             state,
-            SubRowId::AlsaExclusive,
+            RowId::SndAlsaExclusive,
             alsa_exclusive_choice_index(config::get().audio_output_mode),
         );
     } else {
@@ -54,7 +54,7 @@ fn apply_linux_audio_backend(state: &mut State, new_idx: usize) -> Outcome {
         ) {
             config::update_audio_output_mode(selected_audio_output_mode(state));
         }
-        set_sound_choice_index(state, SubRowId::AlsaExclusive, 0);
+        set_sound_choice_index(state, RowId::SndAlsaExclusive, 0);
     }
     Outcome::changed()
 }
@@ -119,14 +119,14 @@ const GLOBAL_OFFSET_BINDING: NumericBinding = NumericBinding {
 
 pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::SoundDevice,
+        id: RowId::SndDevice,
         label: lookup_key("OptionsSound", "SoundDevice"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
         behavior: RowBehavior::Custom(SOUND_DEVICE_BINDING),
     },
     SubRow {
-        id: SubRowId::AudioOutputMode,
+        id: RowId::SndOutputMode,
         label: lookup_key("OptionsSound", "AudioOutputMode"),
         choices: &[
             localized_choice("OptionsSound", "OutputModeAuto"),
@@ -137,7 +137,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
     },
     #[cfg(target_os = "linux")]
     SubRow {
-        id: SubRowId::LinuxAudioBackend,
+        id: RowId::SndLinuxBackend,
         label: lookup_key("OptionsSound", "LinuxAudioBackend"),
         choices: SOUND_LINUX_BACKEND_CHOICES,
         inline: false,
@@ -145,7 +145,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
     },
     #[cfg(target_os = "linux")]
     SubRow {
-        id: SubRowId::AlsaExclusive,
+        id: RowId::SndAlsaExclusive,
         label: lookup_key("OptionsSound", "AlsaExclusive"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -155,42 +155,42 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(ALSA_EXCLUSIVE_BINDING),
     },
     SubRow {
-        id: SubRowId::AudioSampleRate,
+        id: RowId::SndSampleRate,
         label: lookup_key("OptionsSound", "AudioSampleRate"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
         behavior: RowBehavior::Custom(AUDIO_SAMPLE_RATE_BINDING),
     },
     SubRow {
-        id: SubRowId::MasterVolume,
+        id: RowId::SndMasterVolume,
         label: lookup_key("OptionsSound", "MasterVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
         behavior: RowBehavior::Numeric(MASTER_VOLUME_BINDING),
     },
     SubRow {
-        id: SubRowId::SfxVolume,
+        id: RowId::SndSfxVolume,
         label: lookup_key("OptionsSound", "SFXVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
         behavior: RowBehavior::Numeric(SFX_VOLUME_BINDING),
     },
     SubRow {
-        id: SubRowId::AssistTickVolume,
+        id: RowId::SndAssistTickVolume,
         label: lookup_key("OptionsSound", "AssistTickVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
         behavior: RowBehavior::Numeric(ASSIST_TICK_VOLUME_BINDING),
     },
     SubRow {
-        id: SubRowId::MusicVolume,
+        id: RowId::SndMusicVolume,
         label: lookup_key("OptionsSound", "MusicVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
         behavior: RowBehavior::Numeric(MUSIC_VOLUME_BINDING),
     },
     SubRow {
-        id: SubRowId::MineSounds,
+        id: RowId::SndMineSounds,
         label: lookup_key("OptionsSound", "MineSounds"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -200,14 +200,14 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(MINE_SOUNDS_BINDING),
     },
     SubRow {
-        id: SubRowId::GlobalOffset,
+        id: RowId::SndGlobalOffset,
         label: lookup_key("OptionsSound", "GlobalOffset"),
         choices: &[literal_choice("0 ms")],
         inline: false,
         behavior: RowBehavior::Numeric(GLOBAL_OFFSET_BINDING),
     },
     SubRow {
-        id: SubRowId::RateModPreservesPitch,
+        id: RowId::SndRateModPitch,
         label: lookup_key("OptionsSound", "RateModPreservesPitch"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -220,7 +220,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::SndDevice,
+        id: RowId::SndDevice,
         name: lookup_key("OptionsSound", "SoundDevice"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -228,7 +228,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndOutputMode,
+        id: RowId::SndOutputMode,
         name: lookup_key("OptionsSound", "AudioOutputMode"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -237,7 +237,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
     },
     #[cfg(target_os = "linux")]
     Item {
-        id: ItemId::SndLinuxBackend,
+        id: RowId::SndLinuxBackend,
         name: lookup_key("OptionsSound", "LinuxAudioBackend"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -246,7 +246,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
     },
     #[cfg(target_os = "linux")]
     Item {
-        id: ItemId::SndAlsaExclusive,
+        id: RowId::SndAlsaExclusive,
         name: lookup_key("OptionsSound", "AlsaExclusive"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -254,7 +254,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndSampleRate,
+        id: RowId::SndSampleRate,
         name: lookup_key("OptionsSound", "AudioSampleRate"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -262,7 +262,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndMasterVolume,
+        id: RowId::SndMasterVolume,
         name: lookup_key("OptionsSound", "MasterVolume"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -270,7 +270,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndSfxVolume,
+        id: RowId::SndSfxVolume,
         name: lookup_key("OptionsSound", "SFXVolume"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -278,7 +278,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndAssistTickVolume,
+        id: RowId::SndAssistTickVolume,
         name: lookup_key("OptionsSound", "AssistTickVolume"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -286,7 +286,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndMusicVolume,
+        id: RowId::SndMusicVolume,
         name: lookup_key("OptionsSound", "MusicVolume"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -294,7 +294,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndMineSounds,
+        id: RowId::SndMineSounds,
         name: lookup_key("OptionsSound", "MineSounds"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -302,7 +302,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndGlobalOffset,
+        id: RowId::SndGlobalOffset,
         name: lookup_key("OptionsSound", "GlobalOffset"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -310,7 +310,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SndRateModPitch,
+        id: RowId::SndRateModPitch,
         name: lookup_key("OptionsSound", "RateModPreservesPitch"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
@@ -318,7 +318,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -426,12 +426,12 @@ pub(in crate::screens::options) fn master_volume_from_choice(idx: usize) -> u8 {
         .unwrap_or_else(|| *SOUND_VOLUME_LEVELS.last().unwrap_or(&100))
 }
 
-pub(in crate::screens::options) fn sound_row_index(id: SubRowId) -> Option<usize> {
+pub(in crate::screens::options) fn sound_row_index(id: RowId) -> Option<usize> {
     SOUND_OPTIONS_ROWS.iter().position(|row| row.id == id)
 }
 
 pub(in crate::screens::options) fn selected_sound_device_choice(state: &State) -> usize {
-    sound_row_index(SubRowId::SoundDevice)
+    sound_row_index(RowId::SndDevice)
         .and_then(|idx| state.sub[SubmenuKind::Sound].choice_indices.get(idx).copied())
         .unwrap_or(0)
 }
@@ -498,10 +498,8 @@ pub(in crate::screens::options) const fn alsa_exclusive_choice_index(
 
 #[cfg(target_os = "linux")]
 #[inline(always)]
-pub(in crate::screens::options) fn selected_audio_output_mode(
-    state: &State,
-) -> config::AudioOutputMode {
-    sound_row_index(SubRowId::AudioOutputMode)
+pub(in crate::screens::options) fn selected_audio_output_mode(state: &State) -> config::AudioOutputMode {
+    sound_row_index(RowId::SndOutputMode)
         .and_then(|idx| state.sub[SubmenuKind::Sound].choice_indices.get(idx).copied())
         .map(audio_output_mode_from_choice)
         .unwrap_or(config::AudioOutputMode::Auto)
@@ -541,10 +539,8 @@ pub(in crate::screens::options) fn linux_audio_backend_from_choice(
 
 #[cfg(target_os = "linux")]
 #[inline(always)]
-pub(in crate::screens::options) fn selected_linux_audio_backend(
-    state: &State,
-) -> config::LinuxAudioBackend {
-    sound_row_index(SubRowId::LinuxAudioBackend)
+pub(in crate::screens::options) fn selected_linux_audio_backend(state: &State) -> config::LinuxAudioBackend {
+    sound_row_index(RowId::SndLinuxBackend)
         .and_then(|idx| state.sub[SubmenuKind::Sound].choice_indices.get(idx).copied())
         .map(|idx| linux_audio_backend_from_choice(state, idx))
         .unwrap_or(config::LinuxAudioBackend::Auto)
@@ -561,18 +557,14 @@ pub(in crate::screens::options) fn sound_show_alsa_exclusive(state: &State) -> b
 
 #[cfg(target_os = "linux")]
 pub(in crate::screens::options) fn sound_parent_row(actual_idx: usize) -> Option<usize> {
-    let child_idx = sound_row_index(SubRowId::AlsaExclusive)?;
+    let child_idx = sound_row_index(RowId::SndAlsaExclusive)?;
     if actual_idx != child_idx {
         return None;
     }
-    sound_row_index(SubRowId::LinuxAudioBackend)
+    sound_row_index(RowId::SndLinuxBackend)
 }
 
-pub(in crate::screens::options) fn set_sound_choice_index(
-    state: &mut State,
-    id: SubRowId,
-    idx: usize,
-) {
+pub(in crate::screens::options) fn set_sound_choice_index(state: &mut State, id: RowId, idx: usize) {
     let Some(row_idx) = sound_row_index(id) else {
         return;
     };

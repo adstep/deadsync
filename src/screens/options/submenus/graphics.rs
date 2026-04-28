@@ -81,21 +81,21 @@ const SHOW_STATS_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::VideoRenderer,
+        id: RowId::GfxVideoRenderer,
         label: lookup_key("OptionsGraphics", "VideoRenderer"),
         choices: VIDEO_RENDERER_LABELS,
         inline: false,
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::SoftwareRendererThreads,
+        id: RowId::GfxSoftwareThreads,
         label: lookup_key("OptionsGraphics", "SoftwareRendererThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
         behavior: RowBehavior::Custom(SOFTWARE_RENDERER_THREADS_BINDING),
     },
     SubRow {
-        id: SubRowId::DisplayMode,
+        id: RowId::GfxDisplayMode,
         label: lookup_key("OptionsGraphics", "DisplayMode"),
         choices: &[
             localized_choice("OptionsGraphics", "Windowed"),
@@ -106,14 +106,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(DISPLAY_MODE_BINDING),
     },
     SubRow {
-        id: SubRowId::DisplayAspectRatio,
+        id: RowId::GfxDisplayAspectRatio,
         label: lookup_key("OptionsGraphics", "DisplayAspectRatio"),
         choices: DISPLAY_ASPECT_RATIO_CHOICES,
         inline: true,
         behavior: RowBehavior::Custom(DISPLAY_ASPECT_RATIO_BINDING),
     },
     SubRow {
-        id: SubRowId::DisplayResolution,
+        id: RowId::GfxDisplayResolution,
         label: lookup_key("OptionsGraphics", "DisplayResolution"),
         choices: &[
             literal_choice("1920x1080"),
@@ -126,7 +126,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(DISPLAY_RESOLUTION_BINDING),
     },
     SubRow {
-        id: SubRowId::RefreshRate,
+        id: RowId::GfxRefreshRate,
         label: lookup_key("OptionsGraphics", "RefreshRate"),
         choices: &[
             localized_choice("Common", "Default"),
@@ -142,7 +142,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(REFRESH_RATE_BINDING),
     },
     SubRow {
-        id: SubRowId::FullscreenType,
+        id: RowId::GfxFullscreenType,
         label: lookup_key("OptionsGraphics", "FullscreenType"),
         choices: &[
             localized_choice("OptionsGraphics", "FullscreenTypeExclusive"),
@@ -152,7 +152,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::VSync,
+        id: RowId::GfxVSync,
         label: lookup_key("OptionsGraphics", "VSync"),
         choices: &[
             localized_choice("Common", "No"),
@@ -162,14 +162,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::PresentMode,
+        id: RowId::GfxPresentMode,
         label: lookup_key("OptionsGraphics", "PresentMode"),
         choices: &[literal_choice("Mailbox"), literal_choice("Immediate")],
         inline: true,
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::MaxFps,
+        id: RowId::GfxMaxFps,
         label: lookup_key("OptionsGraphics", "MaxFps"),
         choices: &[
             localized_choice("Common", "No"),
@@ -179,14 +179,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(MAX_FPS_BINDING),
     },
     SubRow {
-        id: SubRowId::MaxFpsValue,
+        id: RowId::GfxMaxFpsValue,
         label: lookup_key("OptionsGraphics", "MaxFpsValue"),
         choices: &[localized_choice("Common", "Off")], // Replaced dynamically
         inline: false,
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowStats,
+        id: RowId::GfxShowStats,
         label: lookup_key("OptionsGraphics", "ShowStats"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -198,7 +198,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(SHOW_STATS_BINDING),
     },
     SubRow {
-        id: SubRowId::ValidationLayers,
+        id: RowId::GfxValidationLayers,
         label: lookup_key("OptionsGraphics", "ValidationLayers"),
         choices: &[
             localized_choice("Common", "No"),
@@ -208,7 +208,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(VALIDATION_LAYERS_BINDING),
     },
     SubRow {
-        id: SubRowId::HighDpi,
+        id: RowId::GfxHighDpi,
         label: lookup_key("OptionsGraphics", "HighDPI"),
         choices: &[
             localized_choice("Common", "No"),
@@ -218,7 +218,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
-        id: SubRowId::VisualDelay,
+        id: RowId::GfxVisualDelay,
         label: lookup_key("OptionsGraphics", "VisualDelay"),
         choices: &[literal_choice("0 ms")],
         inline: false,
@@ -228,7 +228,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::GfxVideoRenderer,
+        id: RowId::GfxVideoRenderer,
         name: lookup_key("OptionsGraphics", "VideoRenderer"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -236,7 +236,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxSoftwareThreads,
+        id: RowId::GfxSoftwareThreads,
         name: lookup_key("OptionsGraphics", "SoftwareRendererThreads"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -244,7 +244,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxDisplayMode,
+        id: RowId::GfxDisplayMode,
         name: lookup_key("OptionsGraphics", "DisplayMode"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -252,7 +252,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxDisplayAspectRatio,
+        id: RowId::GfxDisplayAspectRatio,
         name: lookup_key("OptionsGraphics", "DisplayAspectRatio"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -260,7 +260,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxDisplayResolution,
+        id: RowId::GfxDisplayResolution,
         name: lookup_key("OptionsGraphics", "DisplayResolution"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -268,7 +268,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxRefreshRate,
+        id: RowId::GfxRefreshRate,
         name: lookup_key("OptionsGraphics", "RefreshRate"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -276,7 +276,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxFullscreenType,
+        id: RowId::GfxFullscreenType,
         name: lookup_key("OptionsGraphics", "FullscreenType"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -284,7 +284,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxVSync,
+        id: RowId::GfxVSync,
         name: lookup_key("OptionsGraphics", "VSync"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -292,7 +292,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxPresentMode,
+        id: RowId::GfxPresentMode,
         name: lookup_key("OptionsGraphics", "PresentMode"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -300,7 +300,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxMaxFps,
+        id: RowId::GfxMaxFps,
         name: lookup_key("OptionsGraphics", "MaxFps"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -308,7 +308,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxMaxFpsValue,
+        id: RowId::GfxMaxFpsValue,
         name: lookup_key("OptionsGraphics", "MaxFpsValue"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -316,7 +316,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxShowStats,
+        id: RowId::GfxShowStats,
         name: lookup_key("OptionsGraphics", "ShowStats"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -324,7 +324,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxValidationLayers,
+        id: RowId::GfxValidationLayers,
         name: lookup_key("OptionsGraphics", "ValidationLayers"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -332,7 +332,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxHighDpi,
+        id: RowId::GfxHighDpi,
         name: lookup_key("OptionsGraphics", "HighDPI"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -340,7 +340,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GfxVisualDelay,
+        id: RowId::GfxVisualDelay,
         name: lookup_key("OptionsGraphics", "VisualDelay"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGraphicsHelp",
@@ -348,7 +348,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -497,7 +497,7 @@ pub(in crate::screens::options) fn selected_video_renderer(state: &State) -> Bac
     let choice_idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::VideoRenderer,
+        RowId::GfxVideoRenderer,
     ).unwrap_or(0);
     renderer_choice_index_to_backend(choice_idx)
 }
@@ -564,7 +564,7 @@ pub(in crate::screens::options) fn selected_max_fps_label(state: &State) -> Stri
     let idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFpsValue,
+        RowId::GfxMaxFpsValue,
     )
     .unwrap_or(0);
     max_fps_from_choice(&state.max_fps_choices, idx).to_string()
@@ -582,7 +582,7 @@ pub(in crate::screens::options) fn adjust_max_fps_value_choice(
     let current = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFpsValue,
+        RowId::GfxMaxFpsValue,
     )
     .unwrap_or(0)
     .min(state.max_fps_choices.len().saturating_sub(1)) as isize;
@@ -600,7 +600,7 @@ pub(in crate::screens::options) fn adjust_max_fps_value_choice(
 
 pub(in crate::screens::options) fn current_submenu_row_id(
     state: &State,
-) -> Option<(SubmenuKind, SubRowId)> {
+) -> Option<(SubmenuKind, RowId)> {
     let kind = match state.view {
         OptionsView::Submenu(kind) => kind,
         OptionsView::Main => return None,
@@ -613,7 +613,7 @@ pub(in crate::screens::options) fn current_submenu_row_id(
 pub(in crate::screens::options) fn on_max_fps_value_row(state: &State) -> bool {
     matches!(
         current_submenu_row_id(state),
-        Some((SubmenuKind::Graphics, SubRowId::MaxFpsValue))
+        Some((SubmenuKind::Graphics, RowId::GfxMaxFpsValue))
     )
 }
 
@@ -665,14 +665,14 @@ pub(in crate::screens::options) fn selected_present_mode_policy(state: &State) -
     get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::PresentMode,
+        RowId::GfxPresentMode,
     ).map_or(state.present_mode_policy_at_load, PresentModePolicy::from_choice)
 }
 
 pub(in crate::screens::options) fn selected_high_dpi(state: &State) -> bool {
     GRAPHICS_OPTIONS_ROWS
         .iter()
-        .position(|row| row.id == SubRowId::HighDpi)
+        .position(|row| row.id == RowId::GfxHighDpi)
         .and_then(|idx| state.sub[SubmenuKind::Graphics].choice_indices.get(idx).copied())
         .is_some_and(yes_no_from_choice)
 }
@@ -683,14 +683,14 @@ pub(in crate::screens::options) fn set_max_fps_enabled_choice(state: &mut State,
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFps,
+        RowId::GfxMaxFps,
     ) {
         *slot = idx;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFps,
+        RowId::GfxMaxFps,
     ) {
         *slot = idx;
     }
@@ -703,14 +703,14 @@ pub(in crate::screens::options) fn set_max_fps_value_choice_index(state: &mut St
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFpsValue,
+        RowId::GfxMaxFpsValue,
     ) {
         *slot = clamped;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFpsValue,
+        RowId::GfxMaxFpsValue,
     ) {
         *slot = clamped;
     }
@@ -726,7 +726,7 @@ pub(in crate::screens::options) fn graphics_show_present_mode(state: &State) -> 
     get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::VSync,
+        RowId::GfxVSync,
     ).is_some_and(|idx| !yes_no_from_choice(idx))
 }
 
@@ -740,7 +740,7 @@ pub(in crate::screens::options) fn max_fps_enabled(state: &State) -> bool {
     get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFps,
+        RowId::GfxMaxFps,
     ).is_some_and(yes_no_from_choice)
 }
 
@@ -763,7 +763,7 @@ pub(in crate::screens::options) fn selected_fullscreen_type(state: &State) -> Fu
     get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::FullscreenType,
+        RowId::GfxFullscreenType,
     ).map_or(FullscreenType::Exclusive, FullscreenType::from_choice)
 }
 
@@ -771,7 +771,7 @@ pub(in crate::screens::options) fn selected_display_mode(state: &State) -> Displ
     let display_choice = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ).unwrap_or(0);
     let windowed_idx = state.display_mode_choices.len().saturating_sub(1);
     if windowed_idx == 0 || display_choice >= windowed_idx {
@@ -785,7 +785,7 @@ pub(in crate::screens::options) fn selected_display_monitor(state: &State) -> us
     let display_choice = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ).unwrap_or(0);
     let windowed_idx = state.display_mode_choices.len().saturating_sub(1);
     if windowed_idx == 0 || display_choice >= windowed_idx {
@@ -799,7 +799,7 @@ pub(in crate::screens::options) fn selected_refresh_rate_millihertz(state: &Stat
     let idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::RefreshRate,
+        RowId::GfxRefreshRate,
     ).unwrap_or(0);
     state.refresh_rate_choices.get(idx).copied().unwrap_or(0)
 }
@@ -852,7 +852,7 @@ pub(in crate::screens::options) fn selected_max_fps(state: &State) -> u16 {
     let idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::MaxFpsValue,
+        RowId::GfxMaxFpsValue,
     ).unwrap_or(0);
     max_fps_from_choice(&state.max_fps_choices, idx)
 }
@@ -863,7 +863,7 @@ pub(in crate::screens::options) fn ensure_display_mode_choices(state: &mut State
     if let Some(idx) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ) && *idx >= state.display_mode_choices.len()
     {
         *idx = 0;
@@ -871,11 +871,11 @@ pub(in crate::screens::options) fn ensure_display_mode_choices(state: &mut State
     if let Some(choice_idx) = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ) && let Some(cursor_idx) = get_choice_by_id_mut(
             &mut state.sub[SubmenuKind::Graphics].cursor_indices,
             GRAPHICS_OPTIONS_ROWS,
-            SubRowId::DisplayMode,
+            RowId::GfxDisplayMode,
         )
     {
         *cursor_idx = choice_idx;
@@ -924,14 +924,14 @@ pub(in crate::screens::options) fn set_display_mode_row_selection(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ) {
         *slot = idx;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayMode,
+        RowId::GfxDisplayMode,
     ) {
         *slot = idx;
     }
@@ -944,7 +944,7 @@ pub(in crate::screens::options) fn selected_aspect_label(state: &State) -> &'sta
     let idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayAspectRatio,
+        RowId::GfxDisplayAspectRatio,
     ).unwrap_or(0);
     DISPLAY_ASPECT_RATIO_CHOICES
         .get(idx)
@@ -997,14 +997,14 @@ pub(in crate::screens::options) fn sync_display_aspect_ratio(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayAspectRatio,
+        RowId::GfxDisplayAspectRatio,
     ) {
         *slot = idx;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayAspectRatio,
+        RowId::GfxDisplayAspectRatio,
     ) {
         *slot = idx;
     }
@@ -1051,7 +1051,7 @@ pub(in crate::screens::options) fn selected_resolution(state: &State) -> (u32, u
     let idx = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayResolution,
+        RowId::GfxDisplayResolution,
     ).unwrap_or(0);
     state
         .resolution_choices
@@ -1067,14 +1067,14 @@ pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut Stat
         if let Some(slot) = get_choice_by_id_mut(
             &mut state.sub[SubmenuKind::Graphics].choice_indices,
             GRAPHICS_OPTIONS_ROWS,
-            SubRowId::RefreshRate,
+            RowId::GfxRefreshRate,
         ) {
             *slot = 0;
         }
         if let Some(slot) = get_choice_by_id_mut(
             &mut state.sub[SubmenuKind::Graphics].cursor_indices,
             GRAPHICS_OPTIONS_ROWS,
-            SubRowId::RefreshRate,
+            RowId::GfxRefreshRate,
         ) {
             *slot = 0;
         }
@@ -1101,7 +1101,7 @@ pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut Stat
     let current_rate = if let Some(idx) = get_choice_by_id(
         &state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::RefreshRate,
+        RowId::GfxRefreshRate,
     ) {
         state.refresh_rate_choices.get(idx).copied().unwrap_or(0)
     } else {
@@ -1118,14 +1118,14 @@ pub(in crate::screens::options) fn rebuild_refresh_rate_choices(state: &mut Stat
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::RefreshRate,
+        RowId::GfxRefreshRate,
     ) {
         *slot = next_idx;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::RefreshRate,
+        RowId::GfxRefreshRate,
     ) {
         *slot = next_idx;
     }
@@ -1170,14 +1170,14 @@ pub(in crate::screens::options) fn rebuild_resolution_choices(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayResolution,
+        RowId::GfxDisplayResolution,
     ) {
         *slot = next_idx;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].cursor_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::DisplayResolution,
+        RowId::GfxDisplayResolution,
     ) {
         *slot = next_idx;
     }

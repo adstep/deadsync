@@ -1,9 +1,9 @@
 use super::*;
 
-/// Typed identifier for each top-level Options menu row and submenu item.
-/// Used for dispatch so that item selection is string-free.
+/// Typed identifier for every Options row — top-level menu items and submenu
+/// rows alike. Used for dispatch so that item selection is string-free.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ItemId {
+pub enum RowId {
     // Top-level Options menu
     SystemOptions,
     GraphicsOptions,
@@ -194,7 +194,7 @@ pub enum HelpEntry {
 
 /// A simple item model with help text for the description box.
 pub struct Item {
-    pub id: ItemId,
+    pub id: RowId,
     pub name: LookupKey,
     pub help: &'static [HelpEntry],
 }
@@ -223,7 +223,7 @@ pub(super) fn submenu_inline_widths_fit(widths: &[f32], spacing: f32) -> bool {
 pub const ITEMS: &[Item] = &[
     // Top-level ScreenOptionsService rows, ordered to match Simply Love's LineNames.
     Item {
-        id: ItemId::SystemOptions,
+        id: RowId::SystemOptions,
         name: lookup_key("Options", "SystemOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "SystemOptionsHelp")),
@@ -235,7 +235,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::GraphicsOptions,
+        id: RowId::GraphicsOptions,
         name: lookup_key("Options", "GraphicsOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "GraphicsOptionsHelp")),
@@ -254,7 +254,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::SoundOptions,
+        id: RowId::SoundOptions,
         name: lookup_key("Options", "SoundOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "SoundOptionsHelp")),
@@ -270,7 +270,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::InputOptions,
+        id: RowId::InputOptions,
         name: lookup_key("Options", "InputOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "InputOptionsHelp")),
@@ -280,7 +280,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::MachineOptions,
+        id: RowId::MachineOptions,
         name: lookup_key("Options", "MachineOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "MachineOptionsHelp")),
@@ -299,7 +299,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::GameplayOptions,
+        id: RowId::GameplayOptions,
         name: lookup_key("Options", "GameplayOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "GameplayOptionsHelp")),
@@ -310,7 +310,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::SelectMusicOptions,
+        id: RowId::SelectMusicOptions,
         name: lookup_key("Options", "SelectMusicOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "SelectMusicOptionsHelp")),
@@ -332,7 +332,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::AdvancedOptions,
+        id: RowId::AdvancedOptions,
         name: lookup_key("Options", "AdvancedOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "AdvancedOptionsHelp")),
@@ -345,7 +345,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::CourseOptions,
+        id: RowId::CourseOptions,
         name: lookup_key("Options", "CourseOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "CourseOptionsHelp")),
@@ -356,7 +356,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::ManageLocalProfiles,
+        id: RowId::ManageLocalProfiles,
         name: lookup_key("Options", "ManageLocalProfiles"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -364,7 +364,7 @@ pub const ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::OnlineScoreServices,
+        id: RowId::OnlineScoreServices,
         name: lookup_key("Options", "OnlineScoreServices"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "OnlineScoreServicesHelp")),
@@ -374,7 +374,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::NullOrDieOptions,
+        id: RowId::NullOrDieOptions,
         name: lookup_key("Options", "NullOrDieOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsHelp", "NullOrDieOptionsHelp")),
@@ -383,7 +383,7 @@ pub const ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::ReloadSongsCourses,
+        id: RowId::ReloadSongsCourses,
         name: lookup_key("Options", "ReloadSongsCourses"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -391,7 +391,7 @@ pub const ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Credits,
+        id: RowId::Credits,
         name: lookup_key("Options", "Credits"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -399,7 +399,7 @@ pub const ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key("OptionsHelp", "ExitHelp"))],
     },

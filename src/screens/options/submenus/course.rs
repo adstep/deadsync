@@ -11,7 +11,7 @@ const AUTOSUBMIT_INDIVIDUAL_BINDING: CycleBinding =
 
 pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::ShowRandomCourses,
+        id: RowId::CrsShowRandom,
         label: lookup_key("OptionsCourse", "ShowRandomCourses"),
         choices: &[
             localized_choice("Common", "No"),
@@ -21,7 +21,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_RANDOM_COURSES_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowMostPlayed,
+        id: RowId::CrsShowMostPlayed,
         label: lookup_key("OptionsCourse", "ShowMostPlayed"),
         choices: &[
             localized_choice("Common", "No"),
@@ -31,7 +31,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_MOST_PLAYED_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowIndividualScores,
+        id: RowId::CrsShowIndividualScores,
         label: lookup_key("OptionsCourse", "ShowIndividualScores"),
         choices: &[
             localized_choice("Common", "No"),
@@ -41,7 +41,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_INDIVIDUAL_SCORES_BINDING),
     },
     SubRow {
-        id: SubRowId::AutosubmitIndividual,
+        id: RowId::CrsAutosubmitIndividual,
         label: lookup_key("OptionsCourse", "AutosubmitIndividual"),
         choices: &[
             localized_choice("Common", "No"),
@@ -54,7 +54,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const COURSE_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::CrsShowRandom,
+        id: RowId::CrsShowRandom,
         name: lookup_key("OptionsCourse", "ShowRandomCourses"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsCourseHelp",
@@ -62,7 +62,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::CrsShowMostPlayed,
+        id: RowId::CrsShowMostPlayed,
         name: lookup_key("OptionsCourse", "ShowMostPlayed"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsCourseHelp",
@@ -70,7 +70,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::CrsShowIndividualScores,
+        id: RowId::CrsShowIndividualScores,
         name: lookup_key("OptionsCourse", "ShowIndividualScores"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsCourseHelp",
@@ -78,7 +78,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::CrsAutosubmitIndividual,
+        id: RowId::CrsAutosubmitIndividual,
         name: lookup_key("OptionsCourse", "AutosubmitIndividual"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsCourseHelp",
@@ -86,7 +86,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

@@ -57,14 +57,14 @@ const PACK_SYNC_THREADS_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::NullOrDieOptions,
+        id: RowId::NodOptions,
         label: lookup_key("OptionsOnlineScoring", "NullOrDieOptions"),
         choices: &[],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::SyncPacks,
+        id: RowId::NodSyncPacks,
         label: lookup_key("OptionsOnlineScoring", "SyncPacks"),
         choices: &[],
         inline: false,
@@ -74,7 +74,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::SyncGraph,
+        id: RowId::NodSyncGraph,
         label: lookup_key("OptionsNullOrDie", "SyncGraph"),
         choices: &[
             localized_choice("OptionsNullOrDie", "SyncGraphFrequency"),
@@ -85,7 +85,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SYNC_GRAPH_BINDING),
     },
     SubRow {
-        id: SubRowId::SyncConfidence,
+        id: RowId::NodSyncConfidence,
         label: lookup_key("OptionsNullOrDie", "SyncConfidence"),
         choices: &[
             literal_choice("0%"),
@@ -114,42 +114,42 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SYNC_CONFIDENCE_BINDING),
     },
     SubRow {
-        id: SubRowId::PackSyncThreads,
+        id: RowId::NodPackSyncThreads,
         label: lookup_key("OptionsNullOrDie", "PackSyncThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
         behavior: RowBehavior::Custom(PACK_SYNC_THREADS_BINDING),
     },
     SubRow {
-        id: SubRowId::Fingerprint,
+        id: RowId::NodFingerprint,
         label: lookup_key("OptionsNullOrDie", "Fingerprint"),
         choices: &[literal_choice("50.0 ms")],
         inline: false,
         behavior: RowBehavior::Numeric(FINGERPRINT_BINDING),
     },
     SubRow {
-        id: SubRowId::Window,
+        id: RowId::NodWindow,
         label: lookup_key("OptionsNullOrDie", "Window"),
         choices: &[literal_choice("10.0 ms")],
         inline: false,
         behavior: RowBehavior::Numeric(WINDOW_BINDING),
     },
     SubRow {
-        id: SubRowId::Step,
+        id: RowId::NodStep,
         label: lookup_key("OptionsNullOrDie", "Step"),
         choices: &[literal_choice("0.2 ms")],
         inline: false,
         behavior: RowBehavior::Numeric(STEP_BINDING),
     },
     SubRow {
-        id: SubRowId::MagicOffset,
+        id: RowId::NodMagicOffset,
         label: lookup_key("OptionsNullOrDie", "MagicOffset"),
         choices: &[literal_choice("0.0 ms")],
         inline: false,
         behavior: RowBehavior::Numeric(MAGIC_OFFSET_BINDING),
     },
     SubRow {
-        id: SubRowId::KernelTarget,
+        id: RowId::NodKernelTarget,
         label: lookup_key("OptionsNullOrDie", "KernelTarget"),
         choices: &[
             localized_choice("OptionsNullOrDie", "KernelTargetDigest"),
@@ -159,7 +159,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(KERNEL_TARGET_BINDING),
     },
     SubRow {
-        id: SubRowId::KernelType,
+        id: RowId::NodKernelType,
         label: lookup_key("OptionsNullOrDie", "KernelType"),
         choices: &[
             localized_choice("OptionsNullOrDie", "KernelTypeRising"),
@@ -169,7 +169,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(KERNEL_TYPE_BINDING),
     },
     SubRow {
-        id: SubRowId::FullSpectrogram,
+        id: RowId::NodFullSpectrogram,
         label: lookup_key("OptionsNullOrDie", "FullSpectrogram"),
         choices: &[
             localized_choice("Common", "No"),
@@ -182,7 +182,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const NULL_OR_DIE_MENU_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::NodOptions,
+        id: RowId::NodOptions,
         name: lookup_key("OptionsOnlineScoring", "NullOrDieOptions"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsOnlineScoringHelp",
@@ -190,7 +190,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodSyncPacks,
+        id: RowId::NodSyncPacks,
         name: lookup_key("OptionsOnlineScoring", "SyncPacks"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsOnlineScoringHelp",
@@ -198,7 +198,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -209,7 +209,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ITEMS: &[Item] = &[
 
 pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::NodSyncGraph,
+        id: RowId::NodSyncGraph,
         name: lookup_key("OptionsNullOrDie", "SyncGraph"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -217,7 +217,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodSyncConfidence,
+        id: RowId::NodSyncConfidence,
         name: lookup_key("OptionsNullOrDie", "SyncConfidence"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -225,7 +225,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodPackSyncThreads,
+        id: RowId::NodPackSyncThreads,
         name: lookup_key("OptionsNullOrDie", "PackSyncThreads"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -233,7 +233,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodFingerprint,
+        id: RowId::NodFingerprint,
         name: lookup_key("OptionsNullOrDie", "Fingerprint"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -241,7 +241,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodWindow,
+        id: RowId::NodWindow,
         name: lookup_key("OptionsNullOrDie", "Window"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -249,7 +249,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodStep,
+        id: RowId::NodStep,
         name: lookup_key("OptionsNullOrDie", "Step"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -257,7 +257,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodMagicOffset,
+        id: RowId::NodMagicOffset,
         name: lookup_key("OptionsNullOrDie", "MagicOffset"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -265,7 +265,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodKernelTarget,
+        id: RowId::NodKernelTarget,
         name: lookup_key("OptionsNullOrDie", "KernelTarget"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -273,7 +273,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodKernelType,
+        id: RowId::NodKernelType,
         name: lookup_key("OptionsNullOrDie", "KernelType"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -281,7 +281,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::NodFullSpectrogram,
+        id: RowId::NodFullSpectrogram,
         name: lookup_key("OptionsNullOrDie", "FullSpectrogram"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsNullOrDieHelp",
@@ -289,7 +289,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

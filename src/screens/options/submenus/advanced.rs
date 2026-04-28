@@ -19,7 +19,7 @@ const SONG_PARSING_THREADS_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::DefaultFailType,
+        id: RowId::AdvDefaultFailType,
         label: lookup_key("OptionsAdvanced", "DefaultFailType"),
         choices: &[
             localized_choice("OptionsAdvanced", "FailImmediate"),
@@ -29,7 +29,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(DEFAULT_FAIL_TYPE_BINDING),
     },
     SubRow {
-        id: SubRowId::BannerCache,
+        id: RowId::AdvBannerCache,
         label: lookup_key("OptionsAdvanced", "BannerCache"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -39,7 +39,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(BANNER_CACHE_BINDING),
     },
     SubRow {
-        id: SubRowId::CdTitleCache,
+        id: RowId::AdvCdTitleCache,
         label: lookup_key("OptionsAdvanced", "CDTitleCache"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -49,14 +49,14 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(CDTITLE_CACHE_BINDING),
     },
     SubRow {
-        id: SubRowId::SongParsingThreads,
+        id: RowId::AdvSongParsingThreads,
         label: lookup_key("OptionsAdvanced", "SongParsingThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
         behavior: RowBehavior::Custom(SONG_PARSING_THREADS_BINDING),
     },
     SubRow {
-        id: SubRowId::CacheSongs,
+        id: RowId::AdvCacheSongs,
         label: lookup_key("OptionsAdvanced", "CacheSongs"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -66,7 +66,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(CACHE_SONGS_BINDING),
     },
     SubRow {
-        id: SubRowId::FastLoad,
+        id: RowId::AdvFastLoad,
         label: lookup_key("OptionsAdvanced", "FastLoad"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -79,7 +79,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::AdvDefaultFailType,
+        id: RowId::AdvDefaultFailType,
         name: lookup_key("OptionsAdvanced", "DefaultFailType"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -87,7 +87,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AdvBannerCache,
+        id: RowId::AdvBannerCache,
         name: lookup_key("OptionsAdvanced", "BannerCache"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -95,7 +95,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AdvCdTitleCache,
+        id: RowId::AdvCdTitleCache,
         name: lookup_key("OptionsAdvanced", "CDTitleCache"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -103,7 +103,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AdvSongParsingThreads,
+        id: RowId::AdvSongParsingThreads,
         name: lookup_key("OptionsAdvanced", "SongParsingThreads"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -111,7 +111,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AdvCacheSongs,
+        id: RowId::AdvCacheSongs,
         name: lookup_key("OptionsAdvanced", "CacheSongs"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -119,7 +119,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AdvFastLoad,
+        id: RowId::AdvFastLoad,
         name: lookup_key("OptionsAdvanced", "FastLoad"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsAdvancedHelp",
@@ -127,7 +127,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

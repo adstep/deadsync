@@ -31,28 +31,28 @@ const DEFAULT_NOTESKIN_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::Game,
+        id: RowId::SysGame,
         label: lookup_key("OptionsSystem", "Game"),
         choices: &[localized_choice("OptionsSystem", "DanceGame")],
         inline: false,
         behavior: RowBehavior::Cycle(GAME_BINDING),
     },
     SubRow {
-        id: SubRowId::Theme,
+        id: RowId::SysTheme,
         label: lookup_key("OptionsSystem", "Theme"),
         choices: &[localized_choice("OptionsSystem", "SimplyLoveTheme")],
         inline: false,
         behavior: RowBehavior::Cycle(THEME_BINDING),
     },
     SubRow {
-        id: SubRowId::Language,
+        id: RowId::SysLanguage,
         label: lookup_key("OptionsSystem", "Language"),
         choices: LANGUAGE_CHOICES,
         inline: false,
         behavior: RowBehavior::Custom(LANGUAGE_BINDING),
     },
     SubRow {
-        id: SubRowId::LogLevel,
+        id: RowId::SysLogLevel,
         label: lookup_key("OptionsSystem", "LogLevel"),
         choices: &[
             localized_choice("OptionsSystem", "LogLevelError"),
@@ -65,7 +65,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(LOG_LEVEL_BINDING),
     },
     SubRow {
-        id: SubRowId::LogFile,
+        id: RowId::SysLogFile,
         label: lookup_key("OptionsSystem", "LogFile"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -75,7 +75,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(LOG_FILE_BINDING),
     },
     SubRow {
-        id: SubRowId::DefaultNoteSkin,
+        id: RowId::SysDefaultNoteSkin,
         label: lookup_key("OptionsSystem", "DefaultNoteSkin"),
         choices: &[literal_choice(profile::NoteSkin::DEFAULT_NAME)],
         inline: false,
@@ -85,7 +85,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::SysGame,
+        id: RowId::SysGame,
         name: lookup_key("OptionsSystem", "Game"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -93,7 +93,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SysTheme,
+        id: RowId::SysTheme,
         name: lookup_key("OptionsSystem", "Theme"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -101,7 +101,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SysLanguage,
+        id: RowId::SysLanguage,
         name: lookup_key("OptionsSystem", "Language"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -109,7 +109,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SysLogLevel,
+        id: RowId::SysLogLevel,
         name: lookup_key("OptionsSystem", "LogLevel"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -117,7 +117,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SysLogFile,
+        id: RowId::SysLogFile,
         name: lookup_key("OptionsSystem", "LogFile"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -125,7 +125,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SysDefaultNoteSkin,
+        id: RowId::SysDefaultNoteSkin,
         name: lookup_key("OptionsSystem", "DefaultNoteSkin"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
@@ -133,7 +133,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

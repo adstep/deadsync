@@ -34,21 +34,21 @@ const MENU_BUTTONS_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::ConfigureMappings,
+        id: RowId::InpConfigureMappings,
         label: lookup_key("OptionsInput", "ConfigureMappings"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::TestInput,
+        id: RowId::InpTestInput,
         label: lookup_key("OptionsInput", "TestInput"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::InputOptions,
+        id: RowId::InpInputOptions,
         label: lookup_key("OptionsInput", "InputOptions"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
@@ -58,7 +58,7 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const INPUT_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::InpConfigureMappings,
+        id: RowId::InpConfigureMappings,
         name: lookup_key("OptionsInput", "ConfigureMappings"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -66,7 +66,7 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::InpTestInput,
+        id: RowId::InpTestInput,
         name: lookup_key("OptionsInput", "TestInput"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -74,7 +74,7 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::InpInputOptions,
+        id: RowId::InpInputOptions,
         name: lookup_key("OptionsInput", "InputOptions"),
         help: &[
             HelpEntry::Paragraph(lookup_key("OptionsInputHelp", "InputOptionsHelp")),
@@ -87,7 +87,7 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ITEMS: &[Item] = &[
         ],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -98,14 +98,14 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ITEMS: &[Item] = &[
 
 pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::GamepadBackend,
+        id: RowId::InpGamepadBackend,
         label: lookup_key("OptionsInput", "GamepadBackend"),
         choices: INPUT_BACKEND_CHOICES,
         inline: INPUT_BACKEND_INLINE,
         behavior: RowBehavior::Cycle(GAMEPAD_BACKEND_BINDING),
     },
     SubRow {
-        id: SubRowId::UseFsrs,
+        id: RowId::InpUseFsrs,
         label: lookup_key("OptionsInput", "UseFSRs"),
         choices: &[
             localized_choice("Common", "No"),
@@ -115,7 +115,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(USE_FSRS_BINDING),
     },
     SubRow {
-        id: SubRowId::MenuNavigation,
+        id: RowId::InpMenuNavigation,
         label: lookup_key("OptionsInput", "MenuNavigation"),
         choices: &[
             localized_choice("OptionsInput", "MenuNavigationFiveKey"),
@@ -125,7 +125,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(MENU_NAVIGATION_BINDING),
     },
     SubRow {
-        id: SubRowId::OptionsNavigation,
+        id: RowId::InpOptionsNavigation,
         label: lookup_key("OptionsInput", "OptionsNavigation"),
         choices: &[
             localized_choice("OptionsInput", "OptionsNavigationStepMania"),
@@ -135,7 +135,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(OPTIONS_NAVIGATION_BINDING),
     },
     SubRow {
-        id: SubRowId::MenuButtons,
+        id: RowId::InpMenuButtons,
         label: lookup_key("OptionsInput", "MenuButtons"),
         choices: &[
             localized_choice("OptionsInput", "DedicatedMenuButtonsGameplay"),
@@ -145,7 +145,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(MENU_BUTTONS_BINDING),
     },
     SubRow {
-        id: SubRowId::Debounce,
+        id: RowId::InpDebounce,
         label: lookup_key("OptionsInput", "Debounce"),
         choices: &[literal_choice("20ms")],
         inline: true,
@@ -155,7 +155,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::InpGamepadBackend,
+        id: RowId::InpGamepadBackend,
         name: lookup_key("OptionsInput", "GamepadBackend"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -163,7 +163,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::InpUseFsrs,
+        id: RowId::InpUseFsrs,
         name: lookup_key("OptionsInput", "UseFSRs"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -171,23 +171,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::InpMenuButtons,
-        name: lookup_key("OptionsInput", "MenuButtons"),
-        help: &[HelpEntry::Paragraph(lookup_key(
-            "OptionsInputHelp",
-            "MenuButtonsHelp",
-        ))],
-    },
-    Item {
-        id: ItemId::InpOptionsNavigation,
-        name: lookup_key("OptionsInput", "OptionsNavigation"),
-        help: &[HelpEntry::Paragraph(lookup_key(
-            "OptionsInputHelp",
-            "OptionsNavigationHelp",
-        ))],
-    },
-    Item {
-        id: ItemId::InpMenuNavigation,
+        id: RowId::InpMenuNavigation,
         name: lookup_key("OptionsInput", "MenuNavigation"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -195,7 +179,23 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::InpDebounce,
+        id: RowId::InpOptionsNavigation,
+        name: lookup_key("OptionsInput", "OptionsNavigation"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsInputHelp",
+            "OptionsNavigationHelp",
+        ))],
+    },
+    Item {
+        id: RowId::InpMenuButtons,
+        name: lookup_key("OptionsInput", "MenuButtons"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsInputHelp",
+            "MenuButtonsHelp",
+        ))],
+    },
+    Item {
+        id: RowId::InpDebounce,
         name: lookup_key("OptionsInput", "Debounce"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsInputHelp",
@@ -203,7 +203,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

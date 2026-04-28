@@ -3,9 +3,9 @@ use super::*;
 /// Returns `true` when the given submenu row should be treated as disabled
 /// (non-interactive and visually dimmed). Add new cases here for any row
 /// that should be conditionally locked based on runtime state.
-pub(super) fn is_submenu_row_disabled(kind: SubmenuKind, id: SubRowId) -> bool {
+pub(super) fn is_submenu_row_disabled(kind: SubmenuKind, id: RowId) -> bool {
     match (kind, id) {
-        (SubmenuKind::InputBackend, SubRowId::MenuButtons) => {
+        (SubmenuKind::InputBackend, RowId::InpMenuButtons) => {
             !crate::engine::input::any_player_has_dedicated_menu_buttons_for_mode(
                 config::get().three_key_navigation,
             )
@@ -25,15 +25,15 @@ pub(super) fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows
             rows.iter()
                 .enumerate()
                 .filter_map(|(idx, row)| {
-                    if row.id == SubRowId::SoftwareRendererThreads && !show_sw {
+                    if row.id == RowId::GfxSoftwareThreads && !show_sw {
                         None
-                    } else if row.id == SubRowId::PresentMode && !show_present_mode {
+                    } else if row.id == RowId::GfxPresentMode && !show_present_mode {
                         None
-                    } else if row.id == SubRowId::MaxFps && !show_max_fps {
+                    } else if row.id == RowId::GfxMaxFps && !show_max_fps {
                         None
-                    } else if row.id == SubRowId::MaxFpsValue && !show_max_fps_value {
+                    } else if row.id == RowId::GfxMaxFpsValue && !show_max_fps_value {
                         None
-                    } else if row.id == SubRowId::HighDpi && !show_high_dpi {
+                    } else if row.id == RowId::GfxHighDpi && !show_high_dpi {
                         None
                     } else {
                         Some(idx)
@@ -46,39 +46,39 @@ pub(super) fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows
             let show_banners = get_choice_by_id(
                 &state.sub[SubmenuKind::SelectMusic].choice_indices,
                 SELECT_MUSIC_OPTIONS_ROWS,
-                SubRowId::ShowBanners,
+                RowId::SmShowBanners,
             ).unwrap_or_else(|| yes_no_choice_index(true));
             let show_banners = yes_no_from_choice(show_banners);
             let show_breakdown = get_choice_by_id(
                 &state.sub[SubmenuKind::SelectMusic].choice_indices,
                 SELECT_MUSIC_OPTIONS_ROWS,
-                SubRowId::ShowBreakdown,
+                RowId::SmShowBreakdown,
             ).unwrap_or_else(|| yes_no_choice_index(true));
             let show_breakdown = yes_no_from_choice(show_breakdown);
             let show_previews = get_choice_by_id(
                 &state.sub[SubmenuKind::SelectMusic].choice_indices,
                 SELECT_MUSIC_OPTIONS_ROWS,
-                SubRowId::MusicPreviews,
+                RowId::SmPreviews,
             ).unwrap_or_else(|| yes_no_choice_index(true));
             let show_previews = yes_no_from_choice(show_previews);
             let show_scorebox = get_choice_by_id(
                 &state.sub[SubmenuKind::SelectMusic].choice_indices,
                 SELECT_MUSIC_OPTIONS_ROWS,
-                SubRowId::ShowGsBox,
+                RowId::SmShowRivals,
             ).unwrap_or_else(|| yes_no_choice_index(true));
             let show_scorebox = yes_no_from_choice(show_scorebox);
             rows.iter()
                 .enumerate()
                 .filter_map(|(idx, row)| {
-                    if row.id == SubRowId::ShowVideoBanners && !show_banners {
+                    if row.id == RowId::SmShowVideoBanners && !show_banners {
                         None
-                    } else if row.id == SubRowId::BreakdownStyle && !show_breakdown {
+                    } else if row.id == RowId::SmBreakdownStyle && !show_breakdown {
                         None
-                    } else if row.id == SubRowId::LoopMusic && !show_previews {
+                    } else if row.id == RowId::SmPreviewLoop && !show_previews {
                         None
-                    } else if row.id == SubRowId::GsBoxPlacement && !show_scorebox {
+                    } else if row.id == RowId::SmScoreboxPlacement && !show_scorebox {
                         None
-                    } else if row.id == SubRowId::GsBoxLeaderboards && !show_scorebox {
+                    } else if row.id == RowId::SmScoreboxCycle && !show_scorebox {
                         None
                     } else {
                         Some(idx)
@@ -90,21 +90,21 @@ pub(super) fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows
             let show_preferred_style = get_choice_by_id(
                 &state.sub[SubmenuKind::Machine].choice_indices,
                 MACHINE_OPTIONS_ROWS,
-                SubRowId::SelectStyle,
+                RowId::MchSelectStyle,
             ).unwrap_or(1)
                 == 0;
             let show_preferred_mode = get_choice_by_id(
                 &state.sub[SubmenuKind::Machine].choice_indices,
                 MACHINE_OPTIONS_ROWS,
-                SubRowId::SelectPlayMode,
+                RowId::MchSelectPlayMode,
             ).unwrap_or(1)
                 == 0;
             rows.iter()
                 .enumerate()
                 .filter_map(|(idx, row)| {
-                    if row.id == SubRowId::PreferredStyle && !show_preferred_style {
+                    if row.id == RowId::MchPreferredStyle && !show_preferred_style {
                         None
-                    } else if row.id == SubRowId::PreferredMode && !show_preferred_mode {
+                    } else if row.id == RowId::MchPreferredMode && !show_preferred_mode {
                         None
                     } else {
                         Some(idx)
@@ -117,7 +117,7 @@ pub(super) fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows
             .iter()
             .enumerate()
             .filter_map(|(idx, row)| {
-                if row.id == SubRowId::AlsaExclusive && !sound_show_alsa_exclusive(state) {
+                if row.id == RowId::SndAlsaExclusive && !sound_show_alsa_exclusive(state) {
                     None
                 } else {
                     Some(idx)

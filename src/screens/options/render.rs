@@ -941,11 +941,11 @@ fn build_options_submenu_rows(
                     .unwrap_or(0)
                     .min(layout.texts.len().saturating_sub(1));
                 let is_chart_info_row = matches!(kind, SubmenuKind::SelectMusic)
-                    && row.id == SubRowId::ChartInfo;
+                    && row.id == RowId::SmChartInfo;
                 let is_scorebox_cycle_row = matches!(kind, SubmenuKind::SelectMusic)
-                    && row.id == SubRowId::GsBoxLeaderboards;
+                    && row.id == RowId::SmScoreboxCycle;
                 let is_auto_screenshot_row = matches!(kind, SubmenuKind::Gameplay)
-                    && row.id == SubRowId::AutoScreenshot;
+                    && row.id == RowId::GpAutoScreenshot;
                 let is_multi_toggle_row = is_chart_info_row
                     || is_scorebox_cycle_row
                     || is_auto_screenshot_row;

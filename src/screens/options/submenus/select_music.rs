@@ -47,7 +47,7 @@ const GS_BOX_PLACEMENT_BINDING: CycleBinding = CycleBinding::Index(|i| {
 
 pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::ShowBanners,
+        id: RowId::SmShowBanners,
         label: lookup_key("OptionsSelectMusic", "ShowBanners"),
         choices: &[
             localized_choice("Common", "No"),
@@ -57,7 +57,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_BANNERS_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowVideoBanners,
+        id: RowId::SmShowVideoBanners,
         label: lookup_key("OptionsSelectMusic", "ShowVideoBanners"),
         choices: &[
             localized_choice("Common", "No"),
@@ -67,7 +67,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_VIDEO_BANNERS_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowBreakdown,
+        id: RowId::SmShowBreakdown,
         label: lookup_key("OptionsSelectMusic", "ShowBreakdown"),
         choices: &[
             localized_choice("Common", "No"),
@@ -77,14 +77,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_BREAKDOWN_BINDING),
     },
     SubRow {
-        id: SubRowId::BreakdownStyle,
+        id: RowId::SmBreakdownStyle,
         label: lookup_key("OptionsSelectMusic", "BreakdownStyle"),
         choices: &[literal_choice("SL"), literal_choice("SN")],
         inline: true,
         behavior: RowBehavior::Cycle(BREAKDOWN_STYLE_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowNativeLanguage,
+        id: RowId::SmNativeLanguage,
         label: lookup_key("OptionsSelectMusic", "ShowNativeLanguage"),
         choices: &[
             localized_choice("OptionsSelectMusic", "NativeLanguageTranslit"),
@@ -94,7 +94,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_NATIVE_LANGUAGE_BINDING),
     },
     SubRow {
-        id: SubRowId::MusicWheelSpeed,
+        id: RowId::SmWheelSpeed,
         label: lookup_key("OptionsSelectMusic", "MusicWheelSpeed"),
         choices: &[
             localized_choice("OptionsSelectMusic", "WheelSpeedSlow"),
@@ -109,14 +109,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(MUSIC_WHEEL_SPEED_BINDING),
     },
     SubRow {
-        id: SubRowId::MusicWheelStyle,
+        id: RowId::SmWheelStyle,
         label: lookup_key("OptionsSelectMusic", "MusicWheelStyle"),
         choices: &[literal_choice("ITG"), literal_choice("IIDX")],
         inline: true,
         behavior: RowBehavior::Cycle(MUSIC_WHEEL_STYLE_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowCdTitles,
+        id: RowId::SmCdTitles,
         label: lookup_key("OptionsSelectMusic", "ShowCDTitles"),
         choices: &[
             localized_choice("Common", "No"),
@@ -126,7 +126,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_CD_TITLES_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowWheelGrades,
+        id: RowId::SmWheelGrades,
         label: lookup_key("OptionsSelectMusic", "ShowWheelGrades"),
         choices: &[
             localized_choice("Common", "No"),
@@ -136,7 +136,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_WHEEL_GRADES_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowWheelLamps,
+        id: RowId::SmWheelLamps,
         label: lookup_key("OptionsSelectMusic", "ShowWheelLamps"),
         choices: &[
             localized_choice("Common", "No"),
@@ -146,7 +146,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_WHEEL_LAMPS_BINDING),
     },
     SubRow {
-        id: SubRowId::ItlRank,
+        id: RowId::SmWheelItlRank,
         label: lookup_key("OptionsSelectMusic", "ITLRank"),
         choices: &[
             localized_choice("OptionsSelectMusic", "ItlRankNone"),
@@ -157,7 +157,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ITL_RANK_BINDING),
     },
     SubRow {
-        id: SubRowId::ItlWheelData,
+        id: RowId::SmWheelItl,
         label: lookup_key("OptionsSelectMusic", "ITLWheelData"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -168,7 +168,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ITL_WHEEL_DATA_BINDING),
     },
     SubRow {
-        id: SubRowId::NewPackBadge,
+        id: RowId::SmNewPackBadge,
         label: lookup_key("OptionsSelectMusic", "NewPackBadge"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -179,7 +179,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(NEW_PACK_BADGE_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowPatternInfo,
+        id: RowId::SmPatternInfo,
         label: lookup_key("OptionsSelectMusic", "ShowPatternInfo"),
         choices: &[
             localized_choice("Common", "Auto"),
@@ -190,7 +190,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_PATTERN_INFO_BINDING),
     },
     SubRow {
-        id: SubRowId::ChartInfo,
+        id: RowId::SmChartInfo,
         label: lookup_key("OptionsSelectMusic", "ChartInfo"),
         choices: &[
             localized_choice("OptionsSelectMusic", "ChartInfoPeakNPS"),
@@ -200,7 +200,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(DEFERRED_APPLY_CYCLE),
     },
     SubRow {
-        id: SubRowId::MusicPreviews,
+        id: RowId::SmPreviews,
         label: lookup_key("OptionsSelectMusic", "MusicPreviews"),
         choices: &[
             localized_choice("Common", "No"),
@@ -210,7 +210,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(MUSIC_PREVIEWS_BINDING),
     },
     SubRow {
-        id: SubRowId::PreviewMarker,
+        id: RowId::SmPreviewMarker,
         label: lookup_key("OptionsSelectMusic", "PreviewMarker"),
         choices: &[
             localized_choice("Common", "No"),
@@ -220,7 +220,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(PREVIEW_MARKER_BINDING),
     },
     SubRow {
-        id: SubRowId::LoopMusic,
+        id: RowId::SmPreviewLoop,
         label: lookup_key("OptionsSelectMusic", "LoopMusic"),
         choices: &[
             localized_choice("OptionsSelectMusic", "LoopMusicPlayOnce"),
@@ -230,7 +230,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(LOOP_MUSIC_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowGameplayTimer,
+        id: RowId::SmGameplayTimer,
         label: lookup_key("OptionsSelectMusic", "ShowGameplayTimer"),
         choices: &[
             localized_choice("Common", "No"),
@@ -240,7 +240,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_GAMEPLAY_TIMER_BINDING),
     },
     SubRow {
-        id: SubRowId::ShowGsBox,
+        id: RowId::SmShowRivals,
         label: lookup_key("OptionsSelectMusic", "ShowGSBox"),
         choices: &[
             localized_choice("Common", "No"),
@@ -250,7 +250,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(SHOW_GS_BOX_BINDING),
     },
     SubRow {
-        id: SubRowId::GsBoxPlacement,
+        id: RowId::SmScoreboxPlacement,
         label: lookup_key("OptionsSelectMusic", "GSBoxPlacement"),
         choices: &[
             localized_choice("Common", "Auto"),
@@ -260,7 +260,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(GS_BOX_PLACEMENT_BINDING),
     },
     SubRow {
-        id: SubRowId::GsBoxLeaderboards,
+        id: RowId::SmScoreboxCycle,
         label: lookup_key("OptionsSelectMusic", "GSBoxLeaderboards"),
         choices: &[
             localized_choice("OptionsSelectMusic", "ScoreboxCycleITG"),
@@ -275,7 +275,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::SmShowBanners,
+        id: RowId::SmShowBanners,
         name: lookup_key("OptionsSelectMusic", "ShowBanners"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -283,7 +283,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmShowVideoBanners,
+        id: RowId::SmShowVideoBanners,
         name: lookup_key("OptionsSelectMusic", "ShowVideoBanners"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -291,7 +291,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmShowBreakdown,
+        id: RowId::SmShowBreakdown,
         name: lookup_key("OptionsSelectMusic", "ShowBreakdown"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -299,7 +299,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmBreakdownStyle,
+        id: RowId::SmBreakdownStyle,
         name: lookup_key("OptionsSelectMusic", "BreakdownStyle"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -307,7 +307,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmNativeLanguage,
+        id: RowId::SmNativeLanguage,
         name: lookup_key("OptionsSelectMusic", "ShowNativeLanguage"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -315,7 +315,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelSpeed,
+        id: RowId::SmWheelSpeed,
         name: lookup_key("OptionsSelectMusic", "MusicWheelSpeed"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -323,7 +323,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelStyle,
+        id: RowId::SmWheelStyle,
         name: lookup_key("OptionsSelectMusic", "MusicWheelStyle"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -331,7 +331,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmCdTitles,
+        id: RowId::SmCdTitles,
         name: lookup_key("OptionsSelectMusic", "ShowCDTitles"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -339,7 +339,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelGrades,
+        id: RowId::SmWheelGrades,
         name: lookup_key("OptionsSelectMusic", "ShowWheelGrades"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -347,7 +347,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelLamps,
+        id: RowId::SmWheelLamps,
         name: lookup_key("OptionsSelectMusic", "ShowWheelLamps"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -355,7 +355,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelItlRank,
+        id: RowId::SmWheelItlRank,
         name: lookup_key("OptionsSelectMusic", "ITLRank"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -363,7 +363,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmWheelItl,
+        id: RowId::SmWheelItl,
         name: lookup_key("OptionsSelectMusic", "ITLWheelData"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -371,7 +371,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmNewPackBadge,
+        id: RowId::SmNewPackBadge,
         name: lookup_key("OptionsSelectMusic", "NewPackBadge"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -379,7 +379,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmPatternInfo,
+        id: RowId::SmPatternInfo,
         name: lookup_key("OptionsSelectMusic", "ShowPatternInfo"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -387,7 +387,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmChartInfo,
+        id: RowId::SmChartInfo,
         name: lookup_key("OptionsSelectMusic", "ChartInfo"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -395,7 +395,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmPreviews,
+        id: RowId::SmPreviews,
         name: lookup_key("OptionsSelectMusic", "MusicPreviews"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -403,7 +403,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmPreviewMarker,
+        id: RowId::SmPreviewMarker,
         name: lookup_key("OptionsSelectMusic", "PreviewMarker"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -411,7 +411,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmPreviewLoop,
+        id: RowId::SmPreviewLoop,
         name: lookup_key("OptionsSelectMusic", "LoopMusic"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -419,7 +419,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmGameplayTimer,
+        id: RowId::SmGameplayTimer,
         name: lookup_key("OptionsSelectMusic", "ShowGameplayTimer"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -427,7 +427,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmShowRivals,
+        id: RowId::SmShowRivals,
         name: lookup_key("OptionsSelectMusic", "ShowGSBox"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -435,7 +435,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmScoreboxPlacement,
+        id: RowId::SmScoreboxPlacement,
         name: lookup_key("OptionsSelectMusic", "GSBoxPlacement"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -443,7 +443,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SmScoreboxCycle,
+        id: RowId::SmScoreboxCycle,
         name: lookup_key("OptionsSelectMusic", "GSBoxLeaderboards"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
@@ -451,7 +451,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -592,14 +592,14 @@ pub(in crate::screens::options) fn toggle_select_music_scorebox_cycle_option(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
-        SubRowId::GsBoxLeaderboards,
+        RowId::SmScoreboxCycle,
     ) {
         *slot = clamped;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::SelectMusic].cursor_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
-        SubRowId::GsBoxLeaderboards,
+        RowId::SmScoreboxCycle,
     ) {
         *slot = clamped;
     }
@@ -641,13 +641,13 @@ pub(in crate::screens::options) fn toggle_auto_screenshot_option(
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Gameplay].choice_indices,
         GAMEPLAY_OPTIONS_ROWS,
-        SubRowId::AutoScreenshot,
+        RowId::GpAutoScreenshot,
         clamped,
     );
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Gameplay].cursor_indices,
         GAMEPLAY_OPTIONS_ROWS,
-        SubRowId::AutoScreenshot,
+        RowId::GpAutoScreenshot,
         clamped,
     );
     audio::play_sfx("assets/sounds/change_value.ogg");
@@ -728,14 +728,14 @@ pub(in crate::screens::options) fn toggle_select_music_chart_info_option(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
-        SubRowId::ChartInfo,
+        RowId::SmChartInfo,
     ) {
         *slot = clamped;
     }
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::SelectMusic].cursor_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
-        SubRowId::ChartInfo,
+        RowId::SmChartInfo,
     ) {
         *slot = clamped;
     }

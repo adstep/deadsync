@@ -11,7 +11,7 @@ const BPM_DECIMAL_BINDING: CycleBinding =
 
 pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::BgBrightness,
+        id: RowId::GpBgBrightness,
         label: lookup_key("OptionsGameplay", "BGBrightness"),
         choices: &[
             literal_choice("0%"),
@@ -30,7 +30,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(BG_BRIGHTNESS_BINDING),
     },
     SubRow {
-        id: SubRowId::CenteredP1Notefield,
+        id: RowId::GpCenteredP1,
         label: lookup_key("OptionsGameplay", "CenteredP1Notefield"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -40,7 +40,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(CENTERED_P1_NOTEFIELD_BINDING),
     },
     SubRow {
-        id: SubRowId::ZmodRatingBox,
+        id: RowId::GpZmodRatingBox,
         label: lookup_key("OptionsGameplay", "ZmodRatingBox"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -50,7 +50,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ZMOD_RATING_BOX_BINDING),
     },
     SubRow {
-        id: SubRowId::BpmDecimal,
+        id: RowId::GpBpmDecimal,
         label: lookup_key("OptionsGameplay", "BpmDecimal"),
         choices: &[
             localized_choice("Common", "Off"),
@@ -60,7 +60,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(BPM_DECIMAL_BINDING),
     },
     SubRow {
-        id: SubRowId::AutoScreenshot,
+        id: RowId::GpAutoScreenshot,
         label: lookup_key("OptionsGameplay", "AutoScreenshot"),
         choices: &[
             literal_choice("PBs"),
@@ -76,7 +76,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::GpBgBrightness,
+        id: RowId::GpBgBrightness,
         name: lookup_key("OptionsGameplay", "BGBrightness"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGameplayHelp",
@@ -84,7 +84,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GpCenteredP1,
+        id: RowId::GpCenteredP1,
         name: lookup_key("OptionsGameplay", "CenteredP1Notefield"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGameplayHelp",
@@ -92,7 +92,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GpZmodRatingBox,
+        id: RowId::GpZmodRatingBox,
         name: lookup_key("OptionsGameplay", "ZmodRatingBox"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGameplayHelp",
@@ -100,7 +100,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GpBpmDecimal,
+        id: RowId::GpBpmDecimal,
         name: lookup_key("OptionsGameplay", "BpmDecimal"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGameplayHelp",
@@ -108,7 +108,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GpAutoScreenshot,
+        id: RowId::GpAutoScreenshot,
         name: lookup_key("OptionsGameplay", "AutoScreenshot"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGameplayHelp",
@@ -116,7 +116,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

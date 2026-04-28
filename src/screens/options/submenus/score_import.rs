@@ -11,7 +11,7 @@ const SCORE_IMPORT_ENDPOINT_BINDING: CustomBinding = CustomBinding {
 
 pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::ScoreImportEndpoint,
+        id: RowId::SiEndpoint,
         label: lookup_key("OptionsScoreImport", "ScoreImportEndpoint"),
         choices: &[
             literal_choice("GrooveStats"),
@@ -22,21 +22,21 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Custom(SCORE_IMPORT_ENDPOINT_BINDING),
     },
     SubRow {
-        id: SubRowId::ScoreImportProfile,
+        id: RowId::SiProfile,
         label: lookup_key("OptionsScoreImport", "ScoreImportProfile"),
         choices: &[localized_choice("OptionsScoreImport", "NoEligibleProfiles")],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::ScoreImportPack,
+        id: RowId::SiPack,
         label: lookup_key("OptionsScoreImport", "ScoreImportPack"),
         choices: &[localized_choice("OptionsScoreImport", "AllPacks")],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::ScoreImportOnlyMissing,
+        id: RowId::SiOnlyMissing,
         label: lookup_key("OptionsScoreImport", "ScoreImportOnlyMissing"),
         choices: &[
             localized_choice("Common", "No"),
@@ -46,7 +46,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::ScoreImportStart,
+        id: RowId::SiStart,
         label: lookup_key("OptionsScoreImport", "ScoreImportStart"),
         choices: &[localized_choice("Common", "Start")],
         inline: false,
@@ -56,7 +56,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::SiEndpoint,
+        id: RowId::SiEndpoint,
         name: lookup_key("OptionsScoreImport", "ScoreImportEndpoint"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsScoreImportHelp",
@@ -64,7 +64,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SiProfile,
+        id: RowId::SiProfile,
         name: lookup_key("OptionsScoreImport", "ScoreImportProfile"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsScoreImportHelp",
@@ -72,7 +72,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SiPack,
+        id: RowId::SiPack,
         name: lookup_key("OptionsScoreImport", "ScoreImportPack"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsScoreImportHelp",
@@ -80,7 +80,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SiOnlyMissing,
+        id: RowId::SiOnlyMissing,
         name: lookup_key("OptionsScoreImport", "ScoreImportOnlyMissing"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsScoreImportHelp",
@@ -88,7 +88,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::SiStart,
+        id: RowId::SiStart,
         name: lookup_key("OptionsScoreImport", "ScoreImportStart"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsScoreImportHelp",
@@ -96,7 +96,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",

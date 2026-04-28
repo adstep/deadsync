@@ -1,155 +1,7 @@
 use super::*;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SubRowId {
-    // System Options
-    Game,
-    Theme,
-    Language,
-    LogLevel,
-    LogFile,
-    DefaultNoteSkin,
-    // Graphics Options
-    VideoRenderer,
-    SoftwareRendererThreads,
-    DisplayMode,
-    DisplayAspectRatio,
-    DisplayResolution,
-    RefreshRate,
-    FullscreenType,
-    VSync,
-    PresentMode,
-    MaxFps,
-    MaxFpsValue,
-    ShowStats,
-    ValidationLayers,
-    HighDpi,
-    VisualDelay,
-    // Sound Options
-    SoundDevice,
-    AudioOutputMode,
-    AudioSampleRate,
-    MasterVolume,
-    SfxVolume,
-    AssistTickVolume,
-    MusicVolume,
-    MineSounds,
-    GlobalOffset,
-    RateModPreservesPitch,
-    #[cfg(target_os = "linux")]
-    LinuxAudioBackend,
-    #[cfg(target_os = "linux")]
-    AlsaExclusive,
-    // Input Options (launcher)
-    ConfigureMappings,
-    TestInput,
-    InputOptions,
-    // Input Backend Options
-    GamepadBackend,
-    UseFsrs,
-    MenuNavigation,
-    OptionsNavigation,
-    MenuButtons,
-    Debounce,
-    // Machine Options
-    SelectProfile,
-    SelectColor,
-    SelectStyle,
-    PreferredStyle,
-    SelectPlayMode,
-    PreferredMode,
-    Font,
-    EvalSummary,
-    NameEntry,
-    GameoverScreen,
-    WriteCurrentScreen,
-    MenuMusic,
-    VisualStyle,
-    Replays,
-    PerPlayerGlobalOffsets,
-    KeyboardFeatures,
-    VideoBgs,
-    // Gameplay Options
-    BgBrightness,
-    CenteredP1Notefield,
-    ZmodRatingBox,
-    BpmDecimal,
-    AutoScreenshot,
-    // Select Music Options
-    ShowBanners,
-    ShowVideoBanners,
-    ShowBreakdown,
-    BreakdownStyle,
-    ShowNativeLanguage,
-    MusicWheelSpeed,
-    MusicWheelStyle,
-    ShowCdTitles,
-    ShowWheelGrades,
-    ShowWheelLamps,
-    ItlRank,
-    ItlWheelData,
-    NewPackBadge,
-    ShowPatternInfo,
-    ChartInfo,
-    MusicPreviews,
-    PreviewMarker,
-    LoopMusic,
-    ShowGameplayTimer,
-    ShowGsBox,
-    GsBoxPlacement,
-    GsBoxLeaderboards,
-    // Course Options
-    ShowRandomCourses,
-    ShowMostPlayed,
-    ShowIndividualScores,
-    AutosubmitIndividual,
-    // Advanced Options
-    DefaultFailType,
-    BannerCache,
-    CdTitleCache,
-    SongParsingThreads,
-    CacheSongs,
-    FastLoad,
-    // GrooveStats Options
-    EnableGrooveStats,
-    EnableBoogieStats,
-    AutoPopulateScores,
-    AutoDownloadUnlocks,
-    SeparateUnlocksByPlayer,
-    // ArrowCloud Options
-    EnableArrowCloud,
-    ArrowCloudSubmitFails,
-    // Online Scoring (launcher)
-    GsBsOptions,
-    ArrowCloudOptions,
-    ScoreImport,
-    // Null-or-Die (launcher)
-    NullOrDieOptions,
-    SyncPacks,
-    // Null-or-Die Settings
-    SyncGraph,
-    SyncConfidence,
-    PackSyncThreads,
-    Fingerprint,
-    Window,
-    Step,
-    MagicOffset,
-    KernelTarget,
-    KernelType,
-    FullSpectrogram,
-    // Sync Pack
-    SyncPackPack,
-    SyncPackStart,
-    // Score Import
-    ScoreImportEndpoint,
-    ScoreImportProfile,
-    ScoreImportPack,
-    ScoreImportOnlyMissing,
-    ScoreImportStart,
-}
-
 pub struct SubRow {
-    pub id: SubRowId,
+    pub id: RowId,
     pub label: LookupKey,
     pub choices: &'static [Choice],
     pub inline: bool, // whether to lay out choices inline (vs single centered value)
@@ -298,12 +150,7 @@ pub(super) const fn literal_choice(s: &'static str) -> Choice {
     Choice::Literal(s)
 }
 
-pub(super) fn set_choice_by_id(
-    choice_indices: &mut Vec<usize>,
-    rows: &[SubRow],
-    id: SubRowId,
-    idx: usize,
-) {
+pub(super) fn set_choice_by_id(choice_indices: &mut Vec<usize>, rows: &[SubRow], id: RowId, idx: usize) {
     if let Some(pos) = rows.iter().position(|r| r.id == id)
         && let Some(slot) = choice_indices.get_mut(pos)
     {
@@ -312,21 +159,21 @@ pub(super) fn set_choice_by_id(
     }
 }
 
-/// Find the positional index of a row by its `SubRowId`.
-pub(super) fn row_position(rows: &[SubRow], id: SubRowId) -> Option<usize> {
+/// Find the positional index of a row by its `RowId`.
+pub(super) fn row_position(rows: &[SubRow], id: RowId) -> Option<usize> {
     rows.iter().position(|r| r.id == id)
 }
 
-/// Read the current choice index for a row identified by `SubRowId`.
-pub(super) fn get_choice_by_id(choices: &[usize], rows: &[SubRow], id: SubRowId) -> Option<usize> {
+/// Read the current choice index for a row identified by `RowId`.
+pub(super) fn get_choice_by_id(choices: &[usize], rows: &[SubRow], id: RowId) -> Option<usize> {
     row_position(rows, id).and_then(|pos| choices.get(pos).copied())
 }
 
-/// Get a mutable reference to the choice index for a row identified by `SubRowId`.
+/// Get a mutable reference to the choice index for a row identified by `RowId`.
 pub(super) fn get_choice_by_id_mut<'a>(
     choices: &'a mut [usize],
     rows: &[SubRow],
-    id: SubRowId,
+    id: RowId,
 ) -> Option<&'a mut usize> {
     row_position(rows, id).and_then(move |pos| choices.get_mut(pos))
 }

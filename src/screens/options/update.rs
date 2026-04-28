@@ -36,7 +36,7 @@ pub fn sync_video_renderer(state: &mut State, renderer: BackendType) {
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::VideoRenderer,
+        RowId::GfxVideoRenderer,
     ) {
         *slot = backend_to_renderer_choice_index(renderer);
     }
@@ -61,7 +61,7 @@ pub fn sync_display_mode(
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::FullscreenType,
+        RowId::GfxFullscreenType,
     ) {
         *slot = target_type.choice_index();
     }
@@ -82,7 +82,7 @@ pub fn sync_show_stats_mode(state: &mut State, mode: u8) {
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::ShowStats,
+        RowId::GfxShowStats,
         mode.min(3) as usize,
     );
     sync_submenu_cursor_indices(state);
@@ -93,7 +93,7 @@ pub fn sync_translated_titles(state: &mut State, enabled: bool) {
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
-        SubRowId::ShowNativeLanguage,
+        RowId::SmNativeLanguage,
         translated_titles_choice_index(enabled),
     );
     sync_submenu_cursor_indices(state);
@@ -113,7 +113,7 @@ pub fn sync_max_fps(state: &mut State, max_fps: u16) {
 
 pub fn sync_vsync(state: &mut State, enabled: bool) {
     state.vsync_at_load = enabled;
-    if let Some(slot) = get_choice_by_id_mut(&mut state.sub[SubmenuKind::Graphics].choice_indices, GRAPHICS_OPTIONS_ROWS, SubRowId::VSync) {
+    if let Some(slot) = get_choice_by_id_mut(&mut state.sub[SubmenuKind::Graphics].choice_indices, GRAPHICS_OPTIONS_ROWS, RowId::GfxVSync) {
         *slot = yes_no_choice_index(enabled);
     }
     sync_submenu_cursor_indices(state);
@@ -125,7 +125,7 @@ pub fn sync_high_dpi(state: &mut State, enabled: bool) {
     set_choice_by_id(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::HighDpi,
+        RowId::GfxHighDpi,
         yes_no_choice_index(enabled),
     );
     sync_submenu_cursor_indices(state);
@@ -137,7 +137,7 @@ pub fn sync_present_mode_policy(state: &mut State, mode: PresentModePolicy) {
     if let Some(slot) = get_choice_by_id_mut(
         &mut state.sub[SubmenuKind::Graphics].choice_indices,
         GRAPHICS_OPTIONS_ROWS,
-        SubRowId::PresentMode,
+        RowId::GfxPresentMode,
     ) {
         *slot = mode.choice_index();
     }
@@ -274,7 +274,7 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
                 let vsync = get_choice_by_id(
                     &state.sub[SubmenuKind::Graphics].choice_indices,
                     GRAPHICS_OPTIONS_ROWS,
-                    SubRowId::VSync,
+                    RowId::GfxVSync,
                 ).is_none_or(yes_no_from_choice);
                 (
                     Some(selected_video_renderer(state)),

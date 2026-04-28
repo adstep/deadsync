@@ -29,7 +29,7 @@ const ARROWCLOUD_SUBMIT_FAILS_BINDING: CycleBinding =
 
 pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::EnableGrooveStats,
+        id: RowId::GsEnable,
         label: lookup_key("OptionsGrooveStats", "EnableGrooveStats"),
         choices: &[
             localized_choice("Common", "No"),
@@ -39,7 +39,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ENABLE_GROOVESTATS_BINDING),
     },
     SubRow {
-        id: SubRowId::EnableBoogieStats,
+        id: RowId::GsEnableBoogie,
         label: lookup_key("OptionsGrooveStats", "EnableBoogieStats"),
         choices: &[
             localized_choice("Common", "No"),
@@ -49,7 +49,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ENABLE_BOOGIESTATS_BINDING),
     },
     SubRow {
-        id: SubRowId::AutoPopulateScores,
+        id: RowId::GsAutoPopulate,
         label: lookup_key("OptionsGrooveStats", "AutoPopulateScores"),
         choices: &[
             localized_choice("Common", "No"),
@@ -59,7 +59,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(AUTO_POPULATE_SCORES_BINDING),
     },
     SubRow {
-        id: SubRowId::AutoDownloadUnlocks,
+        id: RowId::GsAutoDownloadUnlocks,
         label: lookup_key("OptionsGrooveStats", "AutoDownloadUnlocks"),
         choices: &[
             localized_choice("Common", "No"),
@@ -69,7 +69,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(AUTO_DOWNLOAD_UNLOCKS_BINDING),
     },
     SubRow {
-        id: SubRowId::SeparateUnlocksByPlayer,
+        id: RowId::GsSeparateUnlocks,
         label: lookup_key("OptionsGrooveStats", "SeparateUnlocksByPlayer"),
         choices: &[
             localized_choice("Common", "No"),
@@ -82,7 +82,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::EnableArrowCloud,
+        id: RowId::AcEnable,
         label: lookup_key("OptionsGrooveStats", "EnableArrowCloud"),
         choices: &[
             localized_choice("Common", "No"),
@@ -92,7 +92,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
         behavior: RowBehavior::Cycle(ENABLE_ARROWCLOUD_BINDING),
     },
     SubRow {
-        id: SubRowId::ArrowCloudSubmitFails,
+        id: RowId::AcSubmitFails,
         label: lookup_key("OptionsGrooveStats", "ArrowCloudSubmitFails"),
         choices: &[
             localized_choice("Common", "No"),
@@ -105,21 +105,21 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
 
 pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
-        id: SubRowId::GsBsOptions,
+        id: RowId::OsGsBsOptions,
         label: lookup_key("OptionsOnlineScoring", "GsBsOptions"),
         choices: &[],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::ArrowCloudOptions,
+        id: RowId::OsArrowCloudOptions,
         label: lookup_key("OptionsOnlineScoring", "ArrowCloudOptions"),
         choices: &[],
         inline: false,
         behavior: RowBehavior::Exit,
     },
     SubRow {
-        id: SubRowId::ScoreImport,
+        id: RowId::OsScoreImport,
         label: lookup_key("OptionsOnlineScoring", "ScoreImport"),
         choices: &[],
         inline: false,
@@ -129,7 +129,7 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ROWS: &[SubRow] = &
 
 pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::GsEnable,
+        id: RowId::GsEnable,
         name: lookup_key("OptionsGrooveStats", "EnableGrooveStats"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -137,7 +137,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GsEnableBoogie,
+        id: RowId::GsEnableBoogie,
         name: lookup_key("OptionsGrooveStats", "EnableBoogieStats"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -145,7 +145,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GsAutoPopulate,
+        id: RowId::GsAutoPopulate,
         name: lookup_key("OptionsGrooveStats", "AutoPopulateScores"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -153,7 +153,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GsAutoDownloadUnlocks,
+        id: RowId::GsAutoDownloadUnlocks,
         name: lookup_key("OptionsGrooveStats", "AutoDownloadUnlocks"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -161,7 +161,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::GsSeparateUnlocks,
+        id: RowId::GsSeparateUnlocks,
         name: lookup_key("OptionsGrooveStats", "SeparateUnlocksByPlayer"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -169,7 +169,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -180,7 +180,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ITEMS: &[Item] = &[
 
 pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::AcEnable,
+        id: RowId::AcEnable,
         name: lookup_key("OptionsGrooveStats", "EnableArrowCloud"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -188,7 +188,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::AcSubmitFails,
+        id: RowId::AcSubmitFails,
         name: lookup_key("OptionsGrooveStats", "ArrowCloudSubmitFails"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsGrooveStatsHelp",
@@ -196,7 +196,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
@@ -207,7 +207,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ITEMS: &[Item] = &[
 
 pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ITEMS: &[Item] = &[
     Item {
-        id: ItemId::OsGsBsOptions,
+        id: RowId::OsGsBsOptions,
         name: lookup_key("OptionsOnlineScoring", "GsBsOptions"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsOnlineScoringHelp",
@@ -215,7 +215,7 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::OsArrowCloudOptions,
+        id: RowId::OsArrowCloudOptions,
         name: lookup_key("OptionsOnlineScoring", "ArrowCloudOptions"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsOnlineScoringHelp",
@@ -223,7 +223,7 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::OsScoreImport,
+        id: RowId::OsScoreImport,
         name: lookup_key("OptionsOnlineScoring", "ScoreImport"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsOnlineScoringHelp",
@@ -231,7 +231,7 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ITEMS: &[Item] = &[
         ))],
     },
     Item {
-        id: ItemId::Exit,
+        id: RowId::Exit,
         name: lookup_key("Options", "Exit"),
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
