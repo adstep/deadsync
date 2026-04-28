@@ -8,6 +8,21 @@ const DEBOUNCE_BINDING: NumericBinding = NumericBinding {
     persist: |v| config::update_input_debounce_seconds(v as f32 / 1000.0),
 };
 
+fn persist_gamepad_backend(idx: usize) {
+    #[cfg(target_os = "windows")]
+    {
+        config::update_windows_gamepad_backend(windows_backend_from_choice(idx));
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = idx;
+}
+
+const GAMEPAD_BACKEND_BINDING: CycleBinding = CycleBinding::Index(persist_gamepad_backend);
+const USE_FSRS_BINDING: CycleBinding = CycleBinding::Bool(config::update_use_fsrs);
+const MENU_NAVIGATION_BINDING: CycleBinding = CycleBinding::Bool(config::update_three_key_navigation);
+const OPTIONS_NAVIGATION_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_arcade_options_navigation);
+
 pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ConfigureMappings,
@@ -78,7 +93,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsInput", "GamepadBackend"),
         choices: INPUT_BACKEND_CHOICES,
         inline: INPUT_BACKEND_INLINE,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(GAMEPAD_BACKEND_BINDING),
     },
     SubRow {
         id: SubRowId::UseFsrs,
@@ -88,7 +103,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(USE_FSRS_BINDING),
     },
     SubRow {
         id: SubRowId::MenuNavigation,
@@ -98,7 +113,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "MenuNavigationThreeKey"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MENU_NAVIGATION_BINDING),
     },
     SubRow {
         id: SubRowId::OptionsNavigation,
@@ -108,7 +123,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "OptionsNavigationArcade"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(OPTIONS_NAVIGATION_BINDING),
     },
     SubRow {
         id: SubRowId::MenuButtons,

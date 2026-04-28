@@ -1,5 +1,32 @@
 use super::super::*;
 
+fn persist_enable_groovestats(enabled: bool) {
+    config::update_enable_groovestats(enabled);
+    crate::game::online::init();
+}
+
+fn persist_enable_boogiestats(enabled: bool) {
+    config::update_enable_boogiestats(enabled);
+    crate::game::online::init();
+}
+
+fn persist_enable_arrowcloud(enabled: bool) {
+    config::update_enable_arrowcloud(enabled);
+    crate::game::online::init();
+}
+
+const ENABLE_GROOVESTATS_BINDING: CycleBinding = CycleBinding::Bool(persist_enable_groovestats);
+const ENABLE_BOOGIESTATS_BINDING: CycleBinding = CycleBinding::Bool(persist_enable_boogiestats);
+const AUTO_POPULATE_SCORES_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_auto_populate_gs_scores);
+const AUTO_DOWNLOAD_UNLOCKS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_auto_download_unlocks);
+const SEPARATE_UNLOCKS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_separate_unlocks_by_player);
+const ENABLE_ARROWCLOUD_BINDING: CycleBinding = CycleBinding::Bool(persist_enable_arrowcloud);
+const ARROWCLOUD_SUBMIT_FAILS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_submit_arrowcloud_fails);
+
 pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::EnableGrooveStats,
@@ -9,7 +36,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ENABLE_GROOVESTATS_BINDING),
     },
     SubRow {
         id: SubRowId::EnableBoogieStats,
@@ -19,7 +46,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ENABLE_BOOGIESTATS_BINDING),
     },
     SubRow {
         id: SubRowId::AutoPopulateScores,
@@ -29,7 +56,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(AUTO_POPULATE_SCORES_BINDING),
     },
     SubRow {
         id: SubRowId::AutoDownloadUnlocks,
@@ -39,7 +66,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(AUTO_DOWNLOAD_UNLOCKS_BINDING),
     },
     SubRow {
         id: SubRowId::SeparateUnlocksByPlayer,
@@ -49,7 +76,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SEPARATE_UNLOCKS_BINDING),
     },
 ];
 
@@ -62,7 +89,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ENABLE_ARROWCLOUD_BINDING),
     },
     SubRow {
         id: SubRowId::ArrowCloudSubmitFails,
@@ -72,7 +99,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ARROWCLOUD_SUBMIT_FAILS_BINDING),
     },
 ];
 

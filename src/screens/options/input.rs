@@ -150,21 +150,6 @@ pub(super) fn apply_submenu_choice_delta(
         }
     } else if matches!(kind, SubmenuKind::InputBackend) {
         let row = &rows[row_index];
-        if row.id == SubRowId::GamepadBackend {
-            #[cfg(target_os = "windows")]
-            {
-                config::update_windows_gamepad_backend(windows_backend_from_choice(new_index));
-            }
-        }
-        if row.id == SubRowId::UseFsrs {
-            config::update_use_fsrs(yes_no_from_choice(new_index));
-        }
-        if row.id == SubRowId::MenuNavigation {
-            config::update_three_key_navigation(new_index == 1);
-        }
-        if row.id == SubRowId::OptionsNavigation {
-            config::update_arcade_options_navigation(new_index == 1);
-        }
         if row.id == SubRowId::MenuButtons {
             state.pending_dedicated_menu_buttons = Some(new_index == 1);
         }
@@ -301,31 +286,6 @@ pub(super) fn apply_submenu_choice_delta(
             config::update_select_music_scorebox_placement(
                 SelectMusicScoreboxPlacement::from_choice(new_index),
             );
-        }
-    } else if matches!(kind, SubmenuKind::GrooveStats) {
-        let row = &rows[row_index];
-        if row.id == SubRowId::EnableGrooveStats {
-            let enabled = yes_no_from_choice(new_index);
-            config::update_enable_groovestats(enabled);
-            // Re-run connectivity logic so toggling this option applies immediately.
-            crate::game::online::init();
-        } else if row.id == SubRowId::EnableBoogieStats {
-            config::update_enable_boogiestats(yes_no_from_choice(new_index));
-            crate::game::online::init();
-        } else if row.id == SubRowId::AutoPopulateScores {
-            config::update_auto_populate_gs_scores(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::AutoDownloadUnlocks {
-            config::update_auto_download_unlocks(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::SeparateUnlocksByPlayer {
-            config::update_separate_unlocks_by_player(yes_no_from_choice(new_index));
-        }
-    } else if matches!(kind, SubmenuKind::ArrowCloud) {
-        let row = &rows[row_index];
-        if row.id == SubRowId::EnableArrowCloud {
-            config::update_enable_arrowcloud(yes_no_from_choice(new_index));
-            crate::game::online::init();
-        } else if row.id == SubRowId::ArrowCloudSubmitFails {
-            config::update_submit_arrowcloud_fails(yes_no_from_choice(new_index));
         }
     } else if matches!(kind, SubmenuKind::ScoreImport) {
         let row = &rows[row_index];
