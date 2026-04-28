@@ -388,9 +388,13 @@ fn build_score_import_overlay(state: &State) -> Option<Vec<Actor>> {
 
 fn build_top_bar(state: &State) -> Actor {
     const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    let title_text = match state.view {
-        OptionsView::Main => "OPTIONS",
-        OptionsView::Submenu(kind) => submenu_title(kind),
+    let title_owned: Option<Arc<str>> = match state.view {
+        OptionsView::Main => None,
+        OptionsView::Submenu(kind) => Some(submenu_title(kind).get()),
+    };
+    let title_text: &str = match &title_owned {
+        Some(s) => s,
+        None => "OPTIONS",
     };
     screen_bar::build(screen_bar::ScreenBarParams {
         title: title_text,

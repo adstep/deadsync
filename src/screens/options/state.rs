@@ -95,14 +95,6 @@ impl std::ops::IndexMut<SubmenuKind> for SubmenuStates {
     }
 }
 
-#[inline(always)]
-pub(super) const fn is_launcher_submenu(kind: SubmenuKind) -> bool {
-    matches!(
-        kind,
-        SubmenuKind::Input | SubmenuKind::OnlineScoring | SubmenuKind::NullOrDie
-    )
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionsView {
     Main,

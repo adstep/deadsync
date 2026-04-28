@@ -31,6 +31,23 @@ fn inferred_aspect_choice_maps_1024x768_to_4_3() {
 }
 
 #[test]
+fn submenu_items_have_one_more_entry_than_rows() {
+    // Every submenu's item table must have exactly one more entry than its
+    // row table — the trailing entry is the synthetic "Exit" row's item.
+    // This also guards against accidental row/item table desync when
+    // editing a submenu definition.
+    for kind in SubmenuKind::ALL {
+        let rows = submenu_rows(kind).len();
+        let items = submenu_items(kind).len();
+        assert_eq!(
+            items,
+            rows + 1,
+            "{kind:?}: expected items.len() == rows.len() + 1, got rows={rows} items={items}"
+        );
+    }
+}
+
+#[test]
 fn sync_display_resolution_selects_loaded_4_3_mode() {
     let mut state = init();
     sync_display_resolution(&mut state, 1024, 768);
@@ -91,7 +108,7 @@ fn every_submenu_row_has_typed_behavior() {
     // the row tables to make sure no submenu is empty and that every row's
     // behavior variant is one of the exhaustive arms.
     for kind in SubmenuKind::ALL {
-        let rows = visibility::submenu_rows(kind);
+        let rows = submenu_rows(kind);
         assert!(
             !rows.is_empty(),
             "submenu {:?} has no rows",

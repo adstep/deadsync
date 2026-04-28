@@ -49,6 +49,8 @@ mod item;
 use item::*;
 mod state;
 use state::*;
+mod registry;
+use registry::*;
 mod visibility;
 use visibility::*;
 mod reload;
