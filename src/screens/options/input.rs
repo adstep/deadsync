@@ -247,12 +247,6 @@ pub(super) fn apply_submenu_choice_delta(
                 let rate = sample_rate_from_choice(state, new_index);
                 config::update_audio_sample_rate(rate);
             }
-            SubRowId::MineSounds => {
-                config::update_mine_hit_sound(new_index == 1);
-            }
-            SubRowId::RateModPreservesPitch => {
-                config::update_rate_mod_preserves_pitch(new_index == 1);
-            }
             _ => {}
         }
     } else if matches!(kind, SubmenuKind::SelectMusic) {

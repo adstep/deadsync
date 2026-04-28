@@ -8,6 +8,10 @@ const MASTER_VOLUME_BINDING: NumericBinding = NumericBinding {
     persist: |v| config::update_master_volume(v as u8),
 };
 
+const MINE_SOUNDS_BINDING: CycleBinding = CycleBinding::Bool(config::update_mine_hit_sound);
+const RATE_MOD_PRESERVES_PITCH_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_rate_mod_preserves_pitch);
+
 const SFX_VOLUME_BINDING: NumericBinding = NumericBinding {
     get_mut: |s: &mut State| &mut s.sfx_volume_pct,
     min: VOLUME_MIN_PERCENT,
@@ -120,7 +124,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MINE_SOUNDS_BINDING),
     },
     SubRow {
         id: SubRowId::GlobalOffset,
@@ -137,7 +141,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(RATE_MOD_PRESERVES_PITCH_BINDING),
     },
 ];
 
