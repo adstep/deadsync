@@ -141,9 +141,6 @@ pub(super) fn apply_submenu_choice_delta(
             let mode = new_index.min(3) as u8;
             action = Some(ScreenAction::UpdateShowOverlay(mode));
         }
-        if row.id == SubRowId::ValidationLayers {
-            config::update_gfx_debug(yes_no_from_choice(new_index));
-        }
         if row.id == SubRowId::SoftwareRendererThreads {
             let threads = software_thread_from_choice(&state.software_thread_choices, new_index);
             config::update_software_renderer_threads(threads);
@@ -168,22 +165,6 @@ pub(super) fn apply_submenu_choice_delta(
     } else if matches!(kind, SubmenuKind::Sound) {
         let row = &rows[row_index];
         match row.id {
-            SubRowId::MasterVolume => {
-                let vol = master_volume_from_choice(new_index);
-                config::update_master_volume(vol);
-            }
-            SubRowId::SfxVolume => {
-                let vol = master_volume_from_choice(new_index);
-                config::update_sfx_volume(vol);
-            }
-            SubRowId::AssistTickVolume => {
-                let vol = master_volume_from_choice(new_index);
-                config::update_assist_tick_volume(vol);
-            }
-            SubRowId::MusicVolume => {
-                let vol = master_volume_from_choice(new_index);
-                config::update_music_volume(vol);
-            }
             SubRowId::SoundDevice => {
                 let device = sound_device_from_choice(state, new_index);
                 config::update_audio_output_device(device);

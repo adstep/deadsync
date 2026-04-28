@@ -8,6 +8,8 @@ const VISUAL_DELAY_BINDING: NumericBinding = NumericBinding {
     persist: |v| config::update_visual_delay_seconds(v as f32 / 1000.0),
 };
 
+const VALIDATION_LAYERS_BINDING: CycleBinding = CycleBinding::Bool(config::update_gfx_debug);
+
 pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::VideoRenderer,
@@ -134,7 +136,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(VALIDATION_LAYERS_BINDING),
     },
     SubRow {
         id: SubRowId::HighDpi,
