@@ -57,43 +57,29 @@ pub(super) fn apply_submenu_choice_delta(
         if is_submenu_row_disabled(kind, row.id) {
             return None;
         }
-        // Dispatcher: rows that have been migrated off `RowBehavior::Legacy`
-        // are handled by typed bindings here. Unmigrated rows keep falling
-        // through to the per-`SubmenuKind` match below.
         match row.behavior {
-            RowBehavior::Exit => return None,
-            RowBehavior::Numeric(b) => {
-                return apply_numeric_behavior(state, &b, delta);
-            }
+            RowBehavior::Exit => None,
+            RowBehavior::Numeric(b) => apply_numeric_behavior(state, &b, delta),
             RowBehavior::Cycle(b) => {
-                let Some(_new_idx) = advance_choice_index(
-                    state, asset_manager, kind, rows, row_index, delta, wrap,
-                ) else {
-                    return None;
-                };
-                apply_cycle_binding(&b, _new_idx);
+                let new_idx =
+                    advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)?;
+                apply_cycle_binding(&b, new_idx);
                 clear_render_cache(state);
-                return None;
+                None
             }
             RowBehavior::Custom(b) => {
-                let Some(new_idx) = advance_choice_index(
-                    state, asset_manager, kind, rows, row_index, delta, wrap,
-                ) else {
-                    return None;
-                };
+                let new_idx =
+                    advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)?;
                 let outcome = (b.apply)(state, new_idx);
                 if outcome.changed {
                     clear_render_cache(state);
                 }
-                return outcome.action;
+                outcome.action
             }
-            RowBehavior::Legacy => { /* fall through to legacy per-kind match */ }
         }
+    } else {
+        None
     }
-
-    let _ = advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)?;
-    clear_render_cache(state);
-    None
 }
 
 pub(super) fn cancel_current_view(state: &mut State) -> ScreenAction {

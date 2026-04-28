@@ -26,14 +26,14 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsScoreImport", "ScoreImportProfile"),
         choices: &[localized_choice("OptionsScoreImport", "NoEligibleProfiles")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::ScoreImportPack,
         label: lookup_key("OptionsScoreImport", "ScoreImportPack"),
         choices: &[localized_choice("OptionsScoreImport", "AllPacks")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::ScoreImportOnlyMissing,
@@ -43,14 +43,14 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::ScoreImportStart,
         label: lookup_key("OptionsScoreImport", "ScoreImportStart"),
         choices: &[localized_choice("Common", "Start")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
 ];
 

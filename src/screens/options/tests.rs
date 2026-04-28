@@ -82,3 +82,28 @@ fn p2_can_navigate_and_change_system_options() {
     press(&mut state, &asset_manager, VirtualAction::p2_right);
     assert_eq!(state.sub[SubmenuKind::System].cursor_indices[3], before + 1);
 }
+
+#[test]
+fn every_submenu_row_has_typed_behavior() {
+    // Smoke test: all rows across every SubmenuKind are reachable via the
+    // typed RowBehavior dispatcher (no sentinel/legacy behavior remains).
+    // The typed enum makes this a compile-time guarantee, but we also walk
+    // the row tables to make sure no submenu is empty and that every row's
+    // behavior variant is one of the exhaustive arms.
+    for kind in SubmenuKind::ALL {
+        let rows = visibility::submenu_rows(kind);
+        assert!(
+            !rows.is_empty(),
+            "submenu {:?} has no rows",
+            kind
+        );
+        for row in rows {
+            match row.behavior {
+                RowBehavior::Cycle(_)
+                | RowBehavior::Numeric(_)
+                | RowBehavior::Custom(_)
+                | RowBehavior::Exit => {}
+            }
+        }
+    }
+}

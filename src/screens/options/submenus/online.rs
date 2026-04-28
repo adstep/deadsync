@@ -109,21 +109,21 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ROWS: &[SubRow] = &
         label: lookup_key("OptionsOnlineScoring", "GsBsOptions"),
         choices: &[],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::ArrowCloudOptions,
         label: lookup_key("OptionsOnlineScoring", "ArrowCloudOptions"),
         choices: &[],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::ScoreImport,
         label: lookup_key("OptionsOnlineScoring", "ScoreImport"),
         choices: &[],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
 ];
 

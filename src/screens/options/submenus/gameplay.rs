@@ -70,7 +70,7 @@ pub(in crate::screens::options) const GAMEPLAY_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("Quints"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_CYCLE),
     },
 ];
 

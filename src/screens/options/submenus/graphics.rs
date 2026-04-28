@@ -13,8 +13,7 @@ const VALIDATION_LAYERS_BINDING: CycleBinding = CycleBinding::Bool(config::updat
 // Rows whose cursor moves on L/R but whose value is persisted only on
 // submenu apply/exit (managed elsewhere). The cycle dispatcher still
 // clears the render cache after the move.
-fn noop_cycle(_idx: usize) {}
-const DEFERRED_APPLY_BINDING: CycleBinding = CycleBinding::Index(noop_cycle);
+const DEFERRED_APPLY_BINDING: CycleBinding = DEFERRED_APPLY_CYCLE;
 
 fn apply_software_renderer_threads(state: &mut State, new_idx: usize) -> Outcome {
     let threads = software_thread_from_choice(&state.software_thread_choices, new_idx);

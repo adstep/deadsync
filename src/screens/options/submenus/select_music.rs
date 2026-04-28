@@ -197,7 +197,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ChartInfoMatrixRating"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_CYCLE),
     },
     SubRow {
         id: SubRowId::MusicPreviews,
@@ -269,7 +269,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ScoreboxCycleTournaments"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_CYCLE),
     },
 ];
 

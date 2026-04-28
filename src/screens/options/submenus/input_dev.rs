@@ -38,21 +38,21 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsInput", "ConfigureMappings"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::TestInput,
         label: lookup_key("OptionsInput", "TestInput"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::InputOptions,
         label: lookup_key("OptionsInput", "InputOptions"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
 ];
 

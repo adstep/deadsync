@@ -61,14 +61,14 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsOnlineScoring", "NullOrDieOptions"),
         choices: &[],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::SyncPacks,
         label: lookup_key("OptionsOnlineScoring", "SyncPacks"),
         choices: &[],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
 ];
 

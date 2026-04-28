@@ -235,6 +235,13 @@ pub enum CycleBinding {
     Index(fn(usize)),
 }
 
+/// Cycle binding for rows whose value is persisted only on submenu
+/// apply/exit (e.g. `VSync`, `FullscreenType`, bitmask rows toggled via
+/// Start). The cursor still advances and the render cache is cleared,
+/// matching the previous fall-through behaviour.
+fn cycle_noop(_idx: usize) {}
+pub const DEFERRED_APPLY_CYCLE: CycleBinding = CycleBinding::Index(cycle_noop);
+
 /// Custom row binding for cascading effects that can't be expressed as a
 /// pure config write (e.g. `SoundDevice` rebuilds the sample-rate row;
 /// `DisplayResolution` rebuilds refresh-rate choices). The `apply` fn
@@ -246,21 +253,13 @@ pub struct CustomBinding {
 }
 
 /// What kind of row this is, plus any state owned by the row's behaviour.
-///
-/// `Legacy` is a temporary scaffolding variant used during the migration
-/// — rows that haven't been migrated yet keep `Legacy` and fall through to
-/// the existing per-`SubmenuKind` match in `apply_submenu_choice_delta`.
-/// Once every row carries a real behavior, `Legacy` is removed.
 #[derive(Clone, Copy, Debug)]
 pub enum RowBehavior {
     Cycle(CycleBinding),
     Numeric(NumericBinding),
     Custom(CustomBinding),
-    /// Terminal "Exit" row at the bottom of every submenu — no L/R effect.
+    /// Terminal "Exit"/launcher row — no L/R effect (Start handles it).
     Exit,
-    /// Not yet migrated: the dispatcher falls through to the legacy
-    /// per-kind match. Removed once every row has a typed behavior.
-    Legacy,
 }
 
 /// Choice values — some are localizable, some are format-specific literals.

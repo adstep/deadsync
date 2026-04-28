@@ -6,14 +6,14 @@ pub(in crate::screens::options) const SYNC_PACK_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSyncPack", "SyncPackPack"),
         choices: &[localized_choice("OptionsSyncPack", "AllPacks")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
     SubRow {
         id: SubRowId::SyncPackStart,
         label: lookup_key("OptionsSyncPack", "SyncPackStart"),
         choices: &[localized_choice("Common", "Start")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Exit,
     },
 ];
 
