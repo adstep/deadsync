@@ -178,7 +178,13 @@ pub struct ChoiceBinding<T: Copy + 'static> {
 /// 4. Write the matching `toggle_my_row` helper in `choice.rs`.
 #[derive(Clone, Copy, Debug)]
 pub struct BitmaskBinding {
-    pub toggle: fn(&mut State, usize),
+    /// Toggle the bit selected by `choice_idx` for the given player. Returns
+    /// `Outcome::persisted()` when the toggle changed mask state (and the
+    /// dispatcher should play the change-value SFX), `Outcome::NONE` for
+    /// out-of-range / no-op selections, or `Outcome::persisted_with_visibility()`
+    /// when the toggle also changed conditional-row visibility (e.g. `Hide`,
+    /// `ErrorBar`).
+    pub toggle: fn(&mut State, usize, usize) -> Outcome,
     /// Opt-in init contract. When `Some`, a row's initial mask bits and
     /// cursor position are derived directly from a `Profile` via the
     /// helpers in `BitmaskInit`. Every production binding currently opts

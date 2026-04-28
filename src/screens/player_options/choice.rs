@@ -145,15 +145,29 @@ pub(super) fn dispatch_behavior_delta(
     }
 }
 
-/// Start input dispatcher. Only Bitmask rows are handled here — the
-/// `toggle_*_row` helpers already play their own SFX and sync visibility.
-/// Returns true if the dispatcher handled the row (Bitmask behavior), false
+/// Start input dispatcher. Only Bitmask rows are handled here. Looks up the
+/// selected row's choice index, invokes the binding's toggle, and uniformly
+/// plays SFX / re-syncs visibility based on the returned `Outcome`. Returns
+/// true if the dispatcher handled the row (Bitmask behavior), false
 /// otherwise.
 pub(super) fn dispatch_behavior_toggle(state: &mut State, player_idx: usize, id: RowId) -> bool {
     let Some(RowBehavior::Bitmask(b)) = state.pane().row_map.get(id).map(|r| r.behavior) else {
         return false;
     };
-    (b.toggle)(state, player_idx);
+    let idx = player_idx.min(PLAYER_SLOTS - 1);
+    let choice_index = state
+        .pane()
+        .row_map
+        .get(id)
+        .map(|r| r.selected_choice_index[idx])
+        .unwrap_or(0);
+    let outcome = (b.toggle)(state, player_idx, choice_index);
+    if outcome.persisted {
+        audio::play_sfx("assets/sounds/change_value.ogg");
+    }
+    if outcome.changed_visibility {
+        super::sync_selected_rows_with_visibility(state, super::session_active_players());
+    }
     true
 }
 
@@ -246,35 +260,15 @@ pub fn apply_choice_delta(
     change_choice_for_player(state, asset_manager, player_idx, delta, wrap);
 }
 
-pub(super) fn toggle_scroll_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_scroll_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Scroll {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 8 {
         ScrollMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         ScrollMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].scroll.toggle(bit);
@@ -311,38 +305,18 @@ pub(super) fn toggle_scroll_row(state: &mut State, player_idx: usize) {
         };
         crate::game::profile::update_scroll_option_for_side(side, setting);
     }
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_hide_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_hide_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Hide {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 8 {
         HideMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         HideMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].hide.toggle(bit);
@@ -385,39 +359,18 @@ pub(super) fn toggle_hide_row(state: &mut State, player_idx: usize) {
         );
     }
 
-    sync_selected_rows_with_visibility(state, session_active_players());
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted_with_visibility()
 }
 
-pub(super) fn toggle_insert_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_insert_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Insert {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 7 {
         1u8 << (choice_index as u8)
     } else {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].insert.bits();
@@ -442,38 +395,18 @@ pub(super) fn toggle_insert_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_insert_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_remove_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_remove_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Remove {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 8 {
         1u8 << (choice_index as u8)
     } else {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].remove.bits();
@@ -498,31 +431,12 @@ pub(super) fn toggle_remove_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_remove_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_holds_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_holds_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Holds {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index
         < state
             .pane()
@@ -537,7 +451,7 @@ pub(super) fn toggle_holds_row(state: &mut State, player_idx: usize) {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].holds.bits();
@@ -562,31 +476,12 @@ pub(super) fn toggle_holds_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_holds_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_accel_effects_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_accel_effects_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Accel {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index
         < state
             .pane()
@@ -601,7 +496,7 @@ pub(super) fn toggle_accel_effects_row(state: &mut State, player_idx: usize) {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].accel_effects.bits();
@@ -626,38 +521,18 @@ pub(super) fn toggle_accel_effects_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_accel_effects_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_visual_effects_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_visual_effects_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Effect {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 10 {
         1u16 << (choice_index as u16)
     } else {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].visual_effects.bits();
@@ -682,31 +557,12 @@ pub(super) fn toggle_visual_effects_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_visual_effects_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_appearance_effects_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_appearance_effects_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::Appearance {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index
         < state
             .pane()
@@ -721,7 +577,7 @@ pub(super) fn toggle_appearance_effects_row(state: &mut State, player_idx: usize
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].appearance_effects.bits();
@@ -746,38 +602,18 @@ pub(super) fn toggle_appearance_effects_row(state: &mut State, player_idx: usize
         crate::game::profile::update_appearance_effects_mask_for_side(side, mask);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_life_bar_options_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_life_bar_options_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::LifeBarOptions {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 3 {
         LifeBarOptionsMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         LifeBarOptionsMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].life_bar_options.toggle(bit);
@@ -804,31 +640,12 @@ pub(super) fn toggle_life_bar_options_row(state: &mut State, player_idx: usize) 
         crate::game::profile::update_show_life_percent_for_side(side, show_life_percent);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_fa_plus_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_fa_plus_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::FAPlusOptions {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index
         < state
             .pane()
@@ -843,7 +660,7 @@ pub(super) fn toggle_fa_plus_row(state: &mut State, player_idx: usize) {
         FaPlusMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].fa_plus.toggle(bit);
@@ -878,38 +695,18 @@ pub(super) fn toggle_fa_plus_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_split_15_10ms_for_side(side, split_15_10ms_enabled);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_results_extras_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_results_extras_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::ResultsExtras {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 1 {
         ResultsExtrasMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         ResultsExtrasMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].results_extras.toggle(bit);
@@ -931,38 +728,18 @@ pub(super) fn toggle_results_extras_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_track_early_judgments_for_side(side, track_early_judgments);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_error_bar_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_error_bar_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::ErrorBar {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 5 {
         1u8 << (choice_index as u8)
     } else {
         0
     };
     if bit == 0 {
-        return;
+        return Outcome::NONE;
     }
 
     let mut bits = state.option_masks[idx].error_bar.bits();
@@ -990,39 +767,18 @@ pub(super) fn toggle_error_bar_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_error_bar_mask_for_side(side, mask);
     }
 
-    sync_selected_rows_with_visibility(state, session_active_players());
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted_with_visibility()
 }
 
-pub(super) fn toggle_error_bar_options_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_error_bar_options_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::ErrorBarOptions {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 2 {
         ErrorBarOptionsMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         ErrorBarOptionsMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].error_bar_options.toggle(bit);
@@ -1045,38 +801,18 @@ pub(super) fn toggle_error_bar_options_row(state: &mut State, player_idx: usize)
         crate::game::profile::update_error_bar_options_for_side(side, up, multi_tick);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_measure_counter_options_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_measure_counter_options_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::MeasureCounterOptions {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 5 {
         MeasureCounterOptionsMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         MeasureCounterOptionsMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].measure_counter_options.toggle(bit);
@@ -1108,38 +844,18 @@ pub(super) fn toggle_measure_counter_options_row(state: &mut State, player_idx: 
         );
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_early_dw_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_early_dw_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
-    let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::EarlyDecentWayOffOptions {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let choice_index = state
-        .pane()
-        .row_map
-        .row(state.pane().row_map.id_at(row_index))
-        .selected_choice_index[idx];
     let bit = if choice_index < 2 {
         EarlyDwMask::from_bits_truncate(1u8 << (choice_index as u8))
     } else {
         EarlyDwMask::empty()
     };
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].early_dw.toggle(bit);
@@ -1162,31 +878,16 @@ pub(super) fn toggle_early_dw_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_early_dw_options_for_side(side, hide_judgments, hide_flash);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
-pub(super) fn toggle_gameplay_extras_row(state: &mut State, player_idx: usize) {
+pub(super) fn toggle_gameplay_extras_row(state: &mut State, player_idx: usize, choice_index: usize) -> Outcome {
     let idx = player_idx.min(PLAYER_SLOTS - 1);
     let row_index = state.pane().selected_row[idx];
-    if let Some(row) = state
-        .pane()
-        .row_map
-        .display_order()
-        .get(row_index)
-        .and_then(|&id| state.pane().row_map.get(id))
-    {
-        if row.id != RowId::GameplayExtras {
-            return;
-        }
-    } else {
-        return;
-    }
-
     let row = state
         .pane()
         .row_map
         .row(state.pane().row_map.id_at(row_index));
-    let choice_index = row.selected_choice_index[idx];
     let ge_flash = tr("PlayerOptions", "GameplayExtrasFlashColumnForMiss");
     let ge_density = tr("PlayerOptions", "GameplayExtrasDensityGraphAtTop");
     let ge_column_cues = tr("PlayerOptions", "GameplayExtrasColumnCues");
@@ -1210,7 +911,7 @@ pub(super) fn toggle_gameplay_extras_row(state: &mut State, player_idx: usize) {
         })
         .unwrap_or(GameplayExtrasMask::empty());
     if bit.is_empty() {
-        return;
+        return Outcome::NONE;
     }
 
     state.option_masks[idx].gameplay_extras.toggle(bit);
@@ -1256,7 +957,7 @@ pub(super) fn toggle_gameplay_extras_row(state: &mut State, player_idx: usize) {
         crate::game::profile::update_display_scorebox_for_side(side, display_scorebox);
     }
 
-    audio::play_sfx("assets/sounds/change_value.ogg");
+    Outcome::persisted()
 }
 
 pub(super) fn apply_pane(state: &mut State, pane: OptionsPane) {

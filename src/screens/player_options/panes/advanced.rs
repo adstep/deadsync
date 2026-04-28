@@ -1374,7 +1374,7 @@ mod bitmask_binding_init_tests {
         Row {
             id,
             behavior: RowBehavior::Bitmask(BitmaskBinding {
-                toggle: |_, _| {},
+                toggle: |_, _, _| Outcome::NONE,
                 init: None,
             }),
             name,
@@ -1467,7 +1467,7 @@ mod bitmask_binding_init_tests {
         let mut masks = PlayerOptionMasks::default();
         let profile = Profile::default();
         let init_less = BitmaskBinding {
-            toggle: |_, _| {},
+            toggle: |_, _, _| Outcome::NONE,
             init: None,
         };
         let applied = init_bitmask_row_from_binding(&mut row, &init_less, &profile, &mut masks, 0);
