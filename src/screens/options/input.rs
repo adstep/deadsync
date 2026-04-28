@@ -57,26 +57,30 @@ pub(super) fn apply_submenu_choice_delta(
         if is_submenu_row_disabled(kind, row.id) {
             return None;
         }
-        match row.behavior {
-            RowBehavior::Exit => None,
+        let outcome = match row.behavior {
+            RowBehavior::Exit => Outcome::NONE,
             RowBehavior::Numeric(b) => apply_numeric_behavior(state, &b, delta),
-            RowBehavior::Cycle(b) => {
-                let new_idx =
-                    advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)?;
-                apply_cycle_binding(&b, new_idx);
-                clear_render_cache(state);
-                None
-            }
-            RowBehavior::Custom(b) => {
-                let new_idx =
-                    advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)?;
-                let outcome = (b.apply)(state, new_idx);
-                if outcome.changed {
-                    clear_render_cache(state);
+            RowBehavior::Cycle(b) => match advance_choice_index(
+                state, asset_manager, kind, rows, row_index, delta, wrap,
+            ) {
+                Some(new_idx) => {
+                    apply_cycle_binding(&b, new_idx);
+                    Outcome::changed()
                 }
-                outcome.action
-            }
+                None => Outcome::NONE,
+            },
+            RowBehavior::Custom(b) => match advance_choice_index(
+                state, asset_manager, kind, rows, row_index, delta, wrap,
+            ) {
+                Some(new_idx) => (b.apply)(state, new_idx),
+                None => Outcome::NONE,
+            },
+        };
+        if outcome.changed {
+            audio::play_sfx("assets/sounds/change_value.ogg");
+            clear_render_cache(state);
         }
+        outcome.action
     } else {
         None
     }
@@ -877,19 +881,18 @@ fn advance_choice_index(
     {
         state.sub_inline_x = x;
     }
-    audio::play_sfx("assets/sounds/change_value.ogg");
     Some(new_index)
 }
 
 /// Apply a `RowBehavior::Numeric` slider press: clamp the backing field by
-/// `delta`, persist via the binding, and on actual change play SFX +
-/// invalidate the render cache. Always returns `None` (numeric rows never
-/// emit `ScreenAction`).
+/// `delta`, persist via the binding on change, and report the result via
+/// `Outcome`. Numeric rows never emit `ScreenAction`; the dispatcher owns
+/// SFX + render-cache invalidation based on `outcome.changed`.
 fn apply_numeric_behavior(
     state: &mut State,
     binding: &NumericBinding,
     delta: isize,
-) -> Option<ScreenAction> {
+) -> Outcome {
     let value = (binding.get_mut)(state);
     let changed = match binding.step {
         NumericStep::Ms => adjust_ms_value(value, delta, binding.min, binding.max),
@@ -898,10 +901,10 @@ fn apply_numeric_behavior(
     if changed {
         let new_value = *(binding.get_mut)(state);
         (binding.persist)(new_value);
-        audio::play_sfx("assets/sounds/change_value.ogg");
-        clear_render_cache(state);
+        Outcome::changed()
+    } else {
+        Outcome::NONE
     }
-    None
 }
 
 /// Apply a `RowBehavior::Cycle` change by dispatching to the binding's
