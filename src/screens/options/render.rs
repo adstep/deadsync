@@ -340,6 +340,162 @@ pub(super) fn build_yes_no_confirm_overlay(
     ]
 }
 
+fn build_score_import_overlay(state: &State) -> Option<Vec<Actor>> {
+    let score_import = state.score_import_ui.as_ref()?;
+    let header = if score_import.done {
+        "Score import complete"
+    } else {
+        "Importing scores..."
+    };
+    let total = score_import.total_charts.max(score_import.processed_charts);
+    let progress_line = format!(
+        "Endpoint: {}   Profile: {}\nPack: {}\nProgress: {}/{} (found={}, missing={}, failed={})",
+        score_import.endpoint.display_name(),
+        score_import.profile_name,
+        score_import.pack_label,
+        score_import.processed_charts,
+        total,
+        score_import.imported_scores,
+        score_import.missing_scores,
+        score_import.failed_requests
+    );
+    let detail_line = if score_import.done {
+        score_import.done_message.as_str()
+    } else {
+        score_import.detail_line.as_str()
+    };
+    let text = format!("{header}\n{progress_line}\n{detail_line}");
+
+    let mut ui_actors: Vec<Actor> = Vec::with_capacity(2);
+    ui_actors.push(act!(quad:
+        align(0.0, 0.0):
+        xy(0.0, 0.0):
+        zoomto(screen_width(), screen_height()):
+        diffuse(0.0, 0.0, 0.0, 0.7):
+        z(300)
+    ));
+    ui_actors.push(act!(text:
+        align(0.5, 0.5):
+        xy(screen_width() * 0.5, screen_height() * 0.5):
+        zoom(0.95):
+        diffuse(1.0, 1.0, 1.0, 1.0):
+        font("miso"):
+        settext(text):
+        horizalign(center):
+        z(301)
+    ));
+    Some(ui_actors)
+}
+
+fn build_top_bar(state: &State) -> Actor {
+    const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let title_text = match state.view {
+        OptionsView::Main => "OPTIONS",
+        OptionsView::Submenu(kind) => submenu_title(kind),
+    };
+    screen_bar::build(screen_bar::ScreenBarParams {
+        title: title_text,
+        title_placement: ScreenBarTitlePlacement::Left,
+        position: ScreenBarPosition::Top,
+        transparent: false,
+        left_text: None,
+        center_text: None,
+        right_text: None,
+        left_avatar: None,
+        right_avatar: None,
+        fg_color: FG,
+    })
+}
+
+fn build_score_import_confirm_overlay(state: &State) -> Option<Vec<Actor>> {
+    let confirm = state.score_import_confirm.as_ref()?;
+    let prompt_text = format!(
+        "Import ALL packs for {} / {}?\nOnly missing GS scores: {}.\nRate limit is hard-capped at 3 requests per second.\nFor many charts this can take more than one hour.\nSpamming APIs can be problematic.\n\nStart now?",
+        confirm.selection.endpoint.display_name(),
+        if confirm.selection.profile.display_name.is_empty() {
+            confirm.selection.profile.id.as_str()
+        } else {
+            confirm.selection.profile.display_name.as_str()
+        },
+        if confirm.selection.only_missing_gs_scores {
+            "Yes"
+        } else {
+            "No"
+        }
+    );
+    Some(build_yes_no_confirm_overlay(
+        prompt_text,
+        confirm.active_choice,
+        state.active_color_index,
+    ))
+}
+
+fn build_sync_pack_confirm_overlay(state: &State) -> Option<Vec<Actor>> {
+    let confirm = state.sync_pack_confirm.as_ref()?;
+    let prompt_text = format!(
+        "Sync {}?\nThis will analyze every matching simfile here in Options.\nYou can review offsets and confidence before saving.\n\nStart now?",
+        if confirm.selection.pack_group.is_none() {
+            "ALL files"
+        } else {
+            confirm.selection.pack_label.as_str()
+        }
+    );
+    Some(build_yes_no_confirm_overlay(
+        prompt_text,
+        confirm.active_choice,
+        state.active_color_index,
+    ))
+}
+
+fn build_description_actors(
+    state: &State,
+    asset_manager: &AssetManager,
+    desc_key: DescriptionCacheKey,
+    item: &Item,
+    s: f32,
+    list_y: f32,
+    desc_x: f32,
+    out: &mut Vec<Actor>,
+) {
+    // Match Simply Love's description box feel:
+    // - explicit top/side padding for title and bullets so they can be tuned
+    // - text zoom similar to other help text (player options, etc.)
+    let mut cursor_y = DESC_TITLE_TOP_PAD_PX.mul_add(s, list_y);
+    let desc_layout = description_layout(state, asset_manager, desc_key, item, s);
+    let title_side_pad = DESC_TITLE_SIDE_PAD_PX * s;
+    let title_step_px = 20.0 * s;
+    let body_step_px = 18.0 * s;
+    let bullet_side_pad = DESC_BULLET_SIDE_PAD_PX * s;
+
+    for block in &desc_layout.blocks {
+        match block {
+            RenderedHelpBlock::Paragraph { text, line_count } => {
+                out.push(act!(text:
+                    align(0.0, 0.0):
+                    xy(desc_x + title_side_pad, cursor_y):
+                    zoom(DESC_TITLE_ZOOM):
+                    diffuse(1.0, 1.0, 1.0, 1.0):
+                    font("miso"): settext(text):
+                    horizalign(left)
+                ));
+                cursor_y += title_step_px * *line_count as f32 + DESC_BULLET_TOP_PAD_PX * s;
+            }
+            RenderedHelpBlock::Bullet { text, line_count } => {
+                let bullet_x = DESC_BULLET_INDENT_PX.mul_add(s, desc_x + bullet_side_pad);
+                out.push(act!(text:
+                    align(0.0, 0.0):
+                    xy(bullet_x, cursor_y):
+                    zoom(DESC_BODY_ZOOM):
+                    diffuse(1.0, 1.0, 1.0, 1.0):
+                    font("miso"): settext(text):
+                    horizalign(left)
+                ));
+                cursor_y += body_step_px * *line_count as f32;
+            }
+        }
+    }
+}
+
 pub fn get_actors(
     state: &State,
     asset_manager: &AssetManager,
@@ -369,49 +525,7 @@ pub fn get_actors(
         actors.extend(ui_actors);
         return actors;
     }
-    if let Some(score_import) = &state.score_import_ui {
-        let header = if score_import.done {
-            "Score import complete"
-        } else {
-            "Importing scores..."
-        };
-        let total = score_import.total_charts.max(score_import.processed_charts);
-        let progress_line = format!(
-            "Endpoint: {}   Profile: {}\nPack: {}\nProgress: {}/{} (found={}, missing={}, failed={})",
-            score_import.endpoint.display_name(),
-            score_import.profile_name,
-            score_import.pack_label,
-            score_import.processed_charts,
-            total,
-            score_import.imported_scores,
-            score_import.missing_scores,
-            score_import.failed_requests
-        );
-        let detail_line = if score_import.done {
-            score_import.done_message.as_str()
-        } else {
-            score_import.detail_line.as_str()
-        };
-        let text = format!("{header}\n{progress_line}\n{detail_line}");
-
-        let mut ui_actors: Vec<Actor> = Vec::with_capacity(2);
-        ui_actors.push(act!(quad:
-            align(0.0, 0.0):
-            xy(0.0, 0.0):
-            zoomto(screen_width(), screen_height()):
-            diffuse(0.0, 0.0, 0.0, 0.7):
-            z(300)
-        ));
-        ui_actors.push(act!(text:
-            align(0.5, 0.5):
-            xy(screen_width() * 0.5, screen_height() * 0.5):
-            zoom(0.95):
-            diffuse(1.0, 1.0, 1.0, 1.0):
-            font("miso"):
-            settext(text):
-            horizalign(center):
-            z(301)
-        ));
+    if let Some(mut ui_actors) = build_score_import_overlay(state) {
         for actor in &mut ui_actors {
             actor.mul_alpha(alpha_multiplier);
         }
@@ -431,23 +545,7 @@ pub fn get_actors(
     let mut ui_actors = Vec::new();
 
     /* ------------------------------ TOP BAR ------------------------------- */
-    const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    let title_text = match state.view {
-        OptionsView::Main => "OPTIONS",
-        OptionsView::Submenu(kind) => submenu_title(kind),
-    };
-    ui_actors.push(screen_bar::build(screen_bar::ScreenBarParams {
-        title: title_text,
-        title_placement: ScreenBarTitlePlacement::Left,
-        position: ScreenBarPosition::Top,
-        transparent: false,
-        left_text: None,
-        center_text: None,
-        right_text: None,
-        left_avatar: None,
-        right_avatar: None,
-        fg_color: FG,
-    }));
+    ui_actors.push(build_top_bar(state));
 
     /* --------------------------- MAIN CONTENT UI -------------------------- */
 
@@ -1149,79 +1247,22 @@ pub fn get_actors(
 
     // ------------------- Description content (selected) -------------------
     if let Some((desc_key, item)) = selected_item {
-        // Match Simply Love's description box feel:
-        // - explicit top/side padding for title and bullets so they can be tuned
-        // - text zoom similar to other help text (player options, etc.)
-        let mut cursor_y = DESC_TITLE_TOP_PAD_PX.mul_add(s, list_y);
-        let desc_layout = description_layout(state, asset_manager, desc_key, item, s);
-        let title_side_pad = DESC_TITLE_SIDE_PAD_PX * s;
-        let title_step_px = 20.0 * s;
-        let body_step_px = 18.0 * s;
-        let bullet_side_pad = DESC_BULLET_SIDE_PAD_PX * s;
-
-        for block in &desc_layout.blocks {
-            match block {
-                RenderedHelpBlock::Paragraph { text, line_count } => {
-                    ui_actors.push(act!(text:
-                        align(0.0, 0.0):
-                        xy(desc_x + title_side_pad, cursor_y):
-                        zoom(DESC_TITLE_ZOOM):
-                        diffuse(1.0, 1.0, 1.0, 1.0):
-                        font("miso"): settext(text):
-                        horizalign(left)
-                    ));
-                    cursor_y += title_step_px * *line_count as f32 + DESC_BULLET_TOP_PAD_PX * s;
-                }
-                RenderedHelpBlock::Bullet { text, line_count } => {
-                    let bullet_x = DESC_BULLET_INDENT_PX.mul_add(s, desc_x + bullet_side_pad);
-                    ui_actors.push(act!(text:
-                        align(0.0, 0.0):
-                        xy(bullet_x, cursor_y):
-                        zoom(DESC_BODY_ZOOM):
-                        diffuse(1.0, 1.0, 1.0, 1.0):
-                        font("miso"): settext(text):
-                        horizalign(left)
-                    ));
-                    cursor_y += body_step_px * *line_count as f32;
-                }
-            }
-        }
-    }
-    if let Some(confirm) = &state.score_import_confirm {
-        let prompt_text = format!(
-            "Import ALL packs for {} / {}?\nOnly missing GS scores: {}.\nRate limit is hard-capped at 3 requests per second.\nFor many charts this can take more than one hour.\nSpamming APIs can be problematic.\n\nStart now?",
-            confirm.selection.endpoint.display_name(),
-            if confirm.selection.profile.display_name.is_empty() {
-                confirm.selection.profile.id.as_str()
-            } else {
-                confirm.selection.profile.display_name.as_str()
-            },
-            if confirm.selection.only_missing_gs_scores {
-                "Yes"
-            } else {
-                "No"
-            }
+        build_description_actors(
+            state,
+            asset_manager,
+            desc_key,
+            item,
+            s,
+            list_y,
+            desc_x,
+            &mut ui_actors,
         );
-        ui_actors.extend(build_yes_no_confirm_overlay(
-            prompt_text,
-            confirm.active_choice,
-            state.active_color_index,
-        ));
     }
-    if let Some(confirm) = &state.sync_pack_confirm {
-        let prompt_text = format!(
-            "Sync {}?\nThis will analyze every matching simfile here in Options.\nYou can review offsets and confidence before saving.\n\nStart now?",
-            if confirm.selection.pack_group.is_none() {
-                "ALL files"
-            } else {
-                confirm.selection.pack_label.as_str()
-            }
-        );
-        ui_actors.extend(build_yes_no_confirm_overlay(
-            prompt_text,
-            confirm.active_choice,
-            state.active_color_index,
-        ));
+    if let Some(overlay) = build_score_import_confirm_overlay(state) {
+        ui_actors.extend(overlay);
+    }
+    if let Some(overlay) = build_sync_pack_confirm_overlay(state) {
+        ui_actors.extend(overlay);
     }
 
     let combined_alpha = alpha_multiplier * state.content_alpha;
