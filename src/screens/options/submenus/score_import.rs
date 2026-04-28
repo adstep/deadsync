@@ -1,5 +1,14 @@
 use super::super::*;
 
+fn apply_score_import_endpoint(state: &mut State, _new_idx: usize) -> Outcome {
+    refresh_score_import_profile_options(state);
+    Outcome::changed()
+}
+
+const SCORE_IMPORT_ENDPOINT_BINDING: CustomBinding = CustomBinding {
+    apply: apply_score_import_endpoint,
+};
+
 pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ScoreImportEndpoint,
@@ -10,7 +19,7 @@ pub(in crate::screens::options) const SCORE_IMPORT_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("ArrowCloud"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(SCORE_IMPORT_ENDPOINT_BINDING),
     },
     SubRow {
         id: SubRowId::ScoreImportProfile,

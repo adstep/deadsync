@@ -10,20 +10,90 @@ const VISUAL_DELAY_BINDING: NumericBinding = NumericBinding {
 
 const VALIDATION_LAYERS_BINDING: CycleBinding = CycleBinding::Bool(config::update_gfx_debug);
 
+// Rows whose cursor moves on L/R but whose value is persisted only on
+// submenu apply/exit (managed elsewhere). The cycle dispatcher still
+// clears the render cache after the move.
+fn noop_cycle(_idx: usize) {}
+const DEFERRED_APPLY_BINDING: CycleBinding = CycleBinding::Index(noop_cycle);
+
+fn apply_software_renderer_threads(state: &mut State, new_idx: usize) -> Outcome {
+    let threads = software_thread_from_choice(&state.software_thread_choices, new_idx);
+    config::update_software_renderer_threads(threads);
+    Outcome::changed()
+}
+
+fn apply_display_aspect_ratio(state: &mut State, _new_idx: usize) -> Outcome {
+    let (cur_w, cur_h) = selected_resolution(state);
+    rebuild_resolution_choices(state, cur_w, cur_h);
+    Outcome::changed()
+}
+
+fn apply_display_resolution(state: &mut State, _new_idx: usize) -> Outcome {
+    rebuild_refresh_rate_choices(state);
+    Outcome::changed()
+}
+
+fn apply_display_mode(state: &mut State, _new_idx: usize) -> Outcome {
+    let (cur_w, cur_h) = selected_resolution(state);
+    rebuild_resolution_choices(state, cur_w, cur_h);
+    Outcome::changed()
+}
+
+fn apply_refresh_rate(state: &mut State, _new_idx: usize) -> Outcome {
+    if state.max_fps_at_load == 0 && !max_fps_enabled(state) {
+        seed_max_fps_value_choice(state, 0);
+    }
+    Outcome::changed()
+}
+
+fn apply_max_fps(state: &mut State, new_idx: usize) -> Outcome {
+    if yes_no_from_choice(new_idx) && state.max_fps_at_load == 0 {
+        seed_max_fps_value_choice(state, 0);
+    }
+    Outcome::changed()
+}
+
+fn apply_show_stats(_state: &mut State, new_idx: usize) -> Outcome {
+    let mode = new_idx.min(3) as u8;
+    Outcome::changed_with_action(crate::screens::ScreenAction::UpdateShowOverlay(mode))
+}
+
+const SOFTWARE_RENDERER_THREADS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_software_renderer_threads,
+};
+const DISPLAY_ASPECT_RATIO_BINDING: CustomBinding = CustomBinding {
+    apply: apply_display_aspect_ratio,
+};
+const DISPLAY_RESOLUTION_BINDING: CustomBinding = CustomBinding {
+    apply: apply_display_resolution,
+};
+const DISPLAY_MODE_BINDING: CustomBinding = CustomBinding {
+    apply: apply_display_mode,
+};
+const REFRESH_RATE_BINDING: CustomBinding = CustomBinding {
+    apply: apply_refresh_rate,
+};
+const MAX_FPS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_max_fps,
+};
+const SHOW_STATS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_show_stats,
+};
+
 pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::VideoRenderer,
         label: lookup_key("OptionsGraphics", "VideoRenderer"),
         choices: VIDEO_RENDERER_LABELS,
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::SoftwareRendererThreads,
         label: lookup_key("OptionsGraphics", "SoftwareRendererThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(SOFTWARE_RENDERER_THREADS_BINDING),
     },
     SubRow {
         id: SubRowId::DisplayMode,
@@ -34,14 +104,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "Borderless"),
         ], // Replaced dynamically
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(DISPLAY_MODE_BINDING),
     },
     SubRow {
         id: SubRowId::DisplayAspectRatio,
         label: lookup_key("OptionsGraphics", "DisplayAspectRatio"),
         choices: DISPLAY_ASPECT_RATIO_CHOICES,
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(DISPLAY_ASPECT_RATIO_BINDING),
     },
     SubRow {
         id: SubRowId::DisplayResolution,
@@ -54,7 +124,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("800x600"),
         ], // Replaced dynamically
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(DISPLAY_RESOLUTION_BINDING),
     },
     SubRow {
         id: SubRowId::RefreshRate,
@@ -70,7 +140,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("360 Hz"),
         ], // Replaced dynamically
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(REFRESH_RATE_BINDING),
     },
     SubRow {
         id: SubRowId::FullscreenType,
@@ -80,7 +150,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "FullscreenTypeBorderless"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::VSync,
@@ -90,14 +160,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::PresentMode,
         label: lookup_key("OptionsGraphics", "PresentMode"),
         choices: &[literal_choice("Mailbox"), literal_choice("Immediate")],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::MaxFps,
@@ -107,14 +177,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(MAX_FPS_BINDING),
     },
     SubRow {
         id: SubRowId::MaxFpsValue,
         label: lookup_key("OptionsGraphics", "MaxFpsValue"),
         choices: &[localized_choice("Common", "Off")], // Replaced dynamically
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::ShowStats,
@@ -126,7 +196,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "ShowStatsFPSStutterTiming"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(SHOW_STATS_BINDING),
     },
     SubRow {
         id: SubRowId::ValidationLayers,
@@ -146,7 +216,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(DEFERRED_APPLY_BINDING),
     },
     SubRow {
         id: SubRowId::VisualDelay,

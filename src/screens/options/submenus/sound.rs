@@ -12,6 +12,79 @@ const MINE_SOUNDS_BINDING: CycleBinding = CycleBinding::Bool(config::update_mine
 const RATE_MOD_PRESERVES_PITCH_BINDING: CycleBinding =
     CycleBinding::Bool(config::update_rate_mod_preserves_pitch);
 
+fn apply_sound_device(state: &mut State, new_idx: usize) -> Outcome {
+    let device = sound_device_from_choice(state, new_idx);
+    config::update_audio_output_device(device);
+    let current_rate = config::get().audio_sample_rate_hz;
+    let rate_choice = sample_rate_choice_index(state, current_rate);
+    if current_rate.is_some() && rate_choice == 0 {
+        config::update_audio_sample_rate(None);
+    }
+    set_sound_choice_index(state, SubRowId::AudioSampleRate, rate_choice);
+    Outcome::changed()
+}
+
+fn apply_audio_output_mode(_state: &mut State, new_idx: usize) -> Outcome {
+    config::update_audio_output_mode(audio_output_mode_from_choice(new_idx));
+    #[cfg(target_os = "linux")]
+    set_sound_choice_index(_state, SubRowId::AlsaExclusive, 0);
+    Outcome::changed()
+}
+
+fn apply_audio_sample_rate(state: &mut State, new_idx: usize) -> Outcome {
+    let rate = sample_rate_from_choice(state, new_idx);
+    config::update_audio_sample_rate(rate);
+    Outcome::changed()
+}
+
+#[cfg(target_os = "linux")]
+fn apply_linux_audio_backend(state: &mut State, new_idx: usize) -> Outcome {
+    let backend = linux_audio_backend_from_choice(state, new_idx);
+    config::update_linux_audio_backend(backend);
+    if matches!(backend, config::LinuxAudioBackend::Alsa) {
+        set_sound_choice_index(
+            state,
+            SubRowId::AlsaExclusive,
+            alsa_exclusive_choice_index(config::get().audio_output_mode),
+        );
+    } else {
+        if matches!(
+            config::get().audio_output_mode,
+            config::AudioOutputMode::Exclusive
+        ) {
+            config::update_audio_output_mode(selected_audio_output_mode(state));
+        }
+        set_sound_choice_index(state, SubRowId::AlsaExclusive, 0);
+    }
+    Outcome::changed()
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
+fn apply_linux_audio_backend(_state: &mut State, _new_idx: usize) -> Outcome {
+    Outcome::changed()
+}
+
+#[cfg(target_os = "linux")]
+fn apply_alsa_exclusive(state: &mut State, new_idx: usize) -> Outcome {
+    let mode = if new_idx == 1 {
+        config::AudioOutputMode::Exclusive
+    } else {
+        selected_audio_output_mode(state)
+    };
+    config::update_audio_output_mode(mode);
+    Outcome::changed()
+}
+
+const SOUND_DEVICE_BINDING: CustomBinding = CustomBinding { apply: apply_sound_device };
+const AUDIO_OUTPUT_MODE_BINDING: CustomBinding = CustomBinding { apply: apply_audio_output_mode };
+const AUDIO_SAMPLE_RATE_BINDING: CustomBinding = CustomBinding { apply: apply_audio_sample_rate };
+#[cfg(target_os = "linux")]
+const LINUX_AUDIO_BACKEND_BINDING: CustomBinding = CustomBinding { apply: apply_linux_audio_backend };
+#[cfg(target_os = "linux")]
+const ALSA_EXCLUSIVE_BINDING: CustomBinding = CustomBinding { apply: apply_alsa_exclusive };
+
+
 const SFX_VOLUME_BINDING: NumericBinding = NumericBinding {
     get_mut: |s: &mut State| &mut s.sfx_volume_pct,
     min: VOLUME_MIN_PERCENT,
@@ -50,7 +123,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "SoundDevice"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(SOUND_DEVICE_BINDING),
     },
     SubRow {
         id: SubRowId::AudioOutputMode,
@@ -60,7 +133,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSound", "OutputModeShared"),
         ],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(AUDIO_OUTPUT_MODE_BINDING),
     },
     #[cfg(target_os = "linux")]
     SubRow {
@@ -68,7 +141,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "LinuxAudioBackend"),
         choices: SOUND_LINUX_BACKEND_CHOICES,
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(LINUX_AUDIO_BACKEND_BINDING),
     },
     #[cfg(target_os = "linux")]
     SubRow {
@@ -79,14 +152,14 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(ALSA_EXCLUSIVE_BINDING),
     },
     SubRow {
         id: SubRowId::AudioSampleRate,
         label: lookup_key("OptionsSound", "AudioSampleRate"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(AUDIO_SAMPLE_RATE_BINDING),
     },
     SubRow {
         id: SubRowId::MasterVolume,

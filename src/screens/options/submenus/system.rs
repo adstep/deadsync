@@ -8,6 +8,27 @@ const LOG_LEVEL_BINDING: CycleBinding =
     CycleBinding::Index(|i| config::update_log_level(LogLevel::from_choice(i)));
 const LOG_FILE_BINDING: CycleBinding = CycleBinding::Bool(config::update_log_to_file);
 
+fn apply_language(_state: &mut State, new_idx: usize) -> Outcome {
+    let flag = language_flag_from_choice(new_idx);
+    config::update_language_flag(flag);
+    assets::i18n::set_locale(&assets::i18n::resolve_locale(flag));
+    Outcome::changed()
+}
+
+fn apply_default_noteskin(state: &mut State, new_idx: usize) -> Outcome {
+    if let Some(skin_name) = state.system_noteskin_choices.get(new_idx).cloned() {
+        profile::update_machine_default_noteskin(profile::NoteSkin::new(&skin_name));
+    }
+    Outcome::changed()
+}
+
+const LANGUAGE_BINDING: CustomBinding = CustomBinding {
+    apply: apply_language,
+};
+const DEFAULT_NOTESKIN_BINDING: CustomBinding = CustomBinding {
+    apply: apply_default_noteskin,
+};
+
 pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::Game,
@@ -28,7 +49,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSystem", "Language"),
         choices: LANGUAGE_CHOICES,
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(LANGUAGE_BINDING),
     },
     SubRow {
         id: SubRowId::LogLevel,
@@ -58,7 +79,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSystem", "DefaultNoteSkin"),
         choices: &[literal_choice(profile::NoteSkin::DEFAULT_NAME)],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(DEFAULT_NOTESKIN_BINDING),
     },
 ];
 

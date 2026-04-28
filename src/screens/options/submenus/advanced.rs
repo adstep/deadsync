@@ -7,6 +7,16 @@ const CDTITLE_CACHE_BINDING: CycleBinding = CycleBinding::Bool(config::update_cd
 const CACHE_SONGS_BINDING: CycleBinding = CycleBinding::Bool(config::update_cache_songs);
 const FAST_LOAD_BINDING: CycleBinding = CycleBinding::Bool(config::update_fastload);
 
+fn apply_song_parsing_threads(state: &mut State, new_idx: usize) -> Outcome {
+    let threads = software_thread_from_choice(&state.software_thread_choices, new_idx);
+    config::update_song_parsing_threads(threads);
+    Outcome::changed()
+}
+
+const SONG_PARSING_THREADS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_song_parsing_threads,
+};
+
 pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::DefaultFailType,
@@ -43,7 +53,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsAdvanced", "SongParsingThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(SONG_PARSING_THREADS_BINDING),
     },
     SubRow {
         id: SubRowId::CacheSongs,

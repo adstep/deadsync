@@ -23,6 +23,15 @@ const MENU_NAVIGATION_BINDING: CycleBinding = CycleBinding::Bool(config::update_
 const OPTIONS_NAVIGATION_BINDING: CycleBinding =
     CycleBinding::Bool(config::update_arcade_options_navigation);
 
+fn apply_menu_buttons(state: &mut State, new_idx: usize) -> Outcome {
+    state.pending_dedicated_menu_buttons = Some(new_idx == 1);
+    Outcome::changed()
+}
+
+const MENU_BUTTONS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_menu_buttons,
+};
+
 pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ConfigureMappings,
@@ -133,7 +142,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "DedicatedMenuButtonsOnly"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(MENU_BUTTONS_BINDING),
     },
     SubRow {
         id: SubRowId::Debounce,

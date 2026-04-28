@@ -45,6 +45,16 @@ const KERNEL_TYPE_BINDING: CycleBinding =
 const FULL_SPECTROGRAM_BINDING: CycleBinding =
     CycleBinding::Bool(config::update_null_or_die_full_spectrogram);
 
+fn apply_pack_sync_threads(state: &mut State, new_idx: usize) -> Outcome {
+    let threads = software_thread_from_choice(&state.software_thread_choices, new_idx);
+    config::update_null_or_die_pack_sync_threads(threads);
+    Outcome::changed()
+}
+
+const PACK_SYNC_THREADS_BINDING: CustomBinding = CustomBinding {
+    apply: apply_pack_sync_threads,
+};
+
 pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::NullOrDieOptions,
@@ -108,7 +118,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsNullOrDie", "PackSyncThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Custom(PACK_SYNC_THREADS_BINDING),
     },
     SubRow {
         id: SubRowId::Fingerprint,
