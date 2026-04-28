@@ -1,5 +1,45 @@
 use super::super::*;
 
+const MASTER_VOLUME_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.master_volume_pct,
+    min: VOLUME_MIN_PERCENT,
+    max: VOLUME_MAX_PERCENT,
+    step: NumericStep::Ms,
+    persist: |v| config::update_master_volume(v as u8),
+};
+
+const SFX_VOLUME_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.sfx_volume_pct,
+    min: VOLUME_MIN_PERCENT,
+    max: VOLUME_MAX_PERCENT,
+    step: NumericStep::Ms,
+    persist: |v| config::update_sfx_volume(v as u8),
+};
+
+const ASSIST_TICK_VOLUME_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.assist_tick_volume_pct,
+    min: VOLUME_MIN_PERCENT,
+    max: VOLUME_MAX_PERCENT,
+    step: NumericStep::Ms,
+    persist: |v| config::update_assist_tick_volume(v as u8),
+};
+
+const MUSIC_VOLUME_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.music_volume_pct,
+    min: VOLUME_MIN_PERCENT,
+    max: VOLUME_MAX_PERCENT,
+    step: NumericStep::Ms,
+    persist: |v| config::update_music_volume(v as u8),
+};
+
+const GLOBAL_OFFSET_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.global_offset_ms,
+    min: GLOBAL_OFFSET_MIN_MS,
+    max: GLOBAL_OFFSET_MAX_MS,
+    step: NumericStep::Ms,
+    persist: |v| config::update_global_offset(v as f32 / 1000.0),
+};
+
 pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::SoundDevice,
@@ -49,28 +89,28 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "MasterVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(MASTER_VOLUME_BINDING),
     },
     SubRow {
         id: SubRowId::SfxVolume,
         label: lookup_key("OptionsSound", "SFXVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(SFX_VOLUME_BINDING),
     },
     SubRow {
         id: SubRowId::AssistTickVolume,
         label: lookup_key("OptionsSound", "AssistTickVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(ASSIST_TICK_VOLUME_BINDING),
     },
     SubRow {
         id: SubRowId::MusicVolume,
         label: lookup_key("OptionsSound", "MusicVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(MUSIC_VOLUME_BINDING),
     },
     SubRow {
         id: SubRowId::MineSounds,
@@ -87,7 +127,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "GlobalOffset"),
         choices: &[literal_choice("0 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(GLOBAL_OFFSET_BINDING),
     },
     SubRow {
         id: SubRowId::RateModPreservesPitch,

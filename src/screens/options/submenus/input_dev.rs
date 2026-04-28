@@ -1,5 +1,13 @@
 use super::super::*;
 
+const DEBOUNCE_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.input_debounce_ms,
+    min: INPUT_DEBOUNCE_MIN_MS,
+    max: INPUT_DEBOUNCE_MAX_MS,
+    step: NumericStep::Ms,
+    persist: |v| config::update_input_debounce_seconds(v as f32 / 1000.0),
+};
+
 pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ConfigureMappings,
@@ -117,7 +125,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsInput", "Debounce"),
         choices: &[literal_choice("20ms")],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(DEBOUNCE_BINDING),
     },
 ];
 

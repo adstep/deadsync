@@ -1,6 +1,38 @@
 use super::super::*;
 use ::null_or_die::{BiasKernel, KernelTarget};
 
+const FINGERPRINT_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.null_or_die_fingerprint_tenths,
+    min: NULL_OR_DIE_POSITIVE_MS_MIN_TENTHS,
+    max: NULL_OR_DIE_POSITIVE_MS_MAX_TENTHS,
+    step: NumericStep::Tenths,
+    persist: |v| config::update_null_or_die_fingerprint_ms(f64_from_tenths(v)),
+};
+
+const WINDOW_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.null_or_die_window_tenths,
+    min: NULL_OR_DIE_POSITIVE_MS_MIN_TENTHS,
+    max: NULL_OR_DIE_POSITIVE_MS_MAX_TENTHS,
+    step: NumericStep::Tenths,
+    persist: |v| config::update_null_or_die_window_ms(f64_from_tenths(v)),
+};
+
+const STEP_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.null_or_die_step_tenths,
+    min: NULL_OR_DIE_POSITIVE_MS_MIN_TENTHS,
+    max: NULL_OR_DIE_POSITIVE_MS_MAX_TENTHS,
+    step: NumericStep::Tenths,
+    persist: |v| config::update_null_or_die_step_ms(f64_from_tenths(v)),
+};
+
+const MAGIC_OFFSET_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.null_or_die_magic_offset_tenths,
+    min: NULL_OR_DIE_MAGIC_OFFSET_MIN_TENTHS,
+    max: NULL_OR_DIE_MAGIC_OFFSET_MAX_TENTHS,
+    step: NumericStep::Tenths,
+    persist: |v| config::update_null_or_die_magic_offset_ms(f64_from_tenths(v)),
+};
+
 pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::NullOrDieOptions,
@@ -71,28 +103,28 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsNullOrDie", "Fingerprint"),
         choices: &[literal_choice("50.0 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(FINGERPRINT_BINDING),
     },
     SubRow {
         id: SubRowId::Window,
         label: lookup_key("OptionsNullOrDie", "Window"),
         choices: &[literal_choice("10.0 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(WINDOW_BINDING),
     },
     SubRow {
         id: SubRowId::Step,
         label: lookup_key("OptionsNullOrDie", "Step"),
         choices: &[literal_choice("0.2 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(STEP_BINDING),
     },
     SubRow {
         id: SubRowId::MagicOffset,
         label: lookup_key("OptionsNullOrDie", "MagicOffset"),
         choices: &[literal_choice("0.0 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(MAGIC_OFFSET_BINDING),
     },
     SubRow {
         id: SubRowId::KernelTarget,

@@ -1,5 +1,13 @@
 use super::super::*;
 
+const VISUAL_DELAY_BINDING: NumericBinding = NumericBinding {
+    get_mut: |s: &mut State| &mut s.visual_delay_ms,
+    min: VISUAL_DELAY_MIN_MS,
+    max: VISUAL_DELAY_MAX_MS,
+    step: NumericStep::Ms,
+    persist: |v| config::update_visual_delay_seconds(v as f32 / 1000.0),
+};
+
 pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::VideoRenderer,
@@ -143,7 +151,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsGraphics", "VisualDelay"),
         choices: &[literal_choice("0 ms")],
         inline: false,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Numeric(VISUAL_DELAY_BINDING),
     },
 ];
 

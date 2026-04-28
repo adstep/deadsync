@@ -6,6 +6,7 @@ pub(in crate::screens::options) const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsMachine", "VisualStyle"),
         choices: VISUAL_STYLE_CHOICES,
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SelectProfile,
