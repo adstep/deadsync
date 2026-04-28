@@ -19,12 +19,26 @@ pub enum OptionsPane {
     Uncommon,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ExitBehavior {
+    PlainReturn,
+    WhatComesNextNav,
+}
+
 impl OptionsPane {
     pub(super) const COUNT: usize = 3;
 
     #[inline(always)]
     pub(super) const fn index(self) -> usize {
         self as usize
+    }
+
+    #[inline(always)]
+    pub(super) const fn exit_behavior(self) -> ExitBehavior {
+        match self {
+            Self::Main => ExitBehavior::WhatComesNextNav,
+            Self::Advanced | Self::Uncommon => ExitBehavior::PlainReturn,
+        }
     }
 }
 

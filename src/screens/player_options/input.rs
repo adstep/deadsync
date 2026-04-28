@@ -119,7 +119,7 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
             .display_order()
             .get(state.pane().selected_row[player_idx])
             .and_then(|&id| state.pane().row_map.get(id))
-            && row.id == RowId::ComboFont
+            && row.preview == Preview::Combo
         {
             combo_row_active = true;
             break;
@@ -633,7 +633,9 @@ pub(super) fn handle_start_event(
         return None;
     }
     let row_index = state.pane().selected_row[player_idx].min(num_rows.saturating_sub(1));
-    let should_focus_exit = state.current_pane == OptionsPane::Main && row_index + 1 < num_rows;
+    let exit_behavior = state.current_pane.exit_behavior();
+    let should_focus_exit =
+        exit_behavior == ExitBehavior::WhatComesNextNav && row_index + 1 < num_rows;
     let row = state
         .pane()
         .row_map
