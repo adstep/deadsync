@@ -18,7 +18,7 @@ pub(super) fn measure_text_box(asset_manager: &AssetManager, text: &str, zoom: f
 }
 
 #[inline(always)]
-pub(super) fn ring_size_for_text(draw_w: f32, text_h: f32, spacing: f32) -> (f32, f32) {
+pub(super) fn ring_size_for_text(draw_w: f32, text_h: f32) -> (f32, f32) {
     let pad_y = widescale(6.0, 8.0);
     let min_pad_x = widescale(2.0, 3.0);
     let max_pad_x = widescale(22.0, 28.0);
@@ -30,7 +30,7 @@ pub(super) fn ring_size_for_text(draw_w: f32, text_h: f32, spacing: f32) -> (f32
     }
     size_t = size_t.clamp(0.0, 1.0);
     let mut pad_x = (max_pad_x - min_pad_x).mul_add(size_t, min_pad_x);
-    let max_pad_by_spacing = (spacing - border_w).max(min_pad_x);
+    let max_pad_by_spacing = (INLINE_SPACING - border_w).max(min_pad_x);
     if pad_x > max_pad_by_spacing {
         pad_x = max_pad_by_spacing;
     }
@@ -240,7 +240,7 @@ pub(super) fn submenu_cursor_dest(
     }
     let selected_row = state.sub_selected.min(total_rows - 1);
     let row_mid_y = row_mid_y_for_cursor(state, selected_row, total_rows, selected_row, s, list_y);
-    let value_zoom = SUBMENU_VALUE_ZOOM;
+    let value_zoom = 0.835_f32;
     let label_bg_w = SUB_LABEL_COL_W * s;
     let item_col_left = list_x + label_bg_w;
     let item_col_w = list_w - label_bg_w;
@@ -248,9 +248,8 @@ pub(super) fn submenu_cursor_dest(
         item_col_w.mul_add(0.5, item_col_left) + SUB_SINGLE_VALUE_CENTER_OFFSET * s;
 
     if selected_row == total_rows - 1 {
-        let exit_label = tr("Common", "Exit");
-        let (draw_w, text_h) = measure_text_box(asset_manager, &exit_label, value_zoom);
-        let (ring_w, ring_h) = ring_size_for_text(draw_w, text_h, INLINE_SPACING);
+        let (draw_w, text_h) = measure_text_box(asset_manager, "Exit", value_zoom);
+        let (ring_w, ring_h) = ring_size_for_text(draw_w, text_h);
         return Some((single_center_x, row_mid_y, ring_w, ring_h));
     }
     let row_idx = submenu_visible_row_to_actual(state, kind, selected_row)?;
@@ -272,7 +271,7 @@ pub(super) fn submenu_cursor_dest(
     } else {
         single_center_x
     };
-    let (ring_w, ring_h) = ring_size_for_text(draw_w, layout.text_h, layout.inline_spacing);
+    let (ring_w, ring_h) = ring_size_for_text(draw_w, layout.text_h);
     Some((center_x, row_mid_y, ring_w, ring_h))
 }
 
@@ -496,6 +495,725 @@ fn build_description_actors(
     }
 }
 
+struct RenderCtx<'a> {
+    state: &'a State,
+    asset_manager: &'a AssetManager,
+    s: f32,
+    list_x: f32,
+    list_y: f32,
+    list_w: f32,
+    sep_w: f32,
+    col_active_bg: [f32; 4],
+    col_inactive_bg: [f32; 4],
+    col_brand_bg: [f32; 4],
+    col_white: [f32; 4],
+    col_black: [f32; 4],
+}
+
+fn build_main_view_rows(
+    ctx: &RenderCtx,
+    out: &mut Vec<Actor>,
+) -> Option<(DescriptionCacheKey, &'static Item)> {
+    let state = ctx.state;
+    let s = ctx.s;
+    let list_x = ctx.list_x;
+    let list_y = ctx.list_y;
+    let list_w = ctx.list_w;
+    let sep_w = ctx.sep_w;
+    let col_active_bg = ctx.col_active_bg;
+    let col_inactive_bg = ctx.col_inactive_bg;
+    let col_brand_bg = ctx.col_brand_bg;
+    let col_white = ctx.col_white;
+    let col_black = ctx.col_black;
+
+    // Active text color (for normal rows) – Simply Love uses row index + global color index.
+    let col_active_text =
+        color::simply_love_rgba(state.active_color_index + state.selected as i32);
+
+    let total_items = ITEMS.len();
+    let row_h = ROW_H * s;
+    for (item_idx, _) in ITEMS.iter().enumerate() {
+        let (row_mid_y, row_alpha) = state
+            .row_tweens
+            .get(item_idx)
+            .map(|tw| (tw.y(), tw.a()))
+            .unwrap_or_else(|| {
+                row_dest_for_index(total_items, state.selected, item_idx, s, list_y)
+            });
+        let row_alpha = row_alpha.clamp(0.0, 1.0);
+        if row_alpha <= 0.001 {
+            continue;
+        }
+        let row_y = row_mid_y - 0.5 * row_h;
+        let is_active = item_idx == state.selected;
+        let is_exit = item_idx == total_items - 1;
+        let row_w = if is_exit || !is_active {
+            list_w - sep_w
+        } else {
+            list_w
+        };
+        let bg = if is_active {
+            if is_exit { col_brand_bg } else { col_active_bg }
+        } else {
+            col_inactive_bg
+        };
+
+        out.push(act!(quad:
+            align(0.0, 0.0):
+            xy(list_x, row_y):
+            zoomto(row_w, row_h):
+            diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
+        ));
+
+        let heart_x = HEART_LEFT_PAD.mul_add(s, list_x);
+        let text_x_base = TEXT_LEFT_PAD.mul_add(s, list_x);
+        if !is_exit {
+            let mut heart_tint = if is_active {
+                col_active_text
+            } else {
+                col_white
+            };
+            heart_tint[3] *= row_alpha;
+            out.push(act!(sprite("heart.png"):
+                align(0.0, 0.5):
+                xy(heart_x, row_mid_y):
+                zoom(HEART_ZOOM):
+                diffuse(heart_tint[0], heart_tint[1], heart_tint[2], heart_tint[3])
+            ));
+        }
+
+        let text_x = if is_exit { heart_x } else { text_x_base };
+        let label = ITEMS[item_idx].name.get();
+        let mut color_t = if is_exit {
+            if is_active { col_black } else { col_white }
+        } else if is_active {
+            col_active_text
+        } else {
+            col_white
+        };
+        color_t[3] *= row_alpha;
+        out.push(act!(text:
+            align(0.0, 0.5):
+            xy(text_x, row_mid_y):
+            zoom(ITEM_TEXT_ZOOM):
+            diffuse(color_t[0], color_t[1], color_t[2], color_t[3]):
+            font("miso"):
+            settext(&label):
+            horizalign(left)
+        ));
+    }
+
+    let sel = state.selected.min(ITEMS.len() - 1);
+    Some((DescriptionCacheKey::Main(sel), &ITEMS[sel]))
+}
+
+fn build_launcher_submenu_rows(
+    ctx: &RenderCtx,
+    kind: SubmenuKind,
+    out: &mut Vec<Actor>,
+) -> Option<(DescriptionCacheKey, &'static Item)> {
+    let state = ctx.state;
+    let s = ctx.s;
+    let list_x = ctx.list_x;
+    let list_y = ctx.list_y;
+    let list_w = ctx.list_w;
+    let sep_w = ctx.sep_w;
+    let col_active_bg = ctx.col_active_bg;
+    let col_inactive_bg = ctx.col_inactive_bg;
+    let col_brand_bg = ctx.col_brand_bg;
+    let col_white = ctx.col_white;
+    let col_black = ctx.col_black;
+
+    let rows = submenu_rows(kind);
+    let choice_indices = submenu_choice_indices(state, kind);
+    let items = submenu_items(kind);
+
+    let col_active_text =
+        color::simply_love_rgba(state.active_color_index + state.sub_selected as i32);
+    let total_rows = rows.len() + 1;
+    let row_h = ROW_H * s;
+    for row_idx in 0..total_rows {
+        let (row_mid_y, row_alpha) = state
+            .row_tweens
+            .get(row_idx)
+            .map(|tw| (tw.y(), tw.a()))
+            .unwrap_or_else(|| {
+                row_dest_for_index(total_rows, state.sub_selected, row_idx, s, list_y)
+            });
+        let row_alpha = row_alpha.clamp(0.0, 1.0);
+        if row_alpha <= 0.001 {
+            continue;
+        }
+        let row_y = row_mid_y - 0.5 * row_h;
+        let is_active = row_idx == state.sub_selected;
+        let is_exit = row_idx == total_rows - 1;
+        let row_w = if is_exit || !is_active {
+            list_w - sep_w
+        } else {
+            list_w
+        };
+        let bg = if is_active {
+            if is_exit { col_brand_bg } else { col_active_bg }
+        } else {
+            col_inactive_bg
+        };
+
+        out.push(act!(quad:
+            align(0.0, 0.0):
+            xy(list_x, row_y):
+            zoomto(row_w, row_h):
+            diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
+        ));
+
+        let heart_x = HEART_LEFT_PAD.mul_add(s, list_x);
+        let text_x_base = TEXT_LEFT_PAD.mul_add(s, list_x);
+        if !is_exit {
+            let mut heart_tint = if is_active {
+                col_active_text
+            } else {
+                col_white
+            };
+            heart_tint[3] *= row_alpha;
+            out.push(act!(sprite("heart.png"):
+                align(0.0, 0.5):
+                xy(heart_x, row_mid_y):
+                zoom(HEART_ZOOM):
+                diffuse(heart_tint[0], heart_tint[1], heart_tint[2], heart_tint[3])
+            ));
+        }
+
+        let text_x = if is_exit { heart_x } else { text_x_base };
+        let label = if row_idx < rows.len() {
+            rows[row_idx].label.get()
+        } else {
+            Arc::from("Exit")
+        };
+        let mut text_color = if is_exit {
+            if is_active { col_black } else { col_white }
+        } else if is_active {
+            col_active_text
+        } else {
+            col_white
+        };
+        text_color[3] *= row_alpha;
+        out.push(act!(text:
+            align(0.0, 0.5):
+            xy(text_x, row_mid_y):
+            zoom(ITEM_TEXT_ZOOM):
+            diffuse(text_color[0], text_color[1], text_color[2], text_color[3]):
+            font("miso"):
+            settext(&label):
+            horizalign(left)
+        ));
+
+        if row_idx < rows.len() {
+            let row = &rows[row_idx];
+            if row.inline {
+                let choices = row_choices(state, kind, rows, row_idx);
+                if !choices.is_empty() {
+                    let choice_idx = choice_indices
+                        .get(row_idx)
+                        .copied()
+                        .unwrap_or(0)
+                        .min(choices.len().saturating_sub(1));
+                    let mut value_color = if is_active {
+                        col_active_text
+                    } else {
+                        col_white
+                    };
+                    value_color[3] *= row_alpha;
+                    let value_x = list_w.mul_add(1.0, list_x - TEXT_LEFT_PAD * s);
+                    out.push(act!(text:
+                        align(1.0, 0.5):
+                        xy(value_x, row_mid_y):
+                        zoom(ITEM_TEXT_ZOOM):
+                        diffuse(value_color[0], value_color[1], value_color[2], value_color[3]):
+                        font("miso"):
+                        settext(choices[choice_idx].clone().into_owned()):
+                        horizalign(right)
+                    ));
+                }
+            }
+        }
+    }
+
+    let sel = state.sub_selected.min(total_rows.saturating_sub(1));
+    let (item_idx, item) = if sel < rows.len() {
+        (sel, &items[sel])
+    } else {
+        let idx = items.len().saturating_sub(1);
+        (idx, &items[idx])
+    };
+    Some((DescriptionCacheKey::Submenu(kind, item_idx), item))
+}
+
+fn build_options_submenu_rows(
+    ctx: &RenderCtx,
+    kind: SubmenuKind,
+    out: &mut Vec<Actor>,
+) -> Option<(DescriptionCacheKey, &'static Item)> {
+    let state = ctx.state;
+    let asset_manager = ctx.asset_manager;
+    let s = ctx.s;
+    let list_x = ctx.list_x;
+    let list_y = ctx.list_y;
+    let list_w = ctx.list_w;
+    let sep_w = ctx.sep_w;
+    let col_active_bg = ctx.col_active_bg;
+    let col_inactive_bg = ctx.col_inactive_bg;
+    let col_white = ctx.col_white;
+
+    let is_fading_submenu = !matches!(state.submenu_transition, SubmenuTransition::None);
+
+    let cursor_now = || -> Option<(f32, f32, f32, f32)> {
+        if !state.cursor_initialized {
+            return None;
+        }
+        let t = state.cursor_t.clamp(0.0, 1.0);
+        let x = (state.cursor_to_x - state.cursor_from_x).mul_add(t, state.cursor_from_x);
+        let y = (state.cursor_to_y - state.cursor_from_y).mul_add(t, state.cursor_from_y);
+        let w = (state.cursor_to_w - state.cursor_from_w).mul_add(t, state.cursor_from_w);
+        let h = (state.cursor_to_h - state.cursor_from_h).mul_add(t, state.cursor_from_h);
+        Some((x, y, w, h))
+    };
+
+    let rows = submenu_rows(kind);
+    let choice_indices = submenu_choice_indices(state, kind);
+    let items = submenu_items(kind);
+    let visible_rows = submenu_visible_row_indices(state, kind, rows);
+
+    // Active text color for submenu rows.
+    let col_active_text = color::simply_love_rgba(state.active_color_index);
+    // Inactive option text color should be #808080 (alpha 1.0), match player options.
+    let sl_gray = color::rgba_hex("#808080");
+
+    let total_rows = visible_rows.len() + 1; // + Exit row
+
+    let label_bg_w = SUB_LABEL_COL_W * s;
+    let label_text_x = SUB_LABEL_TEXT_LEFT_PAD.mul_add(s, list_x);
+    // Keep submenu header labels bounded to the left label column.
+    let label_text_max_w = (label_bg_w - SUB_LABEL_TEXT_LEFT_PAD * s - 5.0).max(0.0);
+
+    // Helper to compute the cursor center X for a given submenu row index.
+    let calc_row_center_x = |row_idx: usize| -> f32 {
+        if row_idx >= total_rows {
+            return list_w.mul_add(0.5, list_x);
+        }
+        if row_idx == total_rows - 1 {
+            // Exit row: center within the items column (row width minus label column),
+            // matching how single-value rows like Music Rate are centered in player_options.rs.
+            let item_col_left = list_x + label_bg_w;
+            let item_col_w = list_w - label_bg_w;
+            return item_col_w.mul_add(0.5, item_col_left)
+                + SUB_SINGLE_VALUE_CENTER_OFFSET * s;
+        }
+        let Some(actual_row_idx) = visible_rows.get(row_idx).copied() else {
+            return list_w.mul_add(0.5, list_x);
+        };
+        let row = &rows[actual_row_idx];
+        let item_col_left = list_x + label_bg_w;
+        let item_col_w = list_w - label_bg_w;
+        let single_center_x =
+            item_col_w.mul_add(0.5, item_col_left) + SUB_SINGLE_VALUE_CENTER_OFFSET * s;
+        // Non-inline rows behave as single-value rows: keep the cursor centered
+        // on the center of the available items column (row width minus label column).
+        if !row.inline {
+            return single_center_x;
+        }
+        let Some(layout) =
+            submenu_row_layout(state, asset_manager, kind, actual_row_idx)
+        else {
+            return list_w.mul_add(0.5, list_x);
+        };
+        if !layout.inline_row || layout.centers.is_empty() {
+            return single_center_x;
+        }
+        let sel_idx = choice_indices
+            .get(actual_row_idx)
+            .copied()
+            .unwrap_or(0)
+            .min(layout.centers.len().saturating_sub(1));
+        SUB_INLINE_ITEMS_LEFT_PAD.mul_add(s, list_x + label_bg_w)
+            + layout.centers[sel_idx]
+    };
+
+    let row_h = ROW_H * s;
+    for row_idx in 0..total_rows {
+        let (row_mid_y, row_alpha) = state
+            .row_tweens
+            .get(row_idx)
+            .map(|tw| (tw.y(), tw.a()))
+            .unwrap_or_else(|| {
+                row_dest_for_index(total_rows, state.sub_selected, row_idx, s, list_y)
+            });
+        let row_alpha = row_alpha.clamp(0.0, 1.0);
+        if row_alpha <= 0.001 {
+            continue;
+        }
+        let row_y = row_mid_y - 0.5 * row_h;
+
+        let is_active = row_idx == state.sub_selected;
+        let is_exit = row_idx == total_rows - 1;
+
+        let row_w = if is_exit {
+            list_w - sep_w
+        } else if is_active {
+            list_w
+        } else {
+            list_w - sep_w
+        };
+
+        let bg = if is_active {
+            col_active_bg
+        } else {
+            col_inactive_bg
+        };
+
+        out.push(act!(quad:
+            align(0.0, 0.0):
+            xy(list_x, row_y):
+            zoomto(row_w, row_h):
+            diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
+        ));
+        let show_option_row = !is_exit;
+
+        if show_option_row {
+            let Some(actual_row_idx) = visible_rows.get(row_idx).copied() else {
+                continue;
+            };
+            // Left label background column (matches player options style).
+            out.push(act!(quad:
+                align(0.0, 0.0):
+                xy(list_x, row_y):
+                zoomto(label_bg_w, row_h):
+                diffuse(0.0, 0.0, 0.0, 0.25 * row_alpha)
+            ));
+
+            let row = &rows[actual_row_idx];
+            let label = row.label.get();
+            let is_disabled = is_submenu_row_disabled(kind, row.id);
+            #[cfg(target_os = "linux")]
+            let child_label_indent = if matches!(kind, SubmenuKind::Sound)
+                && sound_parent_row(actual_row_idx).is_some()
+            {
+                12.0 * s
+            } else {
+                0.0
+            };
+            #[cfg(not(target_os = "linux"))]
+            let child_label_indent = 0.0;
+            let label_text_x = label_text_x + child_label_indent;
+            let label_text_max_w = (label_text_max_w - child_label_indent).max(0.0);
+            let title_color = if is_active {
+                let mut c = col_active_text;
+                c[3] = 1.0;
+                c
+            } else {
+                col_white
+            };
+            let mut title_color = title_color;
+            title_color[3] *= row_alpha;
+
+            out.push(act!(text:
+                align(0.0, 0.5):
+                xy(label_text_x, row_mid_y):
+                zoom(ITEM_TEXT_ZOOM):
+                diffuse(title_color[0], title_color[1], title_color[2], title_color[3]):
+                font("miso"):
+                settext(&label):
+                maxwidth(label_text_max_w):
+                horizalign(left)
+            ));
+
+            // Inline Off/On options in the items column (or a single centered value if inline == false).
+            if let Some(layout) =
+                submenu_row_layout(state, asset_manager, kind, actual_row_idx)
+                && !layout.texts.is_empty()
+            {
+                let value_zoom = 0.835_f32;
+                let selected_choice = choice_indices
+                    .get(actual_row_idx)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(layout.texts.len().saturating_sub(1));
+                let is_chart_info_row = matches!(kind, SubmenuKind::SelectMusic)
+                    && row.id == SubRowId::ChartInfo;
+                let is_scorebox_cycle_row = matches!(kind, SubmenuKind::SelectMusic)
+                    && row.id == SubRowId::GsBoxLeaderboards;
+                let is_auto_screenshot_row = matches!(kind, SubmenuKind::Gameplay)
+                    && row.id == SubRowId::AutoScreenshot;
+                let is_multi_toggle_row = is_chart_info_row
+                    || is_scorebox_cycle_row
+                    || is_auto_screenshot_row;
+                let chart_info_enabled_mask = if is_chart_info_row {
+                    select_music_chart_info_enabled_mask()
+                } else {
+                    0
+                };
+                let scorebox_enabled_mask = if is_scorebox_cycle_row {
+                    select_music_scorebox_cycle_enabled_mask()
+                } else {
+                    0
+                };
+                let auto_screenshot_mask = if is_auto_screenshot_row {
+                    auto_screenshot_enabled_mask()
+                } else {
+                    0
+                };
+                let mut selected_left_x: Option<f32> = None;
+                let choice_inner_left =
+                    SUB_INLINE_ITEMS_LEFT_PAD.mul_add(s, list_x + label_bg_w);
+
+                if layout.inline_row {
+                    for (idx, choice) in layout.texts.iter().enumerate() {
+                        let x = choice_inner_left
+                            + layout.x_positions.get(idx).copied().unwrap_or_default();
+                        let is_choice_selected = idx == selected_choice;
+                        if is_choice_selected {
+                            selected_left_x = Some(x);
+                        }
+                        let is_choice_enabled = if is_chart_info_row {
+                            (chart_info_enabled_mask
+                                & select_music_chart_info_bit_from_choice(idx))
+                                != 0
+                        } else if is_scorebox_cycle_row {
+                            (scorebox_enabled_mask
+                                & scorebox_cycle_bit_from_choice(idx))
+                                != 0
+                        } else if is_auto_screenshot_row {
+                            (auto_screenshot_mask
+                                & auto_screenshot_bit_from_choice(idx))
+                                != 0
+                        } else {
+                            false
+                        };
+                        let mut choice_color = if is_disabled && !is_choice_selected {
+                            sl_gray
+                        } else if is_multi_toggle_row {
+                            if is_choice_enabled {
+                                col_white
+                            } else {
+                                sl_gray
+                            }
+                        } else if is_active {
+                            col_white
+                        } else {
+                            sl_gray
+                        };
+                        choice_color[3] *= row_alpha;
+                        out.push(act!(text:
+                            align(0.0, 0.5):
+                            xy(x, row_mid_y):
+                            zoom(value_zoom):
+                            diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
+                            font("miso"):
+                            settext(choice):
+                            horizalign(left)
+                        ));
+                    }
+                } else {
+                    let mut choice_color = if is_active { col_white } else { sl_gray };
+                    choice_color[3] *= row_alpha;
+                    let choice_center_x = calc_row_center_x(row_idx);
+                    let draw_w =
+                        layout.widths.get(selected_choice).copied().unwrap_or(40.0);
+                    selected_left_x = Some(choice_center_x - draw_w * 0.5);
+                    let choice_text = layout
+                        .texts
+                        .get(selected_choice)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::<str>::from("??"));
+                    out.push(act!(text:
+                        align(0.5, 0.5):
+                        xy(choice_center_x, row_mid_y):
+                        zoom(value_zoom):
+                        diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
+                        font("miso"):
+                        settext(choice_text):
+                        horizalign(center)
+                    ));
+                }
+
+                // For normal rows, underline the selected option.
+                // For multi-toggle rows, underline each enabled option.
+                if layout.inline_row && is_multi_toggle_row {
+                    let line_thickness = widescale(2.0, 2.5).round().max(1.0);
+                    let offset = widescale(3.0, 4.0);
+                    let underline_y = row_mid_y + layout.text_h * 0.5 + offset;
+                    let mut line_color =
+                        color::decorative_rgba(state.active_color_index);
+                    line_color[3] *= row_alpha;
+                    for idx in 0..layout.texts.len() {
+                        let enabled = if is_chart_info_row {
+                            let bit = select_music_chart_info_bit_from_choice(idx);
+                            bit != 0 && (chart_info_enabled_mask & bit) != 0
+                        } else if is_scorebox_cycle_row {
+                            let bit = scorebox_cycle_bit_from_choice(idx);
+                            bit != 0 && (scorebox_enabled_mask & bit) != 0
+                        } else {
+                            let bit = auto_screenshot_bit_from_choice(idx);
+                            bit != 0 && (auto_screenshot_mask & bit) != 0
+                        };
+                        if !enabled {
+                            continue;
+                        }
+                        let underline_left_x = choice_inner_left
+                            + layout.x_positions.get(idx).copied().unwrap_or_default();
+                        let underline_w =
+                            layout.widths.get(idx).copied().unwrap_or(40.0).ceil();
+                        out.push(act!(quad:
+                            align(0.0, 0.5):
+                            xy(underline_left_x, underline_y):
+                            zoomto(underline_w, line_thickness):
+                            diffuse(line_color[0], line_color[1], line_color[2], line_color[3]):
+                            z(101)
+                        ));
+                    }
+                } else if let Some(sel_left_x) = selected_left_x {
+                    let line_thickness = widescale(2.0, 2.5).round().max(1.0);
+                    let underline_w = layout
+                        .widths
+                        .get(selected_choice)
+                        .copied()
+                        .unwrap_or(40.0)
+                        .ceil();
+                    let offset = widescale(3.0, 4.0);
+                    let underline_y = row_mid_y + layout.text_h * 0.5 + offset;
+                    let mut line_color =
+                        color::decorative_rgba(state.active_color_index);
+                    line_color[3] *= row_alpha;
+                    out.push(act!(quad:
+                        align(0.0, 0.5):
+                        xy(sel_left_x, underline_y):
+                        zoomto(underline_w, line_thickness):
+                        diffuse(line_color[0], line_color[1], line_color[2], line_color[3]):
+                        z(101)
+                    ));
+                }
+
+                // Encircling cursor ring around the active option when this row is active.
+                // During submenu fades, hide the ring to avoid exposing its construction.
+                if is_active
+                    && !is_fading_submenu
+                    && let Some((center_x, center_y, ring_w, ring_h)) = cursor_now()
+                {
+                    let border_w = widescale(2.0, 2.5);
+                    let left = center_x - ring_w * 0.5;
+                    let right = center_x + ring_w * 0.5;
+                    let top = center_y - ring_h * 0.5;
+                    let bottom = center_y + ring_h * 0.5;
+                    let mut ring_color =
+                        color::decorative_rgba(state.active_color_index);
+                    ring_color[3] *= row_alpha;
+                    out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(center_x, top + border_w * 0.5):
+                    zoomto(ring_w, border_w):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                    out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(center_x, bottom - border_w * 0.5):
+                    zoomto(ring_w, border_w):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                    out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(left + border_w * 0.5, center_y):
+                    zoomto(border_w, ring_h):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                    out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(right - border_w * 0.5, center_y):
+                    zoomto(border_w, ring_h):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                }
+            }
+        } else {
+            // Exit row: centered "Exit" text in the items column.
+            let exit_label = tr("Common", "Exit");
+            let label = exit_label.clone();
+            let value_zoom = 0.835_f32;
+            let mut choice_color = if is_active { col_white } else { sl_gray };
+            choice_color[3] *= row_alpha;
+            let center_x = calc_row_center_x(row_idx);
+            let center_y = row_mid_y;
+
+            out.push(act!(text:
+            align(0.5, 0.5):
+            xy(center_x, center_y):
+            zoom(value_zoom):
+            diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
+            font("miso"):
+            settext(label):
+            horizalign(center)
+        ));
+
+            // Draw the selection cursor ring for the Exit row when active.
+            // During submenu fades, hide the ring to avoid exposing its construction.
+            if is_active
+                && !is_fading_submenu
+                && let Some((ring_x, ring_y, ring_w, ring_h)) = cursor_now()
+            {
+                let border_w = widescale(2.0, 2.5);
+                let left = ring_x - ring_w * 0.5;
+                let right = ring_x + ring_w * 0.5;
+                let top = ring_y - ring_h * 0.5;
+                let bottom = ring_y + ring_h * 0.5;
+                let mut ring_color = color::decorative_rgba(state.active_color_index);
+                ring_color[3] *= row_alpha;
+
+                out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy((left + right) * 0.5, top + border_w * 0.5):
+                    zoomto(ring_w, border_w):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy((left + right) * 0.5, bottom - border_w * 0.5):
+                    zoomto(ring_w, border_w):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(left + border_w * 0.5, (top + bottom) * 0.5):
+                    zoomto(border_w, ring_h):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+                out.push(act!(quad:
+                    align(0.5, 0.5):
+                    xy(right - border_w * 0.5, (top + bottom) * 0.5):
+                    zoomto(border_w, ring_h):
+                    diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
+                    z(101)
+                ));
+            }
+        }
+    }
+
+    // Description items for the submenu
+    let total_rows = visible_rows.len() + 1;
+    let sel = state.sub_selected.min(total_rows.saturating_sub(1));
+    let (item_idx, item) = if sel < visible_rows.len() {
+        let actual_row_idx = visible_rows[sel];
+        (actual_row_idx, &items[actual_row_idx])
+    } else {
+        let idx = items.len().saturating_sub(1);
+        (idx, &items[idx])
+    };
+    Some((DescriptionCacheKey::Submenu(kind, item_idx), item))
+}
+
 pub fn get_actors(
     state: &State,
     asset_manager: &AssetManager,
@@ -570,9 +1288,6 @@ pub fn get_actors(
     let sep_w = SEP_W * s;
     let desc_w = desc_w_unscaled() * s;
     let desc_h = DESC_H * s;
-    let visual_style = visual_styles::current_style();
-    let select_color_texture = visual_styles::select_color_texture_key();
-    let select_color_zoom = HEART_ZOOM * visual_styles::select_color_zoom_scale(visual_style);
 
     // Separator immediately to the RIGHT of the rows, aligned to the FIRST row top
     ui_actors.push(act!(quad:
@@ -592,658 +1307,31 @@ pub fn get_actors(
     ));
 
     // -------------------------- Rows + Description -------------------------
-    let selected_item: Option<(DescriptionCacheKey, &Item)>;
-    let cursor_now = || -> Option<(f32, f32, f32, f32)> {
-        if !state.cursor_initialized {
-            return None;
-        }
-        let t = state.cursor_t.clamp(0.0, 1.0);
-        let x = (state.cursor_to_x - state.cursor_from_x).mul_add(t, state.cursor_from_x);
-        let y = (state.cursor_to_y - state.cursor_from_y).mul_add(t, state.cursor_from_y);
-        let w = (state.cursor_to_w - state.cursor_from_w).mul_add(t, state.cursor_from_w);
-        let h = (state.cursor_to_h - state.cursor_from_h).mul_add(t, state.cursor_from_h);
-        Some((x, y, w, h))
+    let ctx = RenderCtx {
+        state,
+        asset_manager,
+        s,
+        list_x,
+        list_y,
+        list_w,
+        sep_w,
+        col_active_bg,
+        col_inactive_bg,
+        col_brand_bg,
+        col_white,
+        col_black,
     };
 
-    match state.view {
-        OptionsView::Main => {
-            // Active text color (for normal rows) – Simply Love uses row index + global color index.
-            let col_active_text =
-                color::simply_love_rgba(state.active_color_index + state.selected as i32);
-
-            let total_items = ITEMS.len();
-            let row_h = ROW_H * s;
-            for (item_idx, _) in ITEMS.iter().enumerate() {
-                let (row_mid_y, row_alpha) = state
-                    .row_tweens
-                    .get(item_idx)
-                    .map(|tw| (tw.y(), tw.a()))
-                    .unwrap_or_else(|| {
-                        row_dest_for_index(total_items, state.selected, item_idx, s, list_y)
-                    });
-                let row_alpha = row_alpha.clamp(0.0, 1.0);
-                if row_alpha <= 0.001 {
-                    continue;
-                }
-                let row_y = row_mid_y - 0.5 * row_h;
-                let is_active = item_idx == state.selected;
-                let is_exit = item_idx == total_items - 1;
-                let row_w = if is_exit || !is_active {
-                    list_w - sep_w
-                } else {
-                    list_w
-                };
-                let bg = if is_active {
-                    if is_exit { col_brand_bg } else { col_active_bg }
-                } else {
-                    col_inactive_bg
-                };
-
-                ui_actors.push(act!(quad:
-                    align(0.0, 0.0):
-                    xy(list_x, row_y):
-                    zoomto(row_w, row_h):
-                    diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
-                ));
-
-                let heart_x = HEART_LEFT_PAD.mul_add(s, list_x);
-                let text_x_base = TEXT_LEFT_PAD.mul_add(s, list_x);
-                if !is_exit {
-                    let mut heart_tint = if is_active {
-                        col_active_text
-                    } else {
-                        col_white
-                    };
-                    heart_tint[3] *= row_alpha;
-                    ui_actors.push(act!(sprite(select_color_texture):
-                        align(0.0, 0.5):
-                        xy(heart_x, row_mid_y):
-                        zoom(select_color_zoom):
-                        diffuse(heart_tint[0], heart_tint[1], heart_tint[2], heart_tint[3])
-                    ));
-                }
-
-                let text_x = if is_exit { heart_x } else { text_x_base };
-                let label = ITEMS[item_idx].name.get();
-                let mut color_t = if is_exit {
-                    if is_active { col_black } else { col_white }
-                } else if is_active {
-                    col_active_text
-                } else {
-                    col_white
-                };
-                color_t[3] *= row_alpha;
-                ui_actors.push(act!(text:
-                    align(0.0, 0.5):
-                    xy(text_x, row_mid_y):
-                    zoom(ITEM_TEXT_ZOOM):
-                    diffuse(color_t[0], color_t[1], color_t[2], color_t[3]):
-                    font("miso"):
-                    settext(&label):
-                    horizalign(left)
-                ));
-            }
-
-            let sel = state.selected.min(ITEMS.len() - 1);
-            selected_item = Some((DescriptionCacheKey::Main(sel), &ITEMS[sel]));
-        }
+    let selected_item = match state.view {
+        OptionsView::Main => build_main_view_rows(&ctx, &mut ui_actors),
         OptionsView::Submenu(kind) => {
-            let rows = submenu_rows(kind);
-            let choice_indices = submenu_choice_indices(state, kind);
-            let items = submenu_items(kind);
-            let visible_rows = submenu_visible_row_indices(state, kind, rows);
             if is_launcher_submenu(kind) {
-                let col_active_text =
-                    color::simply_love_rgba(state.active_color_index + state.sub_selected as i32);
-                let total_rows = rows.len() + 1;
-                let row_h = ROW_H * s;
-                for row_idx in 0..total_rows {
-                    let (row_mid_y, row_alpha) = state
-                        .row_tweens
-                        .get(row_idx)
-                        .map(|tw| (tw.y(), tw.a()))
-                        .unwrap_or_else(|| {
-                            row_dest_for_index(total_rows, state.sub_selected, row_idx, s, list_y)
-                        });
-                    let row_alpha = row_alpha.clamp(0.0, 1.0);
-                    if row_alpha <= 0.001 {
-                        continue;
-                    }
-                    let row_y = row_mid_y - 0.5 * row_h;
-                    let is_active = row_idx == state.sub_selected;
-                    let is_exit = row_idx == total_rows - 1;
-                    let row_w = if is_exit || !is_active {
-                        list_w - sep_w
-                    } else {
-                        list_w
-                    };
-                    let bg = if is_active {
-                        if is_exit { col_brand_bg } else { col_active_bg }
-                    } else {
-                        col_inactive_bg
-                    };
-
-                    ui_actors.push(act!(quad:
-                        align(0.0, 0.0):
-                        xy(list_x, row_y):
-                        zoomto(row_w, row_h):
-                        diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
-                    ));
-
-                    let heart_x = HEART_LEFT_PAD.mul_add(s, list_x);
-                    let text_x_base = TEXT_LEFT_PAD.mul_add(s, list_x);
-                    if !is_exit {
-                        let mut heart_tint = if is_active {
-                            col_active_text
-                        } else {
-                            col_white
-                        };
-                        heart_tint[3] *= row_alpha;
-                        ui_actors.push(act!(sprite(select_color_texture):
-                            align(0.0, 0.5):
-                            xy(heart_x, row_mid_y):
-                            zoom(select_color_zoom):
-                            diffuse(heart_tint[0], heart_tint[1], heart_tint[2], heart_tint[3])
-                        ));
-                    }
-
-                    let text_x = if is_exit { heart_x } else { text_x_base };
-                    let label = if row_idx < rows.len() {
-                        rows[row_idx].label.get()
-                    } else {
-                        Arc::from("Exit")
-                    };
-                    let mut text_color = if is_exit {
-                        if is_active { col_black } else { col_white }
-                    } else if is_active {
-                        col_active_text
-                    } else {
-                        col_white
-                    };
-                    text_color[3] *= row_alpha;
-                    ui_actors.push(act!(text:
-                        align(0.0, 0.5):
-                        xy(text_x, row_mid_y):
-                        zoom(ITEM_TEXT_ZOOM):
-                        diffuse(text_color[0], text_color[1], text_color[2], text_color[3]):
-                        font("miso"):
-                        settext(&label):
-                        horizalign(left)
-                    ));
-
-                    if row_idx < rows.len() {
-                        let row = &rows[row_idx];
-                        if row.inline {
-                            let choices = row_choices(state, kind, rows, row_idx);
-                            if !choices.is_empty() {
-                                let choice_idx = choice_indices
-                                    .get(row_idx)
-                                    .copied()
-                                    .unwrap_or(0)
-                                    .min(choices.len().saturating_sub(1));
-                                let mut value_color = if is_active {
-                                    col_active_text
-                                } else {
-                                    col_white
-                                };
-                                value_color[3] *= row_alpha;
-                                let value_x = list_w.mul_add(1.0, list_x - TEXT_LEFT_PAD * s);
-                                ui_actors.push(act!(text:
-                                    align(1.0, 0.5):
-                                    xy(value_x, row_mid_y):
-                                    zoom(ITEM_TEXT_ZOOM):
-                                    diffuse(value_color[0], value_color[1], value_color[2], value_color[3]):
-                                    font("miso"):
-                                    settext(choices[choice_idx].clone().into_owned()):
-                                    horizalign(right)
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                let sel = state.sub_selected.min(total_rows.saturating_sub(1));
-                let (item_idx, item) = if sel < rows.len() {
-                    (sel, &items[sel])
-                } else {
-                    let idx = items.len().saturating_sub(1);
-                    (idx, &items[idx])
-                };
-                selected_item = Some((DescriptionCacheKey::Submenu(kind, item_idx), item));
+                build_launcher_submenu_rows(&ctx, kind, &mut ui_actors)
             } else {
-                // Active text color for submenu rows.
-                let col_active_text = color::simply_love_rgba(state.active_color_index);
-                // Inactive option text color should be #808080 (alpha 1.0), match player options.
-                let sl_gray = color::rgba_hex("#808080");
-
-                let total_rows = visible_rows.len() + 1; // + Exit row
-
-                let label_bg_w = SUB_LABEL_COL_W * s;
-                let label_text_x = SUB_LABEL_TEXT_LEFT_PAD.mul_add(s, list_x);
-                // Keep submenu header labels bounded to the left label column.
-                let label_text_max_w = (label_bg_w - SUB_LABEL_TEXT_LEFT_PAD * s - 5.0).max(0.0);
-
-                // Helper to compute the cursor center X for a given submenu row index.
-                let calc_row_center_x = |row_idx: usize| -> f32 {
-                    if row_idx >= total_rows {
-                        return list_w.mul_add(0.5, list_x);
-                    }
-                    if row_idx == total_rows - 1 {
-                        // Exit row: center within the items column (row width minus label column),
-                        // matching how single-value rows like Music Rate are centered in player_options.rs.
-                        let item_col_left = list_x + label_bg_w;
-                        let item_col_w = list_w - label_bg_w;
-                        return item_col_w.mul_add(0.5, item_col_left)
-                            + SUB_SINGLE_VALUE_CENTER_OFFSET * s;
-                    }
-                    let Some(actual_row_idx) = visible_rows.get(row_idx).copied() else {
-                        return list_w.mul_add(0.5, list_x);
-                    };
-                    let row = &rows[actual_row_idx];
-                    let item_col_left = list_x + label_bg_w;
-                    let item_col_w = list_w - label_bg_w;
-                    let single_center_x =
-                        item_col_w.mul_add(0.5, item_col_left) + SUB_SINGLE_VALUE_CENTER_OFFSET * s;
-                    // Non-inline rows behave as single-value rows: keep the cursor centered
-                    // on the center of the available items column (row width minus label column).
-                    if !row.inline {
-                        return single_center_x;
-                    }
-                    let Some(layout) =
-                        submenu_row_layout(state, asset_manager, kind, actual_row_idx)
-                    else {
-                        return list_w.mul_add(0.5, list_x);
-                    };
-                    if !layout.inline_row || layout.centers.is_empty() {
-                        return single_center_x;
-                    }
-                    let sel_idx = choice_indices
-                        .get(actual_row_idx)
-                        .copied()
-                        .unwrap_or(0)
-                        .min(layout.centers.len().saturating_sub(1));
-                    SUB_INLINE_ITEMS_LEFT_PAD.mul_add(s, list_x + label_bg_w)
-                        + layout.centers[sel_idx]
-                };
-
-                let row_h = ROW_H * s;
-                for row_idx in 0..total_rows {
-                    let (row_mid_y, row_alpha) = state
-                        .row_tweens
-                        .get(row_idx)
-                        .map(|tw| (tw.y(), tw.a()))
-                        .unwrap_or_else(|| {
-                            row_dest_for_index(total_rows, state.sub_selected, row_idx, s, list_y)
-                        });
-                    let row_alpha = row_alpha.clamp(0.0, 1.0);
-                    if row_alpha <= 0.001 {
-                        continue;
-                    }
-                    let row_y = row_mid_y - 0.5 * row_h;
-
-                    let is_active = row_idx == state.sub_selected;
-                    let is_exit = row_idx == total_rows - 1;
-
-                    let row_w = if is_exit {
-                        list_w - sep_w
-                    } else if is_active {
-                        list_w
-                    } else {
-                        list_w - sep_w
-                    };
-
-                    let bg = if is_active {
-                        col_active_bg
-                    } else {
-                        col_inactive_bg
-                    };
-
-                    ui_actors.push(act!(quad:
-                        align(0.0, 0.0):
-                        xy(list_x, row_y):
-                        zoomto(row_w, row_h):
-                        diffuse(bg[0], bg[1], bg[2], bg[3] * row_alpha)
-                    ));
-                    let show_option_row = !is_exit;
-
-                    if show_option_row {
-                        let Some(actual_row_idx) = visible_rows.get(row_idx).copied() else {
-                            continue;
-                        };
-                        // Left label background column (matches player options style).
-                        ui_actors.push(act!(quad:
-                            align(0.0, 0.0):
-                            xy(list_x, row_y):
-                            zoomto(label_bg_w, row_h):
-                            diffuse(0.0, 0.0, 0.0, 0.25 * row_alpha)
-                        ));
-
-                        let row = &rows[actual_row_idx];
-                        let label = row.label.get();
-                        let is_disabled = is_submenu_row_disabled(kind, row.id);
-                        #[cfg(target_os = "linux")]
-                        let child_label_indent = if matches!(kind, SubmenuKind::Sound)
-                            && sound_parent_row(actual_row_idx).is_some()
-                        {
-                            12.0 * s
-                        } else {
-                            0.0
-                        };
-                        #[cfg(not(target_os = "linux"))]
-                        let child_label_indent = 0.0;
-                        let label_text_x = label_text_x + child_label_indent;
-                        let label_text_max_w = (label_text_max_w - child_label_indent).max(0.0);
-                        let title_color = if is_active {
-                            let mut c = col_active_text;
-                            c[3] = 1.0;
-                            c
-                        } else {
-                            col_white
-                        };
-                        let mut title_color = title_color;
-                        title_color[3] *= row_alpha;
-
-                        ui_actors.push(act!(text:
-                            align(0.0, 0.5):
-                            xy(label_text_x, row_mid_y):
-                            zoom(ITEM_TEXT_ZOOM):
-                            diffuse(title_color[0], title_color[1], title_color[2], title_color[3]):
-                            font("miso"):
-                            settext(&label):
-                            maxwidth(label_text_max_w):
-                            horizalign(left)
-                        ));
-
-                        // Inline Off/On options in the items column (or a single centered value if inline == false).
-                        if let Some(layout) =
-                            submenu_row_layout(state, asset_manager, kind, actual_row_idx)
-                            && !layout.texts.is_empty()
-                        {
-                            let value_zoom = layout.value_zoom;
-                            let selected_choice = choice_indices
-                                .get(actual_row_idx)
-                                .copied()
-                                .unwrap_or(0)
-                                .min(layout.texts.len().saturating_sub(1));
-                            let is_chart_info_row = matches!(kind, SubmenuKind::SelectMusic)
-                                && row.id == SubRowId::ChartInfo;
-                            let is_scorebox_cycle_row = matches!(kind, SubmenuKind::SelectMusic)
-                                && row.id == SubRowId::GsBoxLeaderboards;
-                            let is_auto_screenshot_row = matches!(kind, SubmenuKind::Gameplay)
-                                && row.id == SubRowId::AutoScreenshot;
-                            let is_multi_toggle_row = is_chart_info_row
-                                || is_scorebox_cycle_row
-                                || is_auto_screenshot_row;
-                            let chart_info_enabled_mask = if is_chart_info_row {
-                                select_music_chart_info_enabled_mask()
-                            } else {
-                                0
-                            };
-                            let scorebox_enabled_mask = if is_scorebox_cycle_row {
-                                select_music_scorebox_cycle_enabled_mask()
-                            } else {
-                                0
-                            };
-                            let auto_screenshot_mask = if is_auto_screenshot_row {
-                                auto_screenshot_enabled_mask()
-                            } else {
-                                0
-                            };
-                            let mut selected_left_x: Option<f32> = None;
-                            let choice_inner_left =
-                                SUB_INLINE_ITEMS_LEFT_PAD.mul_add(s, list_x + label_bg_w);
-
-                            if layout.inline_row {
-                                for (idx, choice) in layout.texts.iter().enumerate() {
-                                    let x = choice_inner_left
-                                        + layout.x_positions.get(idx).copied().unwrap_or_default();
-                                    let is_choice_selected = idx == selected_choice;
-                                    if is_choice_selected {
-                                        selected_left_x = Some(x);
-                                    }
-                                    let is_choice_enabled = if is_chart_info_row {
-                                        (chart_info_enabled_mask
-                                            & select_music_chart_info_bit_from_choice(idx))
-                                            != 0
-                                    } else if is_scorebox_cycle_row {
-                                        (scorebox_enabled_mask
-                                            & scorebox_cycle_bit_from_choice(idx))
-                                            != 0
-                                    } else if is_auto_screenshot_row {
-                                        (auto_screenshot_mask
-                                            & auto_screenshot_bit_from_choice(idx))
-                                            != 0
-                                    } else {
-                                        false
-                                    };
-                                    let mut choice_color = if is_disabled && !is_choice_selected {
-                                        sl_gray
-                                    } else if is_multi_toggle_row {
-                                        if is_choice_enabled {
-                                            col_white
-                                        } else {
-                                            sl_gray
-                                        }
-                                    } else if is_active {
-                                        col_white
-                                    } else {
-                                        sl_gray
-                                    };
-                                    choice_color[3] *= row_alpha;
-                                    ui_actors.push(act!(text:
-                                        align(0.0, 0.5):
-                                        xy(x, row_mid_y):
-                                        zoom(value_zoom):
-                                        diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
-                                        font("miso"):
-                                        settext(choice):
-                                        horizalign(left)
-                                    ));
-                                }
-                            } else {
-                                let mut choice_color = if is_active { col_white } else { sl_gray };
-                                choice_color[3] *= row_alpha;
-                                let choice_center_x = calc_row_center_x(row_idx);
-                                let draw_w =
-                                    layout.widths.get(selected_choice).copied().unwrap_or(40.0);
-                                selected_left_x = Some(choice_center_x - draw_w * 0.5);
-                                let choice_text = layout
-                                    .texts
-                                    .get(selected_choice)
-                                    .cloned()
-                                    .unwrap_or_else(|| Arc::<str>::from("??"));
-                                ui_actors.push(act!(text:
-                                    align(0.5, 0.5):
-                                    xy(choice_center_x, row_mid_y):
-                                    zoom(value_zoom):
-                                    diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
-                                    font("miso"):
-                                    settext(choice_text):
-                                    horizalign(center)
-                                ));
-                            }
-
-                            // For normal rows, underline the selected option.
-                            // For multi-toggle rows, underline each enabled option.
-                            if layout.inline_row && is_multi_toggle_row {
-                                let line_thickness = widescale(2.0, 2.5).round().max(1.0);
-                                let offset = widescale(3.0, 4.0);
-                                let underline_y = row_mid_y + layout.text_h * 0.5 + offset;
-                                let mut line_color =
-                                    color::decorative_rgba(state.active_color_index);
-                                line_color[3] *= row_alpha;
-                                for idx in 0..layout.texts.len() {
-                                    let enabled = if is_chart_info_row {
-                                        let bit = select_music_chart_info_bit_from_choice(idx);
-                                        bit != 0 && (chart_info_enabled_mask & bit) != 0
-                                    } else if is_scorebox_cycle_row {
-                                        let bit = scorebox_cycle_bit_from_choice(idx);
-                                        bit != 0 && (scorebox_enabled_mask & bit) != 0
-                                    } else {
-                                        let bit = auto_screenshot_bit_from_choice(idx);
-                                        bit != 0 && (auto_screenshot_mask & bit) != 0
-                                    };
-                                    if !enabled {
-                                        continue;
-                                    }
-                                    let underline_left_x = choice_inner_left
-                                        + layout.x_positions.get(idx).copied().unwrap_or_default();
-                                    let underline_w =
-                                        layout.widths.get(idx).copied().unwrap_or(40.0).ceil();
-                                    ui_actors.push(act!(quad:
-                                        align(0.0, 0.5):
-                                        xy(underline_left_x, underline_y):
-                                        zoomto(underline_w, line_thickness):
-                                        diffuse(line_color[0], line_color[1], line_color[2], line_color[3]):
-                                        z(101)
-                                    ));
-                                }
-                            } else if let Some(sel_left_x) = selected_left_x {
-                                let line_thickness = widescale(2.0, 2.5).round().max(1.0);
-                                let underline_w = layout
-                                    .widths
-                                    .get(selected_choice)
-                                    .copied()
-                                    .unwrap_or(40.0)
-                                    .ceil();
-                                let offset = widescale(3.0, 4.0);
-                                let underline_y = row_mid_y + layout.text_h * 0.5 + offset;
-                                let mut line_color =
-                                    color::decorative_rgba(state.active_color_index);
-                                line_color[3] *= row_alpha;
-                                ui_actors.push(act!(quad:
-                                    align(0.0, 0.5):
-                                    xy(sel_left_x, underline_y):
-                                    zoomto(underline_w, line_thickness):
-                                    diffuse(line_color[0], line_color[1], line_color[2], line_color[3]):
-                                    z(101)
-                                ));
-                            }
-
-                            // Encircling cursor ring around the active option when this row is active.
-                            // During submenu fades, hide the ring to avoid exposing its construction.
-                            if is_active
-                                && !is_fading_submenu
-                                && let Some((center_x, center_y, ring_w, ring_h)) = cursor_now()
-                            {
-                                let border_w = widescale(2.0, 2.5);
-                                let left = center_x - ring_w * 0.5;
-                                let right = center_x + ring_w * 0.5;
-                                let top = center_y - ring_h * 0.5;
-                                let bottom = center_y + ring_h * 0.5;
-                                let mut ring_color =
-                                    color::decorative_rgba(state.active_color_index);
-                                ring_color[3] *= row_alpha;
-                                ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(center_x, top + border_w * 0.5):
-                                zoomto(ring_w, border_w):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                                ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(center_x, bottom - border_w * 0.5):
-                                zoomto(ring_w, border_w):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                                ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(left + border_w * 0.5, center_y):
-                                zoomto(border_w, ring_h):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                                ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(right - border_w * 0.5, center_y):
-                                zoomto(border_w, ring_h):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                            }
-                        }
-                    } else {
-                        // Exit row: centered "Exit" text in the items column.
-                        let exit_label = tr("Common", "Exit");
-                        let label = exit_label.clone();
-                        let value_zoom = SUBMENU_VALUE_ZOOM;
-                        let mut choice_color = if is_active { col_white } else { sl_gray };
-                        choice_color[3] *= row_alpha;
-                        let center_x = calc_row_center_x(row_idx);
-                        let center_y = row_mid_y;
-
-                        ui_actors.push(act!(text:
-                        align(0.5, 0.5):
-                        xy(center_x, center_y):
-                        zoom(value_zoom):
-                        diffuse(choice_color[0], choice_color[1], choice_color[2], choice_color[3]):
-                        font("miso"):
-                        settext(label):
-                        horizalign(center)
-                    ));
-
-                        // Draw the selection cursor ring for the Exit row when active.
-                        // During submenu fades, hide the ring to avoid exposing its construction.
-                        if is_active
-                            && !is_fading_submenu
-                            && let Some((ring_x, ring_y, ring_w, ring_h)) = cursor_now()
-                        {
-                            let border_w = widescale(2.0, 2.5);
-                            let left = ring_x - ring_w * 0.5;
-                            let right = ring_x + ring_w * 0.5;
-                            let top = ring_y - ring_h * 0.5;
-                            let bottom = ring_y + ring_h * 0.5;
-                            let mut ring_color = color::decorative_rgba(state.active_color_index);
-                            ring_color[3] *= row_alpha;
-
-                            ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy((left + right) * 0.5, top + border_w * 0.5):
-                                zoomto(ring_w, border_w):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                            ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy((left + right) * 0.5, bottom - border_w * 0.5):
-                                zoomto(ring_w, border_w):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                            ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(left + border_w * 0.5, (top + bottom) * 0.5):
-                                zoomto(border_w, ring_h):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                            ui_actors.push(act!(quad:
-                                align(0.5, 0.5):
-                                xy(right - border_w * 0.5, (top + bottom) * 0.5):
-                                zoomto(border_w, ring_h):
-                                diffuse(ring_color[0], ring_color[1], ring_color[2], ring_color[3]):
-                                z(101)
-                            ));
-                        }
-                    }
-                }
-
-                // Description items for the submenu
-                let total_rows = visible_rows.len() + 1;
-                let sel = state.sub_selected.min(total_rows.saturating_sub(1));
-                let (item_idx, item) = if sel < visible_rows.len() {
-                    let actual_row_idx = visible_rows[sel];
-                    (actual_row_idx, &items[actual_row_idx])
-                } else {
-                    let idx = items.len().saturating_sub(1);
-                    (idx, &items[idx])
-                };
-                selected_item = Some((DescriptionCacheKey::Submenu(kind, item_idx), item));
+                build_options_submenu_rows(&ctx, kind, &mut ui_actors)
             }
         }
-    }
+    };
 
     // ------------------- Description content (selected) -------------------
     if let Some((desc_key, item)) = selected_item {
