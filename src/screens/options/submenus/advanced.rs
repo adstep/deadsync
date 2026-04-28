@@ -9,6 +9,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsAdvanced", "FailImmediateContinue"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::BannerCache,
@@ -18,6 +19,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::CdTitleCache,
@@ -27,12 +29,14 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SongParsingThreads,
         label: lookup_key("OptionsAdvanced", "SongParsingThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::CacheSongs,
@@ -42,6 +46,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::FastLoad,
@@ -51,6 +56,7 @@ pub(in crate::screens::options) const ADVANCED_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

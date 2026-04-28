@@ -6,6 +6,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "SoundDevice"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AudioOutputMode,
@@ -15,6 +16,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSound", "OutputModeShared"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     #[cfg(target_os = "linux")]
     SubRow {
@@ -22,6 +24,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSound", "LinuxAudioBackend"),
         choices: SOUND_LINUX_BACKEND_CHOICES,
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     #[cfg(target_os = "linux")]
     SubRow {
@@ -32,36 +35,42 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AudioSampleRate,
         label: lookup_key("OptionsSound", "AudioSampleRate"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MasterVolume,
         label: lookup_key("OptionsSound", "MasterVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SfxVolume,
         label: lookup_key("OptionsSound", "SFXVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AssistTickVolume,
         label: lookup_key("OptionsSound", "AssistTickVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MusicVolume,
         label: lookup_key("OptionsSound", "MusicVolume"),
         choices: &[literal_choice("100%")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MineSounds,
@@ -71,12 +80,14 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::GlobalOffset,
         label: lookup_key("OptionsSound", "GlobalOffset"),
         choices: &[literal_choice("0 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::RateModPreservesPitch,
@@ -86,6 +97,7 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

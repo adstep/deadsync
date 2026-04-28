@@ -153,6 +153,114 @@ pub struct SubRow {
     pub label: LookupKey,
     pub choices: &'static [Choice],
     pub inline: bool, // whether to lay out choices inline (vs single centered value)
+    /// What this row does on L/R (and, for Exit, on Start). During the
+    /// migration, untouched rows use `RowBehavior::Legacy` and fall through
+    /// to the per-`SubmenuKind` match in `apply_submenu_choice_delta`. Each
+    /// row is migrated to a typed binding incrementally; once all rows are
+    /// migrated the `Legacy` variant is removed.
+    pub behavior: RowBehavior,
+}
+
+// ============================== RowBehavior ============================
+
+/// Result of a row's reaction to an L/R press. Mirrors the shape of the
+/// `player_options` `Outcome` so the two dispatchers can later be unified.
+/// For now this only carries the bare minimum to drive the existing SFX +
+/// render-cache invalidation path.
+#[derive(Clone, Debug, Default)]
+pub struct Outcome {
+    /// Row reacted to the press (value changed). Drives change-value SFX
+    /// and render-cache invalidation in the dispatcher.
+    pub changed: bool,
+    /// Optional screen action to forward up the stack (e.g. `ShowStats`
+    /// returns `UpdateShowOverlay`).
+    pub action: Option<crate::screens::ScreenAction>,
+}
+
+impl Outcome {
+    pub const NONE: Self = Self {
+        changed: false,
+        action: None,
+    };
+
+    #[inline(always)]
+    pub const fn changed() -> Self {
+        Self {
+            changed: true,
+            action: None,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn changed_with_action(action: crate::screens::ScreenAction) -> Self {
+        Self {
+            changed: true,
+            action: Some(action),
+        }
+    }
+}
+
+/// Numeric/slider row binding. Used by ms- and tenths-of-ms sliders that
+/// adjust a `State` field by `delta` within `[min, max]` and persist via
+/// `config::update_*`. The dispatcher handles the `adjust_*_value` call,
+/// SFX and render-cache invalidation; the binding only provides the
+/// per-row plumbing.
+#[derive(Clone, Copy, Debug)]
+pub struct NumericBinding {
+    /// Mutable accessor for the backing `State` field (e.g. `master_volume_pct`).
+    pub get_mut: fn(&mut State) -> &mut i32,
+    pub min: i32,
+    pub max: i32,
+    /// Adjust step semantics: ms (1) or tenths-of-ms (1 = 0.1 ms).
+    pub step: NumericStep,
+    /// Persist the new value to the global config + any cascading writes.
+    pub persist: fn(i32),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum NumericStep {
+    Ms,
+    Tenths,
+}
+
+/// Cycle row binding — covers the vast majority of options rows whose only
+/// effect on change is `config::update_X(value_from_choice(new_idx))`.
+#[derive(Clone, Copy, Debug)]
+pub enum CycleBinding {
+    /// Yes/No row: `config::update_X(new_idx == 1)`.
+    Bool(fn(bool)),
+    /// Indexed enum row: `config::update_X(Enum::from_choice(new_idx))`.
+    /// Type erasure happens at the call site; the fn closes over the
+    /// concrete `from_choice` invocation.
+    Index(fn(usize)),
+}
+
+/// Custom row binding for cascading effects that can't be expressed as a
+/// pure config write (e.g. `SoundDevice` rebuilds the sample-rate row;
+/// `DisplayResolution` rebuilds refresh-rate choices). The `apply` fn
+/// receives the full state and the new choice index and returns an
+/// `Outcome` describing what the dispatcher should do next.
+#[derive(Clone, Copy, Debug)]
+pub struct CustomBinding {
+    pub apply: fn(&mut State, new_idx: usize) -> Outcome,
+}
+
+/// What kind of row this is, plus any state owned by the row's behaviour.
+///
+/// `Legacy` is a temporary scaffolding variant used during the migration
+/// — rows that haven't been migrated yet keep `Legacy` and fall through to
+/// the existing per-`SubmenuKind` match in `apply_submenu_choice_delta`.
+/// Once every row carries a real behavior, `Legacy` is removed.
+#[derive(Clone, Copy, Debug)]
+pub enum RowBehavior {
+    Cycle(CycleBinding),
+    Numeric(NumericBinding),
+    Custom(CustomBinding),
+    /// Terminal "Exit" row at the bottom of every submenu — no L/R effect.
+    Exit,
+    /// Not yet migrated: the dispatcher falls through to the legacy
+    /// per-kind match. Removed once every row has a typed behavior.
+    Legacy,
 }
 
 /// Choice values — some are localizable, some are format-specific literals.

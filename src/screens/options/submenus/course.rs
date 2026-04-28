@@ -9,6 +9,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowMostPlayed,
@@ -18,6 +19,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowIndividualScores,
@@ -27,6 +29,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AutosubmitIndividual,
@@ -36,6 +39,7 @@ pub(in crate::screens::options) const COURSE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

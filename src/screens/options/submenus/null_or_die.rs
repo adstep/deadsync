@@ -7,12 +7,14 @@ pub(in crate::screens::options) const NULL_OR_DIE_MENU_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsOnlineScoring", "NullOrDieOptions"),
         choices: &[],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SyncPacks,
         label: lookup_key("OptionsOnlineScoring", "SyncPacks"),
         choices: &[],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 
@@ -26,6 +28,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "SyncGraphPostKernelFingerprint"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SyncConfidence,
@@ -54,36 +57,42 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("100%"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::PackSyncThreads,
         label: lookup_key("OptionsNullOrDie", "PackSyncThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Fingerprint,
         label: lookup_key("OptionsNullOrDie", "Fingerprint"),
         choices: &[literal_choice("50.0 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Window,
         label: lookup_key("OptionsNullOrDie", "Window"),
         choices: &[literal_choice("10.0 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Step,
         label: lookup_key("OptionsNullOrDie", "Step"),
         choices: &[literal_choice("0.2 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MagicOffset,
         label: lookup_key("OptionsNullOrDie", "MagicOffset"),
         choices: &[literal_choice("0.0 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::KernelTarget,
@@ -93,6 +102,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "KernelTargetAccumulator"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::KernelType,
@@ -102,6 +112,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsNullOrDie", "KernelTypeLoudest"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::FullSpectrogram,
@@ -111,6 +122,7 @@ pub(in crate::screens::options) const NULL_OR_DIE_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

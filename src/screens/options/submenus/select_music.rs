@@ -9,6 +9,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowVideoBanners,
@@ -18,6 +19,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowBreakdown,
@@ -27,12 +29,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::BreakdownStyle,
         label: lookup_key("OptionsSelectMusic", "BreakdownStyle"),
         choices: &[literal_choice("SL"), literal_choice("SN")],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowNativeLanguage,
@@ -42,6 +46,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "NativeLanguageNative"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MusicWheelSpeed,
@@ -56,12 +61,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "WheelSpeedPlaid"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MusicWheelStyle,
         label: lookup_key("OptionsSelectMusic", "MusicWheelStyle"),
         choices: &[literal_choice("ITG"), literal_choice("IIDX")],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowCdTitles,
@@ -71,6 +78,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowWheelGrades,
@@ -80,6 +88,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowWheelLamps,
@@ -89,6 +98,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ItlRank,
@@ -99,6 +109,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ItlRankOverall"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ItlWheelData,
@@ -109,6 +120,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ItlWheelPointsScore"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::NewPackBadge,
@@ -119,6 +131,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "NewPackHasScore"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowPatternInfo,
@@ -129,6 +142,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "PatternInfoStamina"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ChartInfo,
@@ -138,6 +152,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ChartInfoMatrixRating"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MusicPreviews,
@@ -147,6 +162,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::PreviewMarker,
@@ -156,6 +172,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::LoopMusic,
@@ -165,6 +182,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "LoopMusicLoop"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowGameplayTimer,
@@ -174,6 +192,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowGsBox,
@@ -183,6 +202,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::GsBoxPlacement,
@@ -192,6 +212,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "GsBoxStepPane"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::GsBoxLeaderboards,
@@ -203,6 +224,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ScoreboxCycleTournaments"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

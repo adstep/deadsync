@@ -9,6 +9,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::EnableBoogieStats,
@@ -18,6 +19,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AutoPopulateScores,
@@ -27,6 +29,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::AutoDownloadUnlocks,
@@ -36,6 +39,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SeparateUnlocksByPlayer,
@@ -45,6 +49,7 @@ pub(in crate::screens::options) const GROOVESTATS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 
@@ -57,6 +62,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ArrowCloudSubmitFails,
@@ -66,6 +72,7 @@ pub(in crate::screens::options) const ARROWCLOUD_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 
@@ -75,18 +82,21 @@ pub(in crate::screens::options) const ONLINE_SCORING_OPTIONS_ROWS: &[SubRow] = &
         label: lookup_key("OptionsOnlineScoring", "GsBsOptions"),
         choices: &[],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ArrowCloudOptions,
         label: lookup_key("OptionsOnlineScoring", "ArrowCloudOptions"),
         choices: &[],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ScoreImport,
         label: lookup_key("OptionsOnlineScoring", "ScoreImport"),
         choices: &[],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

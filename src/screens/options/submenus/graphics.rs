@@ -6,12 +6,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsGraphics", "VideoRenderer"),
         choices: VIDEO_RENDERER_LABELS,
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::SoftwareRendererThreads,
         label: lookup_key("OptionsGraphics", "SoftwareRendererThreads"),
         choices: &[localized_choice("Common", "Auto")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::DisplayMode,
@@ -22,12 +24,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "Borderless"),
         ], // Replaced dynamically
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::DisplayAspectRatio,
         label: lookup_key("OptionsGraphics", "DisplayAspectRatio"),
         choices: DISPLAY_ASPECT_RATIO_CHOICES,
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::DisplayResolution,
@@ -40,6 +44,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("800x600"),
         ], // Replaced dynamically
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::RefreshRate,
@@ -55,6 +60,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             literal_choice("360 Hz"),
         ], // Replaced dynamically
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::FullscreenType,
@@ -64,6 +70,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "FullscreenTypeBorderless"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::VSync,
@@ -73,12 +80,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::PresentMode,
         label: lookup_key("OptionsGraphics", "PresentMode"),
         choices: &[literal_choice("Mailbox"), literal_choice("Immediate")],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MaxFps,
@@ -88,12 +97,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MaxFpsValue,
         label: lookup_key("OptionsGraphics", "MaxFpsValue"),
         choices: &[localized_choice("Common", "Off")], // Replaced dynamically
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ShowStats,
@@ -105,6 +116,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsGraphics", "ShowStatsFPSStutterTiming"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::ValidationLayers,
@@ -114,6 +126,7 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::HighDpi,
@@ -123,12 +136,14 @@ pub(in crate::screens::options) const GRAPHICS_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::VisualDelay,
         label: lookup_key("OptionsGraphics", "VisualDelay"),
         choices: &[literal_choice("0 ms")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

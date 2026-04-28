@@ -6,18 +6,21 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsSystem", "Game"),
         choices: &[localized_choice("OptionsSystem", "DanceGame")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Theme,
         label: lookup_key("OptionsSystem", "Theme"),
         choices: &[localized_choice("OptionsSystem", "SimplyLoveTheme")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Language,
         label: lookup_key("OptionsSystem", "Language"),
         choices: LANGUAGE_CHOICES,
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::LogLevel,
@@ -30,6 +33,7 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSystem", "LogLevelTrace"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::LogFile,
@@ -39,12 +43,14 @@ pub(in crate::screens::options) const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "On"),
         ],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::DefaultNoteSkin,
         label: lookup_key("OptionsSystem", "DefaultNoteSkin"),
         choices: &[literal_choice(profile::NoteSkin::DEFAULT_NAME)],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 

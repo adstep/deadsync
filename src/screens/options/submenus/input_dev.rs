@@ -6,18 +6,21 @@ pub(in crate::screens::options) const INPUT_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsInput", "ConfigureMappings"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::TestInput,
         label: lookup_key("OptionsInput", "TestInput"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::InputOptions,
         label: lookup_key("OptionsInput", "InputOptions"),
         choices: &[localized_choice("Common", "Open")],
         inline: false,
+        behavior: RowBehavior::Legacy,
     },
 ];
 
@@ -67,6 +70,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
         label: lookup_key("OptionsInput", "GamepadBackend"),
         choices: INPUT_BACKEND_CHOICES,
         inline: INPUT_BACKEND_INLINE,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::UseFsrs,
@@ -76,6 +80,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MenuNavigation,
@@ -85,6 +90,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "MenuNavigationThreeKey"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::OptionsNavigation,
@@ -94,6 +100,7 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "OptionsNavigationArcade"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::MenuButtons,
@@ -103,12 +110,14 @@ pub(in crate::screens::options) const INPUT_BACKEND_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsInput", "DedicatedMenuButtonsOnly"),
         ],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
     SubRow {
         id: SubRowId::Debounce,
         label: lookup_key("OptionsInput", "Debounce"),
         choices: &[literal_choice("20ms")],
         inline: true,
+        behavior: RowBehavior::Legacy,
     },
 ];
 
