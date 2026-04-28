@@ -1,5 +1,50 @@
 use super::super::*;
 
+fn persist_show_native_language(idx: usize) {
+    config::update_translated_titles(translated_titles_from_choice(idx));
+}
+
+const SHOW_BANNERS_BINDING: CycleBinding = CycleBinding::Bool(config::update_show_select_music_banners);
+const SHOW_VIDEO_BANNERS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_video_banners);
+const SHOW_BREAKDOWN_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_breakdown);
+const BREAKDOWN_STYLE_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_select_music_breakdown_style(BreakdownStyle::from_choice(i)));
+const SHOW_NATIVE_LANGUAGE_BINDING: CycleBinding = CycleBinding::Index(persist_show_native_language);
+const MUSIC_WHEEL_SPEED_BINDING: CycleBinding = CycleBinding::Index(|i| {
+    config::update_music_wheel_switch_speed(music_wheel_scroll_speed_from_choice(i))
+});
+const MUSIC_WHEEL_STYLE_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_select_music_wheel_style(SelectMusicWheelStyle::from_choice(i)));
+const SHOW_CD_TITLES_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_cdtitles);
+const SHOW_WHEEL_GRADES_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_music_wheel_grades);
+const SHOW_WHEEL_LAMPS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_music_wheel_lamps);
+const ITL_RANK_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_select_music_itl_rank_mode(SelectMusicItlRankMode::from_choice(i)));
+const ITL_WHEEL_DATA_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_select_music_itl_wheel_mode(SelectMusicItlWheelMode::from_choice(i)));
+const NEW_PACK_BADGE_BINDING: CycleBinding =
+    CycleBinding::Index(|i| config::update_select_music_new_pack_mode(NewPackMode::from_choice(i)));
+const SHOW_PATTERN_INFO_BINDING: CycleBinding = CycleBinding::Index(|i| {
+    config::update_select_music_pattern_info_mode(SelectMusicPatternInfoMode::from_choice(i))
+});
+const MUSIC_PREVIEWS_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_previews);
+const PREVIEW_MARKER_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_preview_marker);
+const LOOP_MUSIC_BINDING: CycleBinding = CycleBinding::Bool(config::update_select_music_preview_loop);
+const SHOW_GAMEPLAY_TIMER_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_gameplay_timer);
+const SHOW_GS_BOX_BINDING: CycleBinding =
+    CycleBinding::Bool(config::update_show_select_music_scorebox);
+const GS_BOX_PLACEMENT_BINDING: CycleBinding = CycleBinding::Index(|i| {
+    config::update_select_music_scorebox_placement(SelectMusicScoreboxPlacement::from_choice(i))
+});
+
 pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
     SubRow {
         id: SubRowId::ShowBanners,
@@ -9,7 +54,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_BANNERS_BINDING),
     },
     SubRow {
         id: SubRowId::ShowVideoBanners,
@@ -19,7 +64,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_VIDEO_BANNERS_BINDING),
     },
     SubRow {
         id: SubRowId::ShowBreakdown,
@@ -29,14 +74,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_BREAKDOWN_BINDING),
     },
     SubRow {
         id: SubRowId::BreakdownStyle,
         label: lookup_key("OptionsSelectMusic", "BreakdownStyle"),
         choices: &[literal_choice("SL"), literal_choice("SN")],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(BREAKDOWN_STYLE_BINDING),
     },
     SubRow {
         id: SubRowId::ShowNativeLanguage,
@@ -46,7 +91,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "NativeLanguageNative"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_NATIVE_LANGUAGE_BINDING),
     },
     SubRow {
         id: SubRowId::MusicWheelSpeed,
@@ -61,14 +106,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "WheelSpeedPlaid"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MUSIC_WHEEL_SPEED_BINDING),
     },
     SubRow {
         id: SubRowId::MusicWheelStyle,
         label: lookup_key("OptionsSelectMusic", "MusicWheelStyle"),
         choices: &[literal_choice("ITG"), literal_choice("IIDX")],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MUSIC_WHEEL_STYLE_BINDING),
     },
     SubRow {
         id: SubRowId::ShowCdTitles,
@@ -78,7 +123,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_CD_TITLES_BINDING),
     },
     SubRow {
         id: SubRowId::ShowWheelGrades,
@@ -88,7 +133,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_WHEEL_GRADES_BINDING),
     },
     SubRow {
         id: SubRowId::ShowWheelLamps,
@@ -98,7 +143,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_WHEEL_LAMPS_BINDING),
     },
     SubRow {
         id: SubRowId::ItlRank,
@@ -109,7 +154,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ItlRankOverall"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ITL_RANK_BINDING),
     },
     SubRow {
         id: SubRowId::ItlWheelData,
@@ -120,7 +165,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "ItlWheelPointsScore"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(ITL_WHEEL_DATA_BINDING),
     },
     SubRow {
         id: SubRowId::NewPackBadge,
@@ -131,7 +176,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "NewPackHasScore"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(NEW_PACK_BADGE_BINDING),
     },
     SubRow {
         id: SubRowId::ShowPatternInfo,
@@ -142,7 +187,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "PatternInfoStamina"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_PATTERN_INFO_BINDING),
     },
     SubRow {
         id: SubRowId::ChartInfo,
@@ -162,7 +207,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(MUSIC_PREVIEWS_BINDING),
     },
     SubRow {
         id: SubRowId::PreviewMarker,
@@ -172,7 +217,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(PREVIEW_MARKER_BINDING),
     },
     SubRow {
         id: SubRowId::LoopMusic,
@@ -182,7 +227,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "LoopMusicLoop"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(LOOP_MUSIC_BINDING),
     },
     SubRow {
         id: SubRowId::ShowGameplayTimer,
@@ -192,7 +237,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_GAMEPLAY_TIMER_BINDING),
     },
     SubRow {
         id: SubRowId::ShowGsBox,
@@ -202,7 +247,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("Common", "Yes"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(SHOW_GS_BOX_BINDING),
     },
     SubRow {
         id: SubRowId::GsBoxPlacement,
@@ -212,7 +257,7 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
             localized_choice("OptionsSelectMusic", "GsBoxStepPane"),
         ],
         inline: true,
-        behavior: RowBehavior::Legacy,
+        behavior: RowBehavior::Cycle(GS_BOX_PLACEMENT_BINDING),
     },
     SubRow {
         id: SubRowId::GsBoxLeaderboards,

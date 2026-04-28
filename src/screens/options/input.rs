@@ -234,59 +234,6 @@ pub(super) fn apply_submenu_choice_delta(
             }
             _ => {}
         }
-    } else if matches!(kind, SubmenuKind::SelectMusic) {
-        let row = &rows[row_index];
-        if row.id == SubRowId::ShowBanners {
-            config::update_show_select_music_banners(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ShowVideoBanners {
-            config::update_show_select_music_video_banners(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ShowBreakdown {
-            config::update_show_select_music_breakdown(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::BreakdownStyle {
-            config::update_select_music_breakdown_style(BreakdownStyle::from_choice(new_index));
-        } else if row.id == SubRowId::ShowNativeLanguage {
-            config::update_translated_titles(translated_titles_from_choice(new_index));
-        } else if row.id == SubRowId::MusicWheelSpeed {
-            config::update_music_wheel_switch_speed(music_wheel_scroll_speed_from_choice(
-                new_index,
-            ));
-        } else if row.id == SubRowId::MusicWheelStyle {
-            config::update_select_music_wheel_style(SelectMusicWheelStyle::from_choice(
-                new_index,
-            ));
-        } else if row.id == SubRowId::ShowCdTitles {
-            config::update_show_select_music_cdtitles(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ShowWheelGrades {
-            config::update_show_music_wheel_grades(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ShowWheelLamps {
-            config::update_show_music_wheel_lamps(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ItlRank {
-            config::update_select_music_itl_rank_mode(SelectMusicItlRankMode::from_choice(new_index));
-        } else if row.id == SubRowId::ItlWheelData {
-            config::update_select_music_itl_wheel_mode(SelectMusicItlWheelMode::from_choice(
-                new_index,
-            ));
-        } else if row.id == SubRowId::NewPackBadge {
-            config::update_select_music_new_pack_mode(NewPackMode::from_choice(new_index));
-        } else if row.id == SubRowId::ShowPatternInfo {
-            config::update_select_music_pattern_info_mode(SelectMusicPatternInfoMode::from_choice(
-                new_index,
-            ));
-        } else if row.id == SubRowId::MusicPreviews {
-            config::update_show_select_music_previews(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::PreviewMarker {
-            config::update_show_select_music_preview_marker(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::LoopMusic {
-            config::update_select_music_preview_loop(new_index == 1);
-        } else if row.id == SubRowId::ShowGameplayTimer {
-            config::update_show_select_music_gameplay_timer(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::ShowGsBox {
-            config::update_show_select_music_scorebox(yes_no_from_choice(new_index));
-        } else if row.id == SubRowId::GsBoxPlacement {
-            config::update_select_music_scorebox_placement(
-                SelectMusicScoreboxPlacement::from_choice(new_index),
-            );
-        }
     } else if matches!(kind, SubmenuKind::ScoreImport) {
         let row = &rows[row_index];
         if row.id == SubRowId::ScoreImportEndpoint {
