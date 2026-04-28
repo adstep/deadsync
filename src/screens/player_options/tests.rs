@@ -6,7 +6,7 @@ pub(super) mod tests {
         BitmaskBinding, BitmaskInit, ChoiceBinding, CursorInit, CycleInit, ErrorBarMask,
         FaPlusMask, GameplayExtrasMask, GameplayExtrasMoreMask, HUD_OFFSET_MAX, HUD_OFFSET_MIN,
         HUD_OFFSET_ZERO_INDEX, HideMask, NAV_INITIAL_HOLD_DELAY, NAV_REPEAT_SCROLL_INTERVAL,
-        NumericBinding, NumericInit, P1, P2, PlayerOptionMasks, Row, RowBehavior, RowId, RowMap,
+        NumericBinding, NumericInit, P1, P2, PlayerOptionMasks, Preview, Row, RowBehavior, RowId, RowMap,
         ScrollMask, SpeedMod, SpeedModType, handle_arcade_start_event, handle_start_event,
         hud_offset_choices, init_cycle_row_from_binding, init_numeric_row_from_binding,
         is_row_visible, judgment_tilt_intensity_visible, repeat_held_arcade_start, row_visibility,
@@ -45,6 +45,7 @@ pub(super) mod tests {
             visibility_group: super::VisibilityGroup::for_row(id),
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         }
     }
@@ -66,6 +67,7 @@ pub(super) mod tests {
             visibility_group: super::VisibilityGroup::for_row(id),
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         }
     }
@@ -812,6 +814,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
@@ -855,6 +858,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         };
         let tilt_intensity_row = test_row(
@@ -1114,6 +1118,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         };
         state.pane_mut().row_map.display_order.push(RowId::Scroll);
@@ -1282,6 +1287,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: true,
         };
         state.pane_mut().row_map.display_order.push(RowId::Hide);
@@ -1375,6 +1381,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         }
     }
@@ -1391,6 +1398,7 @@ pub(super) mod tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         }
     }

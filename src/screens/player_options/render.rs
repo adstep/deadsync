@@ -877,14 +877,15 @@ pub(super) fn draw_inline_choices(
 pub(super) fn draw_single_value_with_preview(actors: &mut Vec<Actor>, rc: &RowCtx) {
     let primary_player_idx = if rc.fc.active[P1] { P1 } else { P2 };
     draw_value_text(actors, rc, primary_player_idx);
-    match rc.row.id {
-        RowId::JudgmentFont => draw_judgment_preview(actors, rc, primary_player_idx),
-        RowId::HoldJudgment => draw_hold_preview(actors, rc, primary_player_idx),
-        RowId::NoteSkin | RowId::MineSkin | RowId::ReceptorSkin | RowId::TapExplosionSkin => {
-            draw_noteskin_family_preview(actors, rc, primary_player_idx)
-        }
-        RowId::ComboFont => draw_combo_preview(actors, rc, primary_player_idx),
-        _ => {}
+    match rc.row.preview {
+        Preview::None => {}
+        Preview::Judgment => draw_judgment_preview(actors, rc, primary_player_idx),
+        Preview::Hold => draw_hold_preview(actors, rc, primary_player_idx),
+        Preview::NoteSkin => draw_noteskin_row_preview(actors, rc, primary_player_idx),
+        Preview::MineSkin => draw_mineskin_row_preview(actors, rc, primary_player_idx),
+        Preview::ReceptorSkin => draw_receptorskin_row_preview(actors, rc, primary_player_idx),
+        Preview::TapExplosion => draw_tap_explosion_row_preview(actors, rc, primary_player_idx),
+        Preview::Combo => draw_combo_preview(actors, rc, primary_player_idx),
     }
 }
 
@@ -1070,91 +1071,75 @@ fn draw_value_text(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usi
 }
 
 fn draw_judgment_preview(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usize) {
-    if rc.row.id == RowId::JudgmentFont {
-        let texture_for = |player_idx: usize| -> Option<&str> {
-            select_preview_texture(rc.row, player_idx, assets::judgment_texture_choices())
-        };
-        if let Some(texture) = texture_for(primary_player_idx) {
-            actors.push(act!(sprite(texture):
-                align(0.5, 0.5):
-                xy(rc.fc.preview_x[primary_player_idx], rc.current_row_y):
-                setstate(0):
-                zoom(JUDGMENT_PREVIEW_ZOOM):
-                diffuse(1.0, 1.0, 1.0, rc.a):
-                z(Z_ROW_PREVIEW)
-            ));
-        }
-        if rc.fc.show_p2
-            && primary_player_idx != P2
-            && let Some(texture) = texture_for(P2)
-        {
-            actors.push(act!(sprite(texture):
-                align(0.5, 0.5):
-                xy(rc.fc.preview_x[P2], rc.current_row_y):
-                setstate(0):
-                zoom(JUDGMENT_PREVIEW_ZOOM):
-                diffuse(1.0, 1.0, 1.0, rc.a):
-                z(Z_ROW_PREVIEW)
-            ));
-        }
+    let texture_for = |player_idx: usize| -> Option<&str> {
+        select_preview_texture(rc.row, player_idx, assets::judgment_texture_choices())
+    };
+    if let Some(texture) = texture_for(primary_player_idx) {
+        actors.push(act!(sprite(texture):
+            align(0.5, 0.5):
+            xy(rc.fc.preview_x[primary_player_idx], rc.current_row_y):
+            setstate(0):
+            zoom(JUDGMENT_PREVIEW_ZOOM):
+            diffuse(1.0, 1.0, 1.0, rc.a):
+            z(Z_ROW_PREVIEW)
+        ));
+    }
+    if rc.fc.show_p2
+        && primary_player_idx != P2
+        && let Some(texture) = texture_for(P2)
+    {
+        actors.push(act!(sprite(texture):
+            align(0.5, 0.5):
+            xy(rc.fc.preview_x[P2], rc.current_row_y):
+            setstate(0):
+            zoom(JUDGMENT_PREVIEW_ZOOM):
+            diffuse(1.0, 1.0, 1.0, rc.a):
+            z(Z_ROW_PREVIEW)
+        ));
     }
 }
 
 fn draw_hold_preview(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usize) {
-    if rc.row.id == RowId::HoldJudgment {
-        let texture_for = |player_idx: usize| -> Option<&str> {
-            select_preview_texture(rc.row, player_idx, assets::hold_judgment_texture_choices())
-        };
-        let draw_hold_preview = |texture: &str, center_x: f32, actors: &mut Vec<Actor>| {
-            let zoom = JUDGMENT_PREVIEW_ZOOM;
-            let tex_w =
-                crate::assets::texture_dims(texture).map_or(128.0, |meta| meta.w.max(1) as f32);
-            let center_offset = tex_w * zoom * 0.4;
+    let texture_for = |player_idx: usize| -> Option<&str> {
+        select_preview_texture(rc.row, player_idx, assets::hold_judgment_texture_choices())
+    };
+    let draw_hold_preview = |texture: &str, center_x: f32, actors: &mut Vec<Actor>| {
+        let zoom = JUDGMENT_PREVIEW_ZOOM;
+        let tex_w =
+            crate::assets::texture_dims(texture).map_or(128.0, |meta| meta.w.max(1) as f32);
+        let center_offset = tex_w * zoom * 0.4;
 
-            actors.push(act!(sprite(texture):
-                align(0.5, 0.5):
-                xy(center_x - center_offset, rc.current_row_y):
-                setstate(0):
-                zoom(zoom):
-                diffuse(1.0, 1.0, 1.0, rc.a):
-                z(Z_ROW_PREVIEW)
-            ));
-            actors.push(act!(sprite(texture):
-                align(0.5, 0.5):
-                xy(center_x + center_offset, rc.current_row_y):
-                setstate(1):
-                zoom(zoom):
-                diffuse(1.0, 1.0, 1.0, rc.a):
-                z(Z_ROW_PREVIEW)
-            ));
-        };
-        if let Some(texture) = texture_for(primary_player_idx) {
-            draw_hold_preview(texture, rc.fc.preview_x[primary_player_idx], &mut *actors);
-        }
-        if rc.fc.show_p2
-            && primary_player_idx != P2
-            && let Some(texture) = texture_for(P2)
-        {
-            draw_hold_preview(texture, rc.fc.preview_x[P2], &mut *actors);
-        }
+        actors.push(act!(sprite(texture):
+            align(0.5, 0.5):
+            xy(center_x - center_offset, rc.current_row_y):
+            setstate(0):
+            zoom(zoom):
+            diffuse(1.0, 1.0, 1.0, rc.a):
+            z(Z_ROW_PREVIEW)
+        ));
+        actors.push(act!(sprite(texture):
+            align(0.5, 0.5):
+            xy(center_x + center_offset, rc.current_row_y):
+            setstate(1):
+            zoom(zoom):
+            diffuse(1.0, 1.0, 1.0, rc.a):
+            z(Z_ROW_PREVIEW)
+        ));
+    };
+    if let Some(texture) = texture_for(primary_player_idx) {
+        draw_hold_preview(texture, rc.fc.preview_x[primary_player_idx], &mut *actors);
     }
-}
-
-#[allow(clippy::too_many_lines)]
-fn draw_noteskin_family_preview(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usize) {
-    match rc.row.id {
-        RowId::NoteSkin => draw_noteskin_row_preview(actors, rc, primary_player_idx),
-        RowId::MineSkin => draw_mineskin_row_preview(actors, rc, primary_player_idx),
-        RowId::ReceptorSkin => draw_receptorskin_row_preview(actors, rc, primary_player_idx),
-        RowId::TapExplosionSkin => draw_tap_explosion_row_preview(actors, rc, primary_player_idx),
-        _ => {}
+    if rc.fc.show_p2
+        && primary_player_idx != P2
+        && let Some(texture) = texture_for(P2)
+    {
+        draw_hold_preview(texture, rc.fc.preview_x[P2], &mut *actors);
     }
 }
 
 fn draw_combo_preview(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: usize) {
-    if rc.row.id == RowId::ComboFont {
-        let combo_text = rc.fc.state.combo_preview_count.to_string();
-        let combo_zoom = COMBO_PREVIEW_ZOOM;
+    let combo_text = rc.fc.state.combo_preview_count.to_string();
+    let combo_zoom = COMBO_PREVIEW_ZOOM;
         // Choice indices are fixed by construction order:
         // 0=Wendy, 1=ArialRounded, 2=Asap, 3=BebasNeue, 4=SourceCode,
         // 5=Work, 6=WendyCursed, 7=Mega, 8=None
@@ -1197,7 +1182,6 @@ fn draw_combo_preview(actors: &mut Vec<Actor>, rc: &RowCtx, primary_player_idx: 
                 ));
             }
         }
-    }
 }
 
 const PREVIEW_ARROWS: [(usize, f32, f32); 4] =

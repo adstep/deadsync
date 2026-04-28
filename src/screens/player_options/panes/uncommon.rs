@@ -155,6 +155,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -177,6 +178,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -196,6 +198,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -215,6 +218,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -239,6 +243,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -258,6 +263,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -275,6 +281,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -293,6 +300,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -309,6 +317,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -322,6 +331,7 @@ pub(super) fn build_uncommon_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.finish()

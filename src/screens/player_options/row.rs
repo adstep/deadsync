@@ -466,6 +466,29 @@ pub enum RowBehavior {
     Custom(CustomBinding),
 }
 
+/// What kind of preview the renderer should draw next to a row's value.
+/// Replaces hand-written `match RowId` cascades in `render.rs` so that
+/// adding a previewable row only requires setting this field on the row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Preview {
+    #[default]
+    None,
+    /// Judgment-font sprite (rendered for `RowId::JudgmentFont`).
+    Judgment,
+    /// Hold-judgment sprite (`RowId::HoldJudgment`).
+    Hold,
+    /// Noteskin tap-note preview (`RowId::NoteSkin`).
+    NoteSkin,
+    /// Mineskin sprite (`RowId::MineSkin`).
+    MineSkin,
+    /// Receptor sprite (`RowId::ReceptorSkin`).
+    ReceptorSkin,
+    /// Tap explosion sprite (`RowId::TapExplosionSkin`).
+    TapExplosion,
+    /// Combo-font sample (`RowId::ComboFont`).
+    Combo,
+}
+
 // ============================== Helpers ================================
 
 #[inline]
@@ -630,6 +653,12 @@ pub struct Row {
     /// displayed value lives on `State` rather than the row's own selection
     /// (e.g. `SpeedMod`, `TypeOfSpeedMod`).
     pub display_text: Option<fn(&Row, &State, usize) -> String>,
+    /// What kind of preview sprite/text the renderer should draw alongside
+    /// this row (judgment, hold, noteskin family, combo). `Preview::None`
+    /// means no preview. The renderer dispatches on this field instead of
+    /// matching `RowId`, so adding a new previewable row only requires
+    /// setting this field.
+    pub preview: Preview,
 }
 
 impl Row {

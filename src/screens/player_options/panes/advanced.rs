@@ -737,6 +737,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -756,6 +757,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -777,6 +779,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -794,6 +797,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::LifebarRows),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -811,6 +815,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::LifebarRows),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -828,6 +833,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -844,6 +850,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::DensityGraphBackground),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -872,6 +879,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -889,6 +897,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -910,6 +919,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -927,6 +937,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::IndicatorScoreType),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -940,6 +951,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -959,6 +971,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -975,6 +988,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -991,6 +1005,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ComboRows),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1007,6 +1022,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1020,6 +1036,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::JudgmentTiltIntensity),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1036,6 +1053,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1052,6 +1070,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1071,6 +1090,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1089,6 +1109,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1105,6 +1126,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1118,6 +1140,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1131,6 +1154,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::ErrorBarChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1151,6 +1175,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1170,6 +1195,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1189,6 +1215,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::MeasureCounterChildren),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1207,6 +1234,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1223,6 +1251,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1243,6 +1272,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1256,6 +1286,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1274,6 +1305,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1294,6 +1326,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1310,6 +1343,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1323,6 +1357,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: Some(VisibilityGroup::CustomFantasticWindowMs),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1336,6 +1371,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -1349,6 +1385,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.finish()
@@ -1356,7 +1393,7 @@ pub(super) fn build_advanced_rows(return_screen: Screen) -> RowMap {
 
 #[cfg(test)]
 mod bitmask_binding_init_tests {
-    use super::super::super::row::{Row, RowBehavior, RowId, init_bitmask_row_from_binding};
+    use super::super::super::row::{Preview, Row, RowBehavior, RowId, init_bitmask_row_from_binding};
     use super::super::super::state::{FaPlusMask, HideMask, PlayerOptionMasks};
     use super::*;
     use crate::assets::i18n::{LookupKey, lookup_key};
@@ -1385,6 +1422,7 @@ mod bitmask_binding_init_tests {
             visibility_group: None,
             dynamic_title: None,
             display_text: None,
+            preview: Preview::None,
             mirror_across_players: false,
         }
     }

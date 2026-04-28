@@ -628,6 +628,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: Some(type_of_speed_mod_display_value),
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -644,6 +645,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: Some(speed_mod_display_value),
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -660,6 +662,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -678,6 +681,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -700,6 +704,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -720,6 +725,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::NoteSkin,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -736,6 +742,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::MineSkin,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -752,6 +759,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::ReceptorSkin,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -768,6 +776,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::TapExplosion,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -787,6 +796,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::Judgment,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -803,6 +813,7 @@ pub(super) fn build_main_rows(
         visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -819,6 +830,7 @@ pub(super) fn build_main_rows(
         visibility_group: Some(VisibilityGroup::JudgmentOffsets),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -845,6 +857,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::Combo,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -861,6 +874,7 @@ pub(super) fn build_main_rows(
         visibility_group: Some(VisibilityGroup::ComboOffsets),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -877,6 +891,7 @@ pub(super) fn build_main_rows(
         visibility_group: Some(VisibilityGroup::ComboOffsets),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -896,6 +911,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::Hold,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -914,6 +930,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -930,6 +947,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -946,6 +964,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -962,6 +981,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -978,6 +998,7 @@ pub(super) fn build_main_rows(
         visibility_group: Some(VisibilityGroup::GlobalOffsetShift),
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -994,6 +1015,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: Some(music_rate_display_name),
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1010,6 +1032,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.push(Row {
@@ -1026,6 +1049,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: true,
     });
     b.push(Row {
@@ -1039,6 +1063,7 @@ pub(super) fn build_main_rows(
         visibility_group: None,
         dynamic_title: None,
         display_text: None,
+        preview: Preview::None,
         mirror_across_players: false,
     });
     b.finish()
