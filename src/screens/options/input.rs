@@ -57,6 +57,38 @@ pub(super) fn apply_submenu_choice_delta(
         if is_submenu_row_disabled(kind, row.id) {
             return None;
         }
+        // Dispatcher: rows that have been migrated off `RowBehavior::Legacy`
+        // are handled by typed bindings here. Unmigrated rows keep falling
+        // through to the per-`SubmenuKind` match below.
+        match row.behavior {
+            RowBehavior::Exit => return None,
+            RowBehavior::Numeric(b) => {
+                return apply_numeric_behavior(state, &b, delta);
+            }
+            RowBehavior::Cycle(b) => {
+                let Some(_new_idx) = advance_choice_index(
+                    state, asset_manager, kind, rows, row_index, delta, wrap,
+                ) else {
+                    return None;
+                };
+                apply_cycle_binding(&b, _new_idx);
+                clear_render_cache(state);
+                return None;
+            }
+            RowBehavior::Custom(b) => {
+                let Some(new_idx) = advance_choice_index(
+                    state, asset_manager, kind, rows, row_index, delta, wrap,
+                ) else {
+                    return None;
+                };
+                let outcome = (b.apply)(state, new_idx);
+                if outcome.changed {
+                    clear_render_cache(state);
+                }
+                return outcome.action;
+            }
+            RowBehavior::Legacy => { /* fall through to legacy per-kind match */ }
+        }
         if matches!(kind, SubmenuKind::Sound) {
             match row.id {
                 SubRowId::MasterVolume => {
@@ -227,46 +259,15 @@ pub(super) fn apply_submenu_choice_delta(
         }
     }
 
-    let choices = row_choices(state, kind, rows, row_index);
-    let num_choices = choices.len();
-    if num_choices == 0 {
+    let Some(new_index) =
+        advance_choice_index(state, asset_manager, kind, rows, row_index, delta, wrap)
+    else {
         return None;
-    }
-    let mut action: Option<ScreenAction> = None;
-    if row_index >= submenu_choice_indices(state, kind).len()
-        || row_index >= submenu_cursor_indices(state, kind).len()
-    {
-        return None;
-    }
-    let choice_index =
-        submenu_cursor_indices(state, kind)[row_index].min(num_choices.saturating_sub(1));
-    let cur = choice_index as isize;
-    let n = num_choices as isize;
-    let raw = cur + delta;
-    let mut new_index = match wrap {
-        NavWrap::Wrap => raw.rem_euclid(n) as usize,
-        NavWrap::Clamp => raw.clamp(0, n - 1) as usize,
     };
-    if new_index >= num_choices {
-        new_index = num_choices.saturating_sub(1);
-    }
-    if new_index == choice_index {
-        return None;
-    }
-    let selected_choice = choices
+    let mut action: Option<ScreenAction> = None;
+    let selected_choice = row_choices(state, kind, rows, row_index)
         .get(new_index)
         .map(|choice| choice.as_ref().to_string());
-    drop(choices);
-
-    submenu_choice_indices_mut(state, kind)[row_index] = new_index;
-    submenu_cursor_indices_mut(state, kind)[row_index] = new_index;
-    if let Some(layout) = submenu_row_layout(state, asset_manager, kind, row_index)
-        && layout.inline_row
-        && let Some(&x) = layout.centers.get(new_index)
-    {
-        state.sub_inline_x = x;
-    }
-    audio::play_sfx("assets/sounds/change_value.ogg");
 
     if matches!(kind, SubmenuKind::System) {
         let row = &rows[row_index];
@@ -1332,4 +1333,90 @@ pub fn handle_input(
         _ => {}
     }
     ScreenAction::None
+}
+
+// ============================== RowBehavior dispatch helpers ============================
+
+/// Advance the cycling choice index for a row by `delta`, wrapping or
+/// clamping per `wrap`. Writes the new index back to the per-submenu
+/// `choice_indices` and `cursor_indices` arrays, updates the inline cursor
+/// x-position and plays the change-value SFX. Returns the new index, or
+/// `None` if the row had no choices, was out of range, or didn't actually
+/// move (clamped at boundary).
+fn advance_choice_index(
+    state: &mut State,
+    asset_manager: &AssetManager,
+    kind: SubmenuKind,
+    rows: &[SubRow],
+    row_index: usize,
+    delta: isize,
+    wrap: NavWrap,
+) -> Option<usize> {
+    let num_choices = row_choices(state, kind, rows, row_index).len();
+    if num_choices == 0 {
+        return None;
+    }
+    if row_index >= submenu_choice_indices(state, kind).len()
+        || row_index >= submenu_cursor_indices(state, kind).len()
+    {
+        return None;
+    }
+    let choice_index =
+        submenu_cursor_indices(state, kind)[row_index].min(num_choices.saturating_sub(1));
+    let cur = choice_index as isize;
+    let n = num_choices as isize;
+    let raw = cur + delta;
+    let mut new_index = match wrap {
+        NavWrap::Wrap => raw.rem_euclid(n) as usize,
+        NavWrap::Clamp => raw.clamp(0, n - 1) as usize,
+    };
+    if new_index >= num_choices {
+        new_index = num_choices.saturating_sub(1);
+    }
+    if new_index == choice_index {
+        return None;
+    }
+    submenu_choice_indices_mut(state, kind)[row_index] = new_index;
+    submenu_cursor_indices_mut(state, kind)[row_index] = new_index;
+    if let Some(layout) = submenu_row_layout(state, asset_manager, kind, row_index)
+        && layout.inline_row
+        && let Some(&x) = layout.centers.get(new_index)
+    {
+        state.sub_inline_x = x;
+    }
+    audio::play_sfx("assets/sounds/change_value.ogg");
+    Some(new_index)
+}
+
+/// Apply a `RowBehavior::Numeric` slider press: clamp the backing field by
+/// `delta`, persist via the binding, and on actual change play SFX +
+/// invalidate the render cache. Always returns `None` (numeric rows never
+/// emit `ScreenAction`).
+fn apply_numeric_behavior(
+    state: &mut State,
+    binding: &NumericBinding,
+    delta: isize,
+) -> Option<ScreenAction> {
+    let value = (binding.get_mut)(state);
+    let changed = match binding.step {
+        NumericStep::Ms => adjust_ms_value(value, delta, binding.min, binding.max),
+        NumericStep::Tenths => adjust_tenths_value(value, delta, binding.min, binding.max),
+    };
+    if changed {
+        let new_value = *(binding.get_mut)(state);
+        (binding.persist)(new_value);
+        audio::play_sfx("assets/sounds/change_value.ogg");
+        clear_render_cache(state);
+    }
+    None
+}
+
+/// Apply a `RowBehavior::Cycle` change by dispatching to the binding's
+/// persist fn. The choice index has already been advanced by
+/// `advance_choice_index`; this just writes through to config.
+fn apply_cycle_binding(binding: &CycleBinding, new_idx: usize) {
+    match binding {
+        CycleBinding::Bool(f) => f(new_idx == 1),
+        CycleBinding::Index(f) => f(new_idx),
+    }
 }
