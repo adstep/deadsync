@@ -8084,6 +8084,73 @@ mod tests {
     }
 
     #[test]
+    fn predictive_ex_kept_diverges_from_final_when_failed_snapshot_misses_late_finalize_repro_143()
+    {
+        // End-to-end reproduction at the predictive-EX-percent level for
+        // issue #143 (Finding B in the audit).
+        //
+        // 100-tap chart.  Player early-hits 1 tap as Decent (W4) pre-fail.
+        // Then fails.  The late miss-sweep finalizes that row AFTER fail,
+        // preserving the W4 in note.result and adding it to
+        // live_window_counts, but clearing the provisional via
+        // set_final_note_result.
+        //
+        // The frozen failed-EX snapshot was captured BEFORE the late
+        // finalize, so it never sees the W4.  After the late finalize the
+        // provisional is also zero, so add_provisional_early_bad_counts
+        // ... + predictive_ex_score_percents on the snapshot reports
+        // kept = 100% — the W4 has silently disappeared from the
+        // predictive view.
+        //
+        // Meanwhile calculate_ex_score_from_notes (used by the results
+        // screen) replays from notes, sees the W4 because
+        // row_time <= fail_time, and computes kept = 99.0%.
+        //
+        // The 1-percentage-point gap matches the bug direction reported in
+        // the issue (predictive ~96% → final ~95%).
+        let frozen_snapshot_after_finalize = ExScoreData {
+            counts: crate::game::timing::WindowCounts {
+                w0: 99,
+                ..crate::game::timing::WindowCounts::default()
+            },
+            total_steps: 100,
+            ..ExScoreData::default()
+        };
+        let provisional_after_finalize = [0u32; JUDGE_GRADE_COUNT];
+
+        let predictive_view = add_provisional_early_bad_counts_to_ex_score(
+            frozen_snapshot_after_finalize,
+            &provisional_after_finalize,
+        );
+        let (predictive_kept, _, _) = predictive_ex_score_percents(&predictive_view);
+
+        let final_truth = ExScoreData {
+            counts: crate::game::timing::WindowCounts {
+                w0: 99,
+                w4: 1,
+                ..crate::game::timing::WindowCounts::default()
+            },
+            total_steps: 100,
+            ..ExScoreData::default()
+        };
+        let (final_kept, _, _) = predictive_ex_score_percents(&final_truth);
+
+        // FIXME(#143): predictive_kept SHOULD equal final_kept.  These
+        // assertions document the current (buggy) behaviour so the
+        // divergence is reproducible and visible in the test suite.  When
+        // the snapshot model is fixed, predictive_kept will become 99.0
+        // and the assert_eq! below should be flipped to
+        // `assert_eq!(predictive_kept, final_kept)`.
+        assert_eq!(predictive_kept, 100.0);
+        assert_eq!(final_kept, 99.0);
+        assert!(
+            predictive_kept > final_kept,
+            "BUG (#143): predictive kept ({predictive_kept}) should not exceed final kept \
+             ({final_kept}); the frozen failed-EX snapshot lost the post-fail-finalized W4"
+        );
+    }
+
+    #[test]
     fn provisional_early_wayoff_counts_toward_predictive_itg_loss() {
         let mut provisional = [0u32; JUDGE_GRADE_COUNT];
         provisional[crate::game::judgment::judge_grade_ix(JudgeGrade::WayOff)] = 1;

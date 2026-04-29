@@ -8733,6 +8733,34 @@ mod tests {
     }
 
     #[test]
+    fn chord_rows_are_excluded_from_provisional_early_rescore_finding_a() {
+        // Defensive regression for the issue #143 audit (Finding A).
+        //
+        // The early-rescore path that registers a provisional W4/W5
+        // (judge_a_tap / judge_a_lift) is currently gated to rows whose
+        // rescore-track count == 1.  If this gate is ever loosened to cover
+        // chord rows, the per-NOTE provisional adds will inflate
+        // current_possible in the mini-indicator predictive math and make
+        // predictive PESSIMISTIC vs final (predictive < final).
+        //
+        // We assert the gate's precondition here so that any future change
+        // breaking the invariant is caught at unit-test time.
+        for chord_size in 2..=MAX_COLS {
+            let row_index = 48usize;
+            let notes: Vec<Note> = (0..chord_size)
+                .map(|c| test_note(c, row_index, NoteType::Tap))
+                .collect();
+            let row_entry = test_row_entry(&notes, row_index, (0..chord_size).collect());
+
+            assert_ne!(
+                count_rescore_tracks_on_row(&row_entry),
+                1,
+                "chord row of size {chord_size} must NOT be eligible for provisional early rescore"
+            );
+        }
+    }
+
+    #[test]
     fn rescore_track_count_includes_lifts_on_row() {
         let row_index = 48usize;
         let notes = vec![
@@ -9607,6 +9635,79 @@ mod tests {
         assert_eq!(selected.holds_let_go_for_score, 2);
         assert_eq!(selected.rolls_held_for_score, 4);
         assert_eq!(selected.mines_hit_for_score, 3);
+    }
+
+    #[test]
+    fn failed_ex_snapshot_loses_late_finalized_provisional_repro_143() {
+        // Reproduction for issue #143 (Finding B in the audit).
+        //
+        // Sequence modelled here:
+        //   1. Pre-fail: player early-hits a tap as Decent.  judge_a_tap
+        //      calls register_provisional_early_result, which adds 1 to
+        //      provisional_scoring_counts[W4].  The note's row has not yet
+        //      finalized so live_window_counts contains no W4.
+        //   2. Fail.  capture_failed_ex_score_inputs snapshots the live
+        //      counts (no W4) into failed_ex_score_inputs.
+        //   3. Post-fail: the late miss-sweep (apply_time_based_tap_misses)
+        //      finalizes the row preserving the early result via
+        //      `early_result.unwrap_or(miss)`.  set_final_note_result then
+        //      removes the provisional W4, and the subsequent
+        //      finalize_row_judgment -> record_display_window_counts adds
+        //      the W4 to live_window_counts.
+        //   4. Display path: effective_ex_score_inputs returns the FROZEN
+        //      snapshot (W4=0).  Provisional is now 0.  Predictive view
+        //      sees no W4 at all.
+        //   5. Final eval: calculate_ex_score_from_notes replays from notes
+        //      and includes the W4 because row_time_ns <= fail_time_ns.
+        //
+        // The test asserts the divergence between what the predictive view
+        // sees (snapshot + provisional) before vs after the post-fail
+        // finalization, and shows that the "after" view silently loses the
+        // W4 that the final results screen will count.
+        let mut player = super::init_player_runtime();
+
+        // Step 1: pre-fail provisional W4.
+        add_provisional_early_score(&mut player, JudgeGrade::Decent);
+
+        // Step 2: snapshot taken at fail time.  Live had no W4 yet.
+        player.failed_ex_score_inputs = Some(super::ExScoreInputs::default());
+
+        let live_at_fail = super::ExScoreInputs::default();
+        let view_at_fail = super::effective_ex_score_inputs(&player, live_at_fail);
+        let view_w4_at_fail = view_at_fail.counts.w4
+            + player.provisional_scoring_counts[judgment::judge_grade_ix(JudgeGrade::Decent)];
+        assert_eq!(
+            view_w4_at_fail, 1,
+            "before late finalize, predictive (snapshot + provisional) accounts for the W4"
+        );
+
+        // Steps 3-4: post-fail late finalize.  Live now has W4 (from
+        // record_display_window_counts), and provisional is cleared (by
+        // set_final_note_result).
+        remove_provisional_early_score(&mut player, JudgeGrade::Decent);
+        let live_after_finalize = super::ExScoreInputs {
+            counts: crate::game::timing::WindowCounts {
+                w4: 1,
+                ..crate::game::timing::WindowCounts::default()
+            },
+            ..super::ExScoreInputs::default()
+        };
+        let view_after_finalize =
+            super::effective_ex_score_inputs(&player, live_after_finalize);
+        let view_w4_after_finalize = view_after_finalize.counts.w4
+            + player.provisional_scoring_counts[judgment::judge_grade_ix(JudgeGrade::Decent)];
+
+        // FIXME(#143): this asserts the BUG.  After the snapshot model is
+        // fixed (e.g. by re-folding post-fail provisional finalizations
+        // into the snapshot, or by recomputing failed display EX from
+        // notes), this assertion should become `assert_eq!(.., 1)` to
+        // match the truth that calculate_ex_score_from_notes will report
+        // on the results screen.
+        assert_eq!(
+            view_w4_after_finalize, 0,
+            "BUG (#143): frozen snapshot + cleared provisional silently loses the W4 \
+             that the late post-fail miss-sweep wrote into live_window_counts"
+        );
     }
 
     #[test]
