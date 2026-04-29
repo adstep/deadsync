@@ -272,6 +272,7 @@ pub enum ItemId {
     // Machine Options submenu
     MchSelectProfile,
     MchSelectColor,
+    MchColor,
     MchSelectStyle,
     MchPreferredStyle,
     MchSelectPlayMode,
@@ -903,6 +904,7 @@ pub enum SubRowId {
     // Machine Options
     SelectProfile,
     SelectColor,
+    Color,
     SelectStyle,
     PreferredStyle,
     SelectPlayMode,
@@ -1040,6 +1042,23 @@ const fn localized_choice(section: &'static str, key: &'static str) -> Choice {
 const fn literal_choice(s: &'static str) -> Choice {
     Choice::Literal(s)
 }
+
+/// 12 numeric labels for the Machine Options Color row, matching the Simply Love
+/// theme's `SimplyLoveColor` 1..=12 choices.
+const MACHINE_COLOR_CHOICES: &[Choice] = &[
+    literal_choice("1"),
+    literal_choice("2"),
+    literal_choice("3"),
+    literal_choice("4"),
+    literal_choice("5"),
+    literal_choice("6"),
+    literal_choice("7"),
+    literal_choice("8"),
+    literal_choice("9"),
+    literal_choice("10"),
+    literal_choice("11"),
+    literal_choice("12"),
+];
 
 const LANGUAGE_CHOICES: &[Choice] = &[
     localized_choice("OptionsSystem", "EnglishLanguage"),
@@ -1365,10 +1384,12 @@ const SELECT_MUSIC_PREVIEW_LOOP_ROW_INDEX: usize = 17;
 const SELECT_MUSIC_SHOW_SCOREBOX_ROW_INDEX: usize = 19;
 const SELECT_MUSIC_SCOREBOX_PLACEMENT_ROW_INDEX: usize = 20;
 const SELECT_MUSIC_SCOREBOX_CYCLE_ROW_INDEX: usize = 21;
-const MACHINE_SELECT_STYLE_ROW_INDEX: usize = 2;
-const MACHINE_PREFERRED_STYLE_ROW_INDEX: usize = 3;
-const MACHINE_SELECT_PLAY_MODE_ROW_INDEX: usize = 4;
-const MACHINE_PREFERRED_MODE_ROW_INDEX: usize = 5;
+const MACHINE_SELECT_COLOR_ROW_INDEX: usize = 1;
+const MACHINE_COLOR_ROW_INDEX: usize = 2;
+const MACHINE_SELECT_STYLE_ROW_INDEX: usize = 3;
+const MACHINE_PREFERRED_STYLE_ROW_INDEX: usize = 4;
+const MACHINE_SELECT_PLAY_MODE_ROW_INDEX: usize = 5;
+const MACHINE_PREFERRED_MODE_ROW_INDEX: usize = 6;
 const ADVANCED_SONG_PARSING_THREADS_ROW_INDEX: usize = 3;
 
 const MAX_FPS_MIN: u16 = 5;
@@ -1854,6 +1875,12 @@ pub const MACHINE_OPTIONS_ROWS: &[SubRow] = &[
         inline: true,
     },
     SubRow {
+        id: SubRowId::Color,
+        label: lookup_key("OptionsMachine", "Color"),
+        choices: MACHINE_COLOR_CHOICES,
+        inline: true,
+    },
+    SubRow {
         id: SubRowId::SelectStyle,
         label: lookup_key("OptionsMachine", "SelectStyle"),
         choices: &[
@@ -2003,6 +2030,14 @@ pub const MACHINE_OPTIONS_ITEMS: &[Item] = &[
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsMachineHelp",
             "SelectColorHelp",
+        ))],
+    },
+    Item {
+        id: ItemId::MchColor,
+        name: lookup_key("OptionsMachine", "Color"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsMachineHelp",
+            "ColorHelp",
         ))],
     },
     Item {
@@ -3981,6 +4016,13 @@ fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows: &[SubRow]
                 .collect()
         }
         SubmenuKind::Machine => {
+            let select_color_on = state
+                .sub_choice_indices_machine
+                .get(MACHINE_SELECT_COLOR_ROW_INDEX)
+                .copied()
+                .unwrap_or(1)
+                == 1;
+            let show_color_picker = !select_color_on;
             let show_preferred_style = state
                 .sub_choice_indices_machine
                 .get(MACHINE_SELECT_STYLE_ROW_INDEX)
@@ -3996,7 +4038,9 @@ fn submenu_visible_row_indices(state: &State, kind: SubmenuKind, rows: &[SubRow]
             rows.iter()
                 .enumerate()
                 .filter_map(|(idx, _)| {
-                    if idx == MACHINE_PREFERRED_STYLE_ROW_INDEX && !show_preferred_style {
+                    if idx == MACHINE_COLOR_ROW_INDEX && !show_color_picker {
+                        None
+                    } else if idx == MACHINE_PREFERRED_STYLE_ROW_INDEX && !show_preferred_style {
                         None
                     } else if idx == MACHINE_PREFERRED_MODE_ROW_INDEX && !show_preferred_mode {
                         None
@@ -6301,6 +6345,12 @@ pub fn init() -> State {
     set_choice_by_id(
         &mut state.sub_choice_indices_machine,
         MACHINE_OPTIONS_ROWS,
+        SubRowId::Color,
+        (cfg.simply_love_color.rem_euclid(MACHINE_COLOR_CHOICES.len() as i32)) as usize,
+    );
+    set_choice_by_id(
+        &mut state.sub_choice_indices_machine,
+        MACHINE_OPTIONS_ROWS,
         SubRowId::SelectStyle,
         usize::from(cfg.machine_show_select_style),
     );
@@ -8248,6 +8298,11 @@ fn apply_submenu_choice_delta(
         match row.id {
             SubRowId::SelectProfile => config::update_machine_show_select_profile(enabled),
             SubRowId::SelectColor => config::update_machine_show_select_color(enabled),
+            SubRowId::Color => {
+                let new_color = new_index as i32;
+                config::update_simply_love_color(new_color);
+                state.active_color_index = new_color;
+            }
             SubRowId::SelectStyle => config::update_machine_show_select_style(enabled),
             SubRowId::PreferredStyle => config::update_machine_preferred_style(
                 machine_preferred_style_from_choice(new_index),

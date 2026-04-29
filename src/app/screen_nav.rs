@@ -251,6 +251,29 @@ impl App {
                 .active_color_index = idx;
         }
 
+        if prev == CurrentScreen::Options {
+            let idx = self.state.screens.options_state.active_color_index;
+            self.state.screens.menu_state.active_color_index = idx;
+            self.state.screens.select_profile_state.active_color_index = idx;
+            self.state.screens.select_color_state.active_color_index = idx;
+            self.state.screens.select_color_state.bg_from_index = idx;
+            self.state.screens.select_color_state.bg_to_index = idx;
+            self.state.screens.select_style_state.active_color_index = idx;
+            self.state.screens.select_play_mode_state.active_color_index = idx;
+            self.state.screens.profile_load_state.active_color_index = idx;
+            self.state.screens.select_music_state.active_color_index = idx;
+            self.state.screens.select_course_state.active_color_index = idx;
+            self.state.screens.credits_state.active_color_index = idx;
+            if let Some(gs) = self.state.screens.gameplay_state.as_mut() {
+                gs.active_color_index = idx;
+                gs.player_color = color::simply_love_rgba(idx);
+            }
+            self.state
+                .screens
+                .manage_local_profiles_state
+                .active_color_index = idx;
+        }
+
         if target_screen == CurrentScreen::Options {
             self.update_options_monitor_specs(event_loop);
         }
