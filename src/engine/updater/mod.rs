@@ -20,9 +20,10 @@ pub mod cli;
 pub mod download;
 pub mod state;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "self-update"))]
 pub mod apply_windows;
 
+#[cfg(feature = "self-update")]
 pub mod apply_unix;
 
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures

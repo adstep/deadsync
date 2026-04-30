@@ -85,14 +85,14 @@ impl UpdaterCli {
 /// best-effort), but the (removed_count, staging_removed) tuple is
 /// returned for diagnostics + tests.
 pub fn run_cleanup(exe_dir: &std::path::Path, staging_dir: &std::path::Path) -> (usize, bool) {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "self-update"))]
     {
         return crate::engine::updater::apply_windows::cleanup_old_files(
             exe_dir,
             Some(staging_dir),
         );
     }
-    #[cfg(not(windows))]
+    #[cfg(not(all(windows, feature = "self-update")))]
     {
         let _ = exe_dir;
         let staging_removed = if staging_dir.exists() {
@@ -134,7 +134,7 @@ pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
     Ok(true)
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "self-update"))]
 fn apply_for_host(
     archive_path: &std::path::Path,
     exe_dir: &std::path::Path,
@@ -143,7 +143,7 @@ fn apply_for_host(
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"))]
 fn apply_for_host(
     archive_path: &std::path::Path,
     exe_dir: &std::path::Path,
@@ -152,13 +152,16 @@ fn apply_for_host(
     Ok(())
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd")))]
+#[cfg(not(any(
+    all(windows, feature = "self-update"),
+    all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"),
+)))]
 fn apply_for_host(
     _archive_path: &std::path::Path,
     _exe_dir: &std::path::Path,
 ) -> Result<(), super::UpdaterError> {
     Err(super::UpdaterError::Io(
-        "self-update not supported on this platform yet".to_string(),
+        "self-update apply is disabled in this build".to_string(),
     ))
 }
 
@@ -170,7 +173,7 @@ fn exe_dir() -> Result<PathBuf, super::UpdaterError> {
         .ok_or_else(|| super::UpdaterError::Io("exe has no parent dir".to_string()))
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "self-update"))]
 fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
     let exe = std::env::current_exe()
@@ -185,7 +188,7 @@ fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"))]
 fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
     let exe = std::env::current_exe()
@@ -197,7 +200,10 @@ fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> 
     Ok(())
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd")))]
+#[cfg(not(any(
+    all(windows, feature = "self-update"),
+    all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"),
+)))]
 fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     Ok(())
 }
