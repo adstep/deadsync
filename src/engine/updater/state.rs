@@ -49,6 +49,14 @@ pub struct UpdaterCache {
 static CACHE: LazyLock<RwLock<UpdaterCache>> = LazyLock::new(|| RwLock::new(UpdaterCache::default()));
 static SNAPSHOT: LazyLock<RwLock<Option<UpdateState>>> = LazyLock::new(|| RwLock::new(None));
 
+/// Replace the in-memory snapshot.  Used by both the passive startup
+/// check and the manual "Check now" worker in [`crate::engine::updater::action`].
+pub fn replace_snapshot(state: UpdateState) {
+    if let Ok(mut snap) = SNAPSHOT.write() {
+        *snap = Some(state);
+    }
+}
+
 /// Snapshot of the latest [`UpdateState`] for the UI.  `None` when no
 /// check has completed yet (or the check failed silently).
 pub fn snapshot() -> Option<UpdateState> {
@@ -194,9 +202,7 @@ pub fn run_check_once() {
         FetchOutcome::Fresh { info, etag } => {
             let tag = info.tag.clone();
             let state = classify(info);
-            if let Ok(mut snap) = SNAPSHOT.write() {
-                *snap = Some(state.clone());
-            }
+            replace_snapshot(state.clone());
             let mut next = cache();
             next.last_checked_at = Some(now_unix());
             next.last_seen_tag = Some(tag);

@@ -1,0 +1,440 @@
+//! Action state machine for the in-app updater.
+//!
+//! `state.rs` holds the *passive* "is an update available?" snapshot
+//! that the menu banner reads.  This file holds the *active* state for
+//! the user-driven download flow:
+//!
+//! ```text
+//!   Idle ──(request_check_now)──► Checking ──┬──► ConfirmDownload ──(request_download)──► Downloading ──► Ready
+//!                                              ├──► UpToDate
+//!                                              └──► Error
+//!                                Downloading ─►(checksum mismatch)──► Error
+//! ```
+//!
+//! All transitions go through pure functions on [`ActionPhase`] so the
+//! state machine itself is unit-testable without touching the network or
+//! disk.  The thin `request_*` helpers wrap a worker thread that calls
+//! into the existing fetch / download primitives.
+//!
+//! The UI overlay (PR 10b) renders [`ActionPhase`] and dispatches user
+//! input here; nothing in this module touches winit, fonts, or the
+//! renderer.
+
+use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex, RwLock};
+use std::thread;
+
+use super::download::{
+    download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
+};
+use super::{
+    classify, expected_asset_name, fetch_latest_release, host_target,
+    pick_asset_for_host, FetchOutcome, ReleaseAsset, ReleaseInfo, UpdateState,
+    UpdaterError,
+};
+use crate::config;
+use crate::engine::network;
+
+/// Subdirectory of `cache_dir` where downloaded archives land.
+pub const DOWNLOADS_SUBDIR: &str = "updates";
+
+/// Public phases of the download flow.  Cloned cheaply to hand to the
+/// UI thread on every frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionPhase {
+    /// Nothing in flight; the overlay should not be visible.
+    Idle,
+    /// A check-now request is running on the worker thread.
+    Checking,
+    /// A check completed and an update is available.  The overlay shows
+    /// release notes / size / "Download" / "Later".
+    ConfirmDownload {
+        info: ReleaseInfo,
+        asset: ReleaseAsset,
+    },
+    /// A check completed and reported the build is current.  Lets the
+    /// overlay say "You're up to date" rather than vanishing silently.
+    UpToDate { tag: String },
+    /// The download is in flight.  `total` is `Some` when the server
+    /// reported a Content-Length and otherwise falls back to the asset
+    /// metadata; it is also `None` while we're still computing it.
+    Downloading {
+        info: ReleaseInfo,
+        asset: ReleaseAsset,
+        written: u64,
+        total: Option<u64>,
+    },
+    /// The download finished and the file passed checksum verification.
+    /// `path` is the absolute on-disk path to the verified archive.
+    Ready { info: ReleaseInfo, path: PathBuf },
+    /// A failure surfaced by the worker.  `kind` lets the UI pick a
+    /// localised summary; `detail` is a developer-facing string for logs
+    /// and tooltips.
+    Error { kind: ActionErrorKind, detail: String },
+}
+
+/// Coarse classification of failures so the UI can show a localised
+/// summary without having to parse [`UpdaterError`] strings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionErrorKind {
+    Network,
+    RateLimited,
+    HttpStatus,
+    Parse,
+    NoAssetForHost,
+    Checksum,
+    Io,
+}
+
+impl ActionErrorKind {
+    fn classify(err: &UpdaterError) -> Self {
+        match err {
+            UpdaterError::Network(_) => Self::Network,
+            UpdaterError::RateLimited => Self::RateLimited,
+            UpdaterError::HttpStatus(_) => Self::HttpStatus,
+            UpdaterError::Parse(_) => Self::Parse,
+            UpdaterError::AssetNotFound(_) => Self::NoAssetForHost,
+            UpdaterError::ChecksumMismatch { .. }
+            | UpdaterError::ChecksumSidecarMalformed(_) => Self::Checksum,
+            UpdaterError::Io(_) => Self::Io,
+        }
+    }
+}
+
+static PHASE: LazyLock<RwLock<ActionPhase>> =
+    LazyLock::new(|| RwLock::new(ActionPhase::Idle));
+
+/// Worker-thread mutex.  Held only by `request_*` helpers so that two
+/// rapid-fire button presses never spawn two workers; the second call
+/// becomes a no-op.
+static WORKER_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+/// Snapshot of the current phase.  Cheap; clones strings.
+pub fn current() -> ActionPhase {
+    PHASE
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or(ActionPhase::Idle)
+}
+
+/// Reset the overlay to [`ActionPhase::Idle`].  Called on Cancel /
+/// Escape from the UI; safe to call from any state.
+pub fn dismiss() {
+    set_phase(ActionPhase::Idle);
+}
+
+fn set_phase(next: ActionPhase) {
+    if let Ok(mut guard) = PHASE.write() {
+        *guard = next;
+    }
+}
+
+/// Pure transition: "check completed, here is the result, what should
+/// the overlay show?".  Lifted out of the worker so we can unit-test it.
+pub fn classify_check_result(state: UpdateState) -> ActionPhase {
+    match state {
+        UpdateState::UpToDate => ActionPhase::UpToDate {
+            tag: format!("v{}", env!("CARGO_PKG_VERSION")),
+        },
+        UpdateState::UnknownLatest => ActionPhase::Error {
+            kind: ActionErrorKind::Parse,
+            detail: "latest release tag is not valid semver".to_owned(),
+        },
+        UpdateState::Available(info) => match host_target() {
+            None => ActionPhase::Error {
+                kind: ActionErrorKind::NoAssetForHost,
+                detail: "this host platform is not in the release matrix".to_owned(),
+            },
+            Some(target) => match pick_asset_for_host(&info.assets, &info.tag, target) {
+                Some(asset) => {
+                    let asset = asset.clone();
+                    ActionPhase::ConfirmDownload { info, asset }
+                }
+                None => ActionPhase::Error {
+                    kind: ActionErrorKind::NoAssetForHost,
+                    detail: format!(
+                        "release {} did not include {}",
+                        info.tag,
+                        expected_asset_name(&info.tag, target),
+                    ),
+                },
+            },
+        },
+    }
+}
+
+/// Pure transition: convert an [`UpdaterError`] into an [`ActionPhase::Error`].
+pub fn classify_error(err: &UpdaterError) -> ActionPhase {
+    ActionPhase::Error {
+        kind: ActionErrorKind::classify(err),
+        detail: err.to_string(),
+    }
+}
+
+/// Spawn a worker that runs a "check now" against the GitHub releases
+/// endpoint.  No-op if a worker is already in flight.  Always returns
+/// after spawning (or deciding not to spawn); the caller polls
+/// [`current`] for progress.
+pub fn request_check_now() {
+    let _guard = match WORKER_LOCK.try_lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    if matches!(current(), ActionPhase::Checking | ActionPhase::Downloading { .. }) {
+        return;
+    }
+    set_phase(ActionPhase::Checking);
+    let _ = thread::Builder::new()
+        .name("deadsync-updater-check".to_owned())
+        .spawn(run_check_now);
+}
+
+fn run_check_now() {
+    let agent = network::get_agent();
+    // We deliberately ignore the persisted ETag so a manual "Check now"
+    // always returns Fresh; otherwise the user would be stuck staring at
+    // a Checking spinner with nothing happening on a 304.
+    let outcome = match fetch_latest_release(&agent, None) {
+        Ok(o) => o,
+        Err(err) => {
+            log::warn!("Manual update check failed: {err}");
+            set_phase(classify_error(&err));
+            return;
+        }
+    };
+    let info = match outcome {
+        FetchOutcome::NotModified => {
+            // We forced etag=None so this branch is unreachable, but
+            // surface it as up-to-date if the server returns 304 anyway.
+            set_phase(ActionPhase::UpToDate {
+                tag: format!("v{}", env!("CARGO_PKG_VERSION")),
+            });
+            return;
+        }
+        FetchOutcome::Fresh { info, .. } => info,
+    };
+    let state = classify(info);
+    // Mirror the passive snapshot used by the menu banner so a manual
+    // check refreshes that too.
+    super::state::replace_snapshot(state.clone());
+    set_phase(classify_check_result(state));
+}
+
+/// Spawn a worker that downloads + verifies the asset associated with
+/// the current [`ActionPhase::ConfirmDownload`].  No-op if the phase
+/// isn't `ConfirmDownload`.
+pub fn request_download() {
+    let _guard = match WORKER_LOCK.try_lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let (info, asset) = match current() {
+        ActionPhase::ConfirmDownload { info, asset } => (info, asset),
+        _ => return,
+    };
+    set_phase(ActionPhase::Downloading {
+        info: info.clone(),
+        asset: asset.clone(),
+        written: 0,
+        total: Some(asset.size).filter(|s| *s > 0),
+    });
+    let _ = thread::Builder::new()
+        .name("deadsync-updater-download".to_owned())
+        .spawn(move || run_download(info, asset));
+}
+
+fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
+    let agent = network::get_agent();
+    let sidecar = match fetch_checksum_sidecar(&agent, &asset.browser_download_url) {
+        Ok(t) => t,
+        Err(err) => {
+            log::warn!("Failed to fetch checksum sidecar: {err}");
+            set_phase(classify_error(&err));
+            return;
+        }
+    };
+    let expected = match parse_checksum_sidecar(&sidecar, &asset.name) {
+        Ok(d) => d,
+        Err(err) => {
+            log::warn!("Failed to parse checksum sidecar: {err}");
+            set_phase(classify_error(&err));
+            return;
+        }
+    };
+    let dest = downloads_dir().join(&asset.name);
+
+    let info_for_progress = info.clone();
+    let asset_for_progress = asset.clone();
+    let progress = move |written: u64, total: Option<u64>| {
+        set_phase(ActionPhase::Downloading {
+            info: info_for_progress.clone(),
+            asset: asset_for_progress.clone(),
+            written,
+            total,
+        });
+    };
+
+    match download_to_file(&agent, &asset, &expected, &dest, progress) {
+        Ok(()) => {
+            log::info!("Update {} downloaded to {}", info.tag, dest.display());
+            set_phase(ActionPhase::Ready { info, path: dest });
+        }
+        Err(err) => {
+            log::warn!("Update download failed: {err}");
+            set_phase(classify_error(&err));
+        }
+    }
+}
+
+/// Absolute path of the directory archives are downloaded into.
+pub fn downloads_dir() -> PathBuf {
+    config::dirs::app_dirs().cache_dir.join(DOWNLOADS_SUBDIR)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::version;
+    use semver::Version;
+
+    fn release_with_tag(tag: &str, asset_name: &str) -> ReleaseInfo {
+        ReleaseInfo {
+            tag: tag.to_owned(),
+            version: Version::parse(tag.trim_start_matches('v')).unwrap(),
+            html_url: format!("https://example/{tag}"),
+            body: String::new(),
+            published_at: None,
+            assets: vec![ReleaseAsset {
+                name: asset_name.to_owned(),
+                browser_download_url: format!("https://example/{tag}/{asset_name}"),
+                size: 1024,
+            }],
+        }
+    }
+
+    #[test]
+    fn classify_check_result_up_to_date_yields_up_to_date_phase() {
+        let phase = classify_check_result(UpdateState::UpToDate);
+        assert!(matches!(phase, ActionPhase::UpToDate { .. }));
+    }
+
+    #[test]
+    fn classify_check_result_unknown_latest_yields_error() {
+        let phase = classify_check_result(UpdateState::UnknownLatest);
+        match phase {
+            ActionPhase::Error { kind, .. } => assert_eq!(kind, ActionErrorKind::Parse),
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_check_result_available_with_matching_asset_yields_confirm() {
+        // Build an asset whose name matches whatever the host target is,
+        // so the test passes on every platform we run CI on.
+        let target = match host_target() {
+            Some(t) => t,
+            None => return, // unsupported host; nothing to assert.
+        };
+        let bumped = format!(
+            "v{}.{}.{}",
+            version::current().major,
+            version::current().minor,
+            version::current().patch + 1,
+        );
+        let name = expected_asset_name(&bumped, target);
+        let info = release_with_tag(&bumped, &name);
+        let phase = classify_check_result(UpdateState::Available(info.clone()));
+        match phase {
+            ActionPhase::ConfirmDownload { asset, .. } => assert_eq!(asset.name, name),
+            other => panic!("expected ConfirmDownload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_check_result_available_without_matching_asset_yields_error() {
+        if host_target().is_none() {
+            return;
+        }
+        let bumped = format!(
+            "v{}.{}.{}",
+            version::current().major,
+            version::current().minor,
+            version::current().patch + 1,
+        );
+        let info = release_with_tag(&bumped, "deadsync-x99-totally-fake.bin");
+        let phase = classify_check_result(UpdateState::Available(info));
+        match phase {
+            ActionPhase::Error { kind, .. } => {
+                assert_eq!(kind, ActionErrorKind::NoAssetForHost);
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_error_maps_each_variant() {
+        let cases = [
+            (
+                UpdaterError::Network("boom".into()),
+                ActionErrorKind::Network,
+            ),
+            (UpdaterError::RateLimited, ActionErrorKind::RateLimited),
+            (UpdaterError::HttpStatus(503), ActionErrorKind::HttpStatus),
+            (UpdaterError::Parse("x".into()), ActionErrorKind::Parse),
+            (
+                UpdaterError::AssetNotFound("a".into()),
+                ActionErrorKind::NoAssetForHost,
+            ),
+            (
+                UpdaterError::ChecksumMismatch {
+                    expected: "00".into(),
+                    actual: "ff".into(),
+                },
+                ActionErrorKind::Checksum,
+            ),
+            (
+                UpdaterError::ChecksumSidecarMalformed("bad".into()),
+                ActionErrorKind::Checksum,
+            ),
+            (UpdaterError::Io("nope".into()), ActionErrorKind::Io),
+        ];
+        for (err, expected_kind) in cases {
+            let phase = classify_error(&err);
+            match phase {
+                ActionPhase::Error { kind, .. } => assert_eq!(kind, expected_kind),
+                other => panic!("expected Error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn dismiss_returns_to_idle_from_any_state() {
+        // Drive the global state machine; serialise the test behind the
+        // worker lock so other tests can't observe transient phases.
+        let _g = WORKER_LOCK.lock().unwrap();
+        set_phase(ActionPhase::Checking);
+        dismiss();
+        assert_eq!(current(), ActionPhase::Idle);
+
+        set_phase(ActionPhase::UpToDate { tag: "v1.2.3".into() });
+        dismiss();
+        assert_eq!(current(), ActionPhase::Idle);
+
+        set_phase(ActionPhase::Error {
+            kind: ActionErrorKind::Network,
+            detail: String::new(),
+        });
+        dismiss();
+        assert_eq!(current(), ActionPhase::Idle);
+    }
+
+    #[test]
+    fn downloads_dir_is_under_cache_dir() {
+        let dir = downloads_dir();
+        assert!(
+            dir.ends_with(DOWNLOADS_SUBDIR),
+            "downloads dir was {}",
+            dir.display(),
+        );
+    }
+}
