@@ -13,7 +13,9 @@ use crate::game::song::get_song_cache;
 use crate::screens::components::menu::logo::{self, LogoParams};
 use crate::screens::components::menu::menu_list::{self};
 use crate::screens::components::menu::menu_splash;
-use crate::screens::components::shared::{heart_bg, screen_bar, transitions};
+use crate::screens::components::shared::{
+    heart_bg, screen_bar, transitions, update_overlay,
+};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::cell::{Cell, RefCell};
@@ -126,9 +128,17 @@ pub fn handle_raw_key_event(_state: &mut State, key: &RawKeyboardEvent) -> Scree
     if !key.pressed {
         return ScreenAction::None;
     }
+    let overlay_visible = !matches!(
+        crate::engine::updater::action::current(),
+        crate::engine::updater::action::ActionPhase::Idle,
+    );
     match key.code {
-        KeyCode::F4 => return ScreenAction::Navigate(Screen::Sandbox),
-        KeyCode::Escape => return ScreenAction::Exit,
+        KeyCode::F4 if !overlay_visible => return ScreenAction::Navigate(Screen::Sandbox),
+        KeyCode::F5 if !overlay_visible => {
+            crate::engine::updater::action::request_check_now();
+            return ScreenAction::None;
+        }
+        KeyCode::Escape if !overlay_visible => return ScreenAction::Exit,
         _ => {}
     }
     ScreenAction::None
@@ -528,6 +538,10 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
         }
     }
 
+    actors.extend(update_overlay::build(
+        &crate::engine::updater::action::current(),
+    ));
+
     actors
 }
 
@@ -553,6 +567,13 @@ fn start_selected(state: &mut State, started_by_p2: bool) -> ScreenAction {
 
 // Event-driven virtual input handler
 pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
+    let overlay_phase = crate::engine::updater::action::current();
+    if !matches!(overlay_phase, crate::engine::updater::action::ActionPhase::Idle)
+        && update_overlay::handle_input(&overlay_phase, ev)
+            == update_overlay::InputOutcome::Consumed
+    {
+        return ScreenAction::None;
+    }
     if let Some(side) = screen_input::menu_lr_side(ev.action)
         && !ev.pressed
     {

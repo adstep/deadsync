@@ -1,0 +1,541 @@
+//! Modal overlay that visualises [`crate::engine::updater::action::ActionPhase`].
+//!
+//! The overlay renders only when the action state is non-Idle.  It owns
+//! no state of its own — every frame the screen passes the current
+//! [`ActionPhase`] in, [`build`] returns the actor list, and
+//! [`handle_input`] decides whether the screen should consume the input
+//! or pass it through to the underlying menu.
+//!
+//! Layout (centred):
+//!
+//! * full-screen dim quad           — z 1500
+//! * panel (≈ 600 × 360)             — z 1501
+//! * title / body / footer text     — z 1502
+//! * progress bar (Downloading)     — child of panel
+//!
+//! No animation: a static panel keeps the modal's geometry deterministic
+//! (so the unit tests can assert actor counts) and avoids new tween work
+//! while the underlying flow is still being built out.
+
+use crate::act;
+use crate::assets::i18n::{tr, tr_fmt};
+use crate::engine::input::{InputEvent, VirtualAction};
+use crate::engine::present::actors::{Actor, TextAlign};
+use crate::engine::present::color;
+use crate::engine::space::{screen_center_x, screen_center_y, screen_height, screen_width};
+use crate::engine::updater::action::{
+    self, ActionErrorKind, ActionPhase,
+};
+use std::path::Path;
+
+use super::loading_bar;
+
+const PANEL_W: f32 = 620.0;
+const PANEL_H: f32 = 360.0;
+const PANEL_BG_HEX: &str = "#101010";
+const PANEL_BORDER_HEX: &str = "#404040";
+const TITLE_PX: f32 = 30.0;
+const BODY_PX: f32 = 18.0;
+const FOOTER_PX: f32 = 16.0;
+
+const Z_BACKDROP: i16 = 1500;
+const Z_PANEL_BG: i16 = 1501;
+const Z_PANEL_BORDER: i16 = 1502;
+const Z_PANEL_TEXT: i16 = 1503;
+
+/// Controls how [`handle_input`] reports back to its caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputOutcome {
+    /// The overlay was Idle; the caller should run its own input.
+    Passthrough,
+    /// The overlay handled the event; the caller should treat it as
+    /// consumed (do not navigate, do not exit).
+    Consumed,
+}
+
+/// Build the actor list for the overlay.  Returns an empty `Vec` when
+/// the phase is [`ActionPhase::Idle`], so callers can unconditionally
+/// `.extend(update_overlay::build(&action::current()))`.
+pub fn build(phase: &ActionPhase) -> Vec<Actor> {
+    if matches!(phase, ActionPhase::Idle) {
+        return Vec::new();
+    }
+
+    let mut actors = Vec::with_capacity(8);
+
+    // 1) full-screen dim
+    let mut dim = color::rgba_hex("#000000");
+    dim[3] = 0.7;
+    actors.push(act!(quad:
+        align(0.0, 0.0): xy(0.0, 0.0):
+        zoomto(screen_width(), screen_height()):
+        diffuse(dim[0], dim[1], dim[2], dim[3]):
+        z(Z_BACKDROP)
+    ));
+
+    // 2) panel background + border (drawn as two centred quads).
+    let cx = screen_center_x();
+    let cy = screen_center_y();
+    let bg = color::rgba_hex(PANEL_BG_HEX);
+    let border = color::rgba_hex(PANEL_BORDER_HEX);
+    actors.push(act!(quad:
+        align(0.5, 0.5): xy(cx, cy):
+        zoomto(PANEL_W + 4.0, PANEL_H + 4.0):
+        diffuse(border[0], border[1], border[2], 1.0):
+        z(Z_PANEL_BORDER)
+    ));
+    actors.push(act!(quad:
+        align(0.5, 0.5): xy(cx, cy):
+        zoomto(PANEL_W, PANEL_H):
+        diffuse(bg[0], bg[1], bg[2], 1.0):
+        z(Z_PANEL_BG)
+    ));
+
+    let title_y = cy - PANEL_H * 0.5 + 30.0;
+    let body_y = cy - PANEL_H * 0.5 + 90.0;
+    let footer_y = cy + PANEL_H * 0.5 - 28.0;
+
+    let (title, body_lines, footer, progress) = phase_strings(phase);
+
+    actors.push(panel_text(&title, cx, title_y, TITLE_PX, TextAlign::Center));
+
+    let line_gap = 22.0;
+    for (i, line) in body_lines.iter().enumerate() {
+        let y = body_y + (i as f32) * line_gap;
+        actors.push(panel_text(line, cx, y, BODY_PX, TextAlign::Center));
+    }
+
+    if let Some(progress) = progress {
+        let bar_w = PANEL_W - 80.0;
+        let bar_h = 22.0;
+        let bar_x = cx - bar_w * 0.5;
+        let bar_y = footer_y - 36.0;
+        actors.push(loading_bar::build(loading_bar::LoadingBarParams {
+            align: [0.0, 1.0],
+            offset: [bar_x, bar_y],
+            width: bar_w,
+            height: bar_h,
+            progress,
+            label: progress_label(progress).into(),
+            fill_rgba: color::rgba_hex("#3399ff"),
+            bg_rgba: color::rgba_hex("#202020"),
+            border_rgba: color::rgba_hex("#606060"),
+            text_rgba: [1.0, 1.0, 1.0, 1.0],
+            text_zoom: 0.6,
+            z: Z_PANEL_TEXT,
+        }));
+    }
+
+    actors.push(panel_text(&footer, cx, footer_y, FOOTER_PX, TextAlign::Center));
+
+    actors
+}
+
+#[inline]
+fn panel_text(text: &str, x: f32, y: f32, px: f32, align: TextAlign) -> Actor {
+    let mut actor = act!(text:
+        font("miso"):
+        settext(text.to_owned()):
+        align(0.5, 0.5):
+        xy(x, y):
+        zoom(px / 28.0):
+        z(Z_PANEL_TEXT)
+    );
+    if let Actor::Text { align_text, .. } = &mut actor {
+        *align_text = align;
+    }
+    actor
+}
+
+/// Return `(title, body_lines, footer_hint, progress_fraction_opt)` for
+/// the supplied phase.  Pure so the unit tests can assert on the strings
+/// without invoking the renderer.
+pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Option<f32>) {
+    match phase {
+        ActionPhase::Idle => (String::new(), Vec::new(), String::new(), None),
+        ActionPhase::Checking => (
+            tr("Updater", "TitleChecking").to_string(),
+            vec![tr("Updater", "BodyChecking").to_string()],
+            tr("Updater", "FooterPleaseWait").to_string(),
+            None,
+        ),
+        ActionPhase::ConfirmDownload { info, asset } => {
+            let mut body = Vec::with_capacity(8);
+            body.push(
+                tr_fmt("Updater", "BodyAvailable", &[("version", &info.tag)]).to_string(),
+            );
+            body.push(
+                tr_fmt(
+                    "Updater",
+                    "BodySize",
+                    &[("size", &format_size(asset.size))],
+                )
+                .to_string(),
+            );
+            for line in info.body.lines().take(8) {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let truncated: String = trimmed.chars().take(80).collect();
+                body.push(truncated);
+            }
+            (
+                tr("Updater", "TitleConfirm").to_string(),
+                body,
+                tr("Updater", "FooterConfirm").to_string(),
+                None,
+            )
+        }
+        ActionPhase::UpToDate { tag } => (
+            tr("Updater", "TitleUpToDate").to_string(),
+            vec![tr_fmt("Updater", "BodyUpToDate", &[("version", tag)]).to_string()],
+            tr("Updater", "FooterDismiss").to_string(),
+            None,
+        ),
+        ActionPhase::Downloading {
+            info,
+            written,
+            total,
+            ..
+        } => {
+            let progress = total.and_then(|t| (t > 0).then_some(*written as f32 / t as f32));
+            let body = match total {
+                Some(t) if *t > 0 => vec![
+                    tr_fmt("Updater", "BodyDownloading", &[("version", &info.tag)])
+                        .to_string(),
+                    format!("{} / {}", format_size(*written), format_size(*t)),
+                ],
+                _ => vec![
+                    tr_fmt("Updater", "BodyDownloading", &[("version", &info.tag)])
+                        .to_string(),
+                    format_size(*written),
+                ],
+            };
+            (
+                tr("Updater", "TitleDownloading").to_string(),
+                body,
+                tr("Updater", "FooterPleaseWait").to_string(),
+                progress.or(Some(0.0)),
+            )
+        }
+        ActionPhase::Ready { info, path } => (
+            tr("Updater", "TitleReady").to_string(),
+            vec![
+                tr_fmt("Updater", "BodyReady", &[("version", &info.tag)]).to_string(),
+                truncate_path(path, 70),
+                tr("Updater", "BodyApplyHint").to_string(),
+            ],
+            tr("Updater", "FooterDismiss").to_string(),
+            None,
+        ),
+        ActionPhase::Error { kind, detail } => (
+            tr("Updater", "TitleError").to_string(),
+            vec![
+                tr("Updater", error_kind_key(*kind)).to_string(),
+                truncate(detail, 80),
+            ],
+            tr("Updater", "FooterDismiss").to_string(),
+            None,
+        ),
+    }
+}
+
+fn error_kind_key(kind: ActionErrorKind) -> &'static str {
+    match kind {
+        ActionErrorKind::Network => "ErrorNetwork",
+        ActionErrorKind::RateLimited => "ErrorRateLimited",
+        ActionErrorKind::HttpStatus => "ErrorHttpStatus",
+        ActionErrorKind::Parse => "ErrorParse",
+        ActionErrorKind::NoAssetForHost => "ErrorNoAsset",
+        ActionErrorKind::Checksum => "ErrorChecksum",
+        ActionErrorKind::Io => "ErrorIo",
+    }
+}
+
+/// Dispatch a virtual input event against the current overlay state.
+/// Mutates the global action state via [`action::request_download`] /
+/// [`action::dismiss`] as appropriate.
+pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
+    if matches!(phase, ActionPhase::Idle) {
+        return InputOutcome::Passthrough;
+    }
+    if !ev.pressed {
+        return InputOutcome::Consumed;
+    }
+    match phase {
+        ActionPhase::ConfirmDownload { .. } => match ev.action {
+            VirtualAction::p1_start | VirtualAction::p2_start => {
+                action::request_download();
+                InputOutcome::Consumed
+            }
+            VirtualAction::p1_back | VirtualAction::p2_back => {
+                action::dismiss();
+                InputOutcome::Consumed
+            }
+            _ => InputOutcome::Consumed,
+        },
+        ActionPhase::UpToDate { .. }
+        | ActionPhase::Ready { .. }
+        | ActionPhase::Error { .. } => match ev.action {
+            VirtualAction::p1_start
+            | VirtualAction::p2_start
+            | VirtualAction::p1_back
+            | VirtualAction::p2_back => {
+                action::dismiss();
+                InputOutcome::Consumed
+            }
+            _ => InputOutcome::Consumed,
+        },
+        // Checking / Downloading: swallow input so the user can't escape
+        // a worker thread mid-flight (cancellation is its own PR).
+        _ => InputOutcome::Consumed,
+    }
+}
+
+/// Format a byte count as `"12.3 MiB"` / `"948 KiB"` / `"12 B"`.  Pure;
+/// covered by unit tests.
+pub fn format_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let mut idx = 0;
+    while value >= 1024.0 && idx + 1 < UNITS.len() {
+        value /= 1024.0;
+        idx += 1;
+    }
+    format!("{value:.1} {}", UNITS[idx])
+}
+
+fn progress_label(progress: f32) -> String {
+    let pct = (progress.clamp(0.0, 1.0) * 100.0).round() as i32;
+    format!("{pct}%")
+}
+
+fn truncate(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_owned()
+    } else {
+        let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
+fn truncate_path(path: &Path, max_chars: usize) -> String {
+    truncate(&path.display().to_string(), max_chars)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::updater::{ReleaseAsset, ReleaseInfo};
+    use semver::Version;
+    use std::path::PathBuf;
+
+    fn sample_release() -> ReleaseInfo {
+        ReleaseInfo {
+            tag: "v9.9.9".to_owned(),
+            version: Version::new(9, 9, 9),
+            html_url: "https://example/v9.9.9".to_owned(),
+            body: "first release note line\nsecond line\n".to_owned(),
+            published_at: None,
+            assets: vec![ReleaseAsset {
+                name: "deadsync-v9.9.9-x86_64-linux.tar.gz".to_owned(),
+                browser_download_url: "https://example/asset".to_owned(),
+                size: 12 * 1024 * 1024,
+            }],
+        }
+    }
+
+    #[test]
+    fn build_idle_returns_no_actors() {
+        assert!(build(&ActionPhase::Idle).is_empty());
+    }
+
+    #[test]
+    fn build_checking_returns_actors() {
+        let actors = build(&ActionPhase::Checking);
+        assert!(!actors.is_empty(), "checking phase should render actors");
+    }
+
+    #[test]
+    fn phase_strings_idle_is_empty() {
+        let (t, b, f, p) = phase_strings(&ActionPhase::Idle);
+        assert!(t.is_empty());
+        assert!(b.is_empty());
+        assert!(f.is_empty());
+        assert!(p.is_none());
+    }
+
+    #[test]
+    fn phase_strings_confirm_includes_version_and_size() {
+        let r = sample_release();
+        let asset = r.assets[0].clone();
+        let phase = ActionPhase::ConfirmDownload { info: r, asset };
+        let (_t, body, _f, progress) = phase_strings(&phase);
+        assert!(progress.is_none());
+        let joined = body.join("\n");
+        assert!(joined.contains("v9.9.9"), "body was {joined:?}");
+        assert!(joined.contains("MiB"), "size missing from {joined:?}");
+        assert!(
+            joined.contains("first release note line"),
+            "release notes missing from {joined:?}",
+        );
+    }
+
+    #[test]
+    fn phase_strings_confirm_truncates_release_notes() {
+        let mut r = sample_release();
+        r.body = (0..30)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let asset = r.assets[0].clone();
+        let phase = ActionPhase::ConfirmDownload { info: r, asset };
+        let (_t, body, _f, _p) = phase_strings(&phase);
+        // Title-equivalent body lines = 2 (version + size) + at most 8 notes.
+        assert!(body.len() <= 10);
+    }
+
+    #[test]
+    fn phase_strings_downloading_reports_progress_fraction() {
+        let r = sample_release();
+        let asset = r.assets[0].clone();
+        let phase = ActionPhase::Downloading {
+            info: r,
+            asset,
+            written: 6 * 1024 * 1024,
+            total: Some(12 * 1024 * 1024),
+        };
+        let (_t, _b, _f, p) = phase_strings(&phase);
+        assert!(p.unwrap() > 0.49 && p.unwrap() < 0.51);
+    }
+
+    #[test]
+    fn phase_strings_downloading_without_total_still_renders_bar() {
+        let r = sample_release();
+        let asset = r.assets[0].clone();
+        let phase = ActionPhase::Downloading {
+            info: r,
+            asset,
+            written: 1024,
+            total: None,
+        };
+        let (_t, _b, _f, p) = phase_strings(&phase);
+        // Always Some so the bar is visible; falls back to 0 when unknown.
+        assert_eq!(p, Some(0.0));
+    }
+
+    #[test]
+    fn phase_strings_ready_includes_path() {
+        let r = sample_release();
+        let phase = ActionPhase::Ready {
+            info: r,
+            path: PathBuf::from("/tmp/deadsync-v9.9.9-x86_64-linux.tar.gz"),
+        };
+        let (_t, body, _f, _p) = phase_strings(&phase);
+        let joined = body.join("\n");
+        assert!(joined.contains("v9.9.9"));
+        assert!(joined.contains("deadsync-v9.9.9"), "body was {joined:?}");
+    }
+
+    #[test]
+    fn phase_strings_error_includes_detail() {
+        let phase = ActionPhase::Error {
+            kind: ActionErrorKind::Network,
+            detail: "connection reset".to_owned(),
+        };
+        let (_t, body, _f, _p) = phase_strings(&phase);
+        assert!(body.iter().any(|l| l.contains("connection reset")));
+    }
+
+    #[test]
+    fn handle_input_passes_through_when_idle() {
+        let ev = press(VirtualAction::p1_start);
+        assert_eq!(
+            handle_input(&ActionPhase::Idle, &ev),
+            InputOutcome::Passthrough
+        );
+    }
+
+    #[test]
+    fn handle_input_swallows_release_events_when_visible() {
+        let ev = release(VirtualAction::p1_start);
+        assert_eq!(
+            handle_input(&ActionPhase::Checking, &ev),
+            InputOutcome::Consumed
+        );
+    }
+
+    #[test]
+    fn handle_input_swallows_input_during_check_and_download() {
+        let phases = [
+            ActionPhase::Checking,
+            ActionPhase::Downloading {
+                info: sample_release(),
+                asset: sample_release().assets[0].clone(),
+                written: 0,
+                total: Some(100),
+            },
+        ];
+        for phase in phases {
+            for action in [
+                VirtualAction::p1_start,
+                VirtualAction::p1_back,
+                VirtualAction::p1_up,
+            ] {
+                let ev = press(action);
+                assert_eq!(
+                    handle_input(&phase, &ev),
+                    InputOutcome::Consumed,
+                    "phase {phase:?} action {action:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn format_size_renders_human_readable() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1024), "1.0 KiB");
+        assert_eq!(format_size(1024 * 1024), "1.0 MiB");
+        let s = format_size(12 * 1024 * 1024 + 512 * 1024);
+        assert!(s.starts_with("12.5"), "got {s}");
+        assert!(s.ends_with("MiB"));
+    }
+
+    #[test]
+    fn truncate_uses_ellipsis_only_when_needed() {
+        assert_eq!(truncate("hello", 10), "hello");
+        let t = truncate("0123456789abcdef", 8);
+        assert_eq!(t.chars().count(), 8);
+        assert!(t.ends_with('…'));
+    }
+
+    fn press(action: VirtualAction) -> InputEvent {
+        make_event(action, true)
+    }
+
+    fn release(action: VirtualAction) -> InputEvent {
+        make_event(action, false)
+    }
+
+    fn make_event(action: VirtualAction, pressed: bool) -> InputEvent {
+        use crate::engine::input::InputSource;
+        use std::time::Instant;
+        let now = Instant::now();
+        InputEvent {
+            action,
+            pressed,
+            source: InputSource::Keyboard,
+            timestamp: now,
+            timestamp_host_nanos: 0,
+            stored_at: now,
+            emitted_at: now,
+        }
+    }
+}
