@@ -275,8 +275,27 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
             }
             _ => InputOutcome::Consumed,
         },
+        ActionPhase::Ready { .. } => match ev.action {
+            VirtualAction::p1_start | VirtualAction::p2_start => {
+                match crate::engine::updater::cli::apply_pending_and_relaunch() {
+                    Ok(true) => {
+                        log::info!("Self-update applied; exiting to let new process take over");
+                        std::process::exit(0);
+                    }
+                    Ok(false) => {}
+                    Err(err) => {
+                        log::error!("Self-update apply failed: {err}");
+                    }
+                }
+                InputOutcome::Consumed
+            }
+            VirtualAction::p1_back | VirtualAction::p2_back => {
+                action::dismiss();
+                InputOutcome::Consumed
+            }
+            _ => InputOutcome::Consumed,
+        },
         ActionPhase::UpToDate { .. }
-        | ActionPhase::Ready { .. }
         | ActionPhase::Error { .. } => match ev.action {
             VirtualAction::p1_start
             | VirtualAction::p2_start
