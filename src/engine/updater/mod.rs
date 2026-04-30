@@ -22,6 +22,8 @@ pub mod state;
 #[cfg(windows)]
 pub mod apply_windows;
 
+pub mod apply_unix;
+
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures
 /// and CI artifacts use the same string.
 pub const RELEASES_REPO: &str = "pnn64/deadsync";
