@@ -161,6 +161,82 @@ pub fn classify(latest: ReleaseInfo) -> UpdateState {
     }
 }
 
+/* ---------- host asset selection ---------- */
+
+/// The triplet of release-asset attributes that uniquely identifies a build
+/// for a particular host.  The strings match the segments used in
+/// `deadsync-{tag}-{arch}-{os}.{ext}`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostTarget {
+    pub arch: &'static str,
+    pub os: &'static str,
+    pub ext: &'static str,
+}
+
+/// Returns the [`HostTarget`] for the build doing the asking.  `None` when
+/// the host is a combination we don't ship binaries for (which means we
+/// also can't pick an asset for it).
+#[inline]
+pub const fn host_target() -> Option<HostTarget> {
+    // Mapping from Rust target_arch -> the substring used in our asset
+    // names.  Anything not listed is treated as unsupported.
+    const ARCH: Option<&str> = if cfg!(target_arch = "x86_64") {
+        Some("x86_64")
+    } else if cfg!(target_arch = "aarch64") {
+        Some("arm64")
+    } else {
+        None
+    };
+
+    // Mapping from target_os -> (asset-name-os, asset-extension).  Windows
+    // is the only platform that ships a zip; everything else uses tar.gz.
+    const OS_AND_EXT: Option<(&str, &str)> = if cfg!(target_os = "windows") {
+        Some(("windows", "zip"))
+    } else if cfg!(target_os = "linux") {
+        Some(("linux", "tar.gz"))
+    } else if cfg!(target_os = "macos") {
+        Some(("macos", "tar.gz"))
+    } else if cfg!(target_os = "freebsd") {
+        Some(("freebsd", "tar.gz"))
+    } else {
+        None
+    };
+
+    match (ARCH, OS_AND_EXT) {
+        (Some(arch), Some((os, ext))) => Some(HostTarget { arch, os, ext }),
+        _ => None,
+    }
+}
+
+/// Build the canonical asset filename for a release tag and host triplet.
+/// Public so unit tests and the picker share the same string.
+#[inline]
+pub fn expected_asset_name(version_tag: &str, target: HostTarget) -> String {
+    let HostTarget { arch, os, ext } = target;
+    let tag = if version_tag.starts_with('v') {
+        version_tag.to_string()
+    } else {
+        format!("v{version_tag}")
+    };
+    format!("deadsync-{tag}-{arch}-{os}.{ext}")
+}
+
+/// Pick the release asset matching the supplied host triplet, if any.
+///
+/// `version_tag` is taken from the [`ReleaseInfo`] (e.g. `v0.3.871`); the
+/// matching is a strict equality check on `name` so we never accidentally
+/// pull a sibling asset (e.g. a SHA256SUMS file or a different-arch
+/// build).
+#[inline]
+pub fn pick_asset_for_host<'a>(
+    assets: &'a [ReleaseAsset],
+    version_tag: &str,
+    target: HostTarget,
+) -> Option<&'a ReleaseAsset> {
+    let expected = expected_asset_name(version_tag, target);
+    assets.iter().find(|a| a.name == expected)
+}
+
 /// Fetch the latest release from GitHub.
 ///
 /// `agent` is taken by reference so callers can plug in a configured ureq
@@ -291,5 +367,84 @@ mod tests {
         let ua = user_agent();
         assert!(ua.starts_with("deadsync/"));
         assert!(ua.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    fn fixture_assets() -> Vec<ReleaseAsset> {
+        parse_release_json(FIXTURE).unwrap().assets
+    }
+
+    fn target(arch: &'static str, os: &'static str, ext: &'static str) -> HostTarget {
+        HostTarget { arch, os, ext }
+    }
+
+    #[test]
+    fn expected_asset_name_handles_v_prefix() {
+        let t = target("x86_64", "windows", "zip");
+        assert_eq!(
+            expected_asset_name("v0.3.871", t),
+            "deadsync-v0.3.871-x86_64-windows.zip"
+        );
+        assert_eq!(
+            expected_asset_name("0.3.871", t),
+            "deadsync-v0.3.871-x86_64-windows.zip"
+        );
+    }
+
+    #[test]
+    fn picks_each_published_combo_from_fixture() {
+        let assets = fixture_assets();
+        let cases = [
+            ("x86_64", "windows", "zip"),
+            ("x86_64", "linux", "tar.gz"),
+            ("arm64", "linux", "tar.gz"),
+            ("x86_64", "macos", "tar.gz"),
+            ("arm64", "macos", "tar.gz"),
+            ("x86_64", "freebsd", "tar.gz"),
+        ];
+        for (arch, os, ext) in cases {
+            let chosen = pick_asset_for_host(&assets, "v0.3.871", target(arch, os, ext))
+                .unwrap_or_else(|| panic!("missing asset for {arch}-{os}.{ext}"));
+            assert!(chosen.name.contains(arch));
+            assert!(chosen.name.contains(os));
+            assert!(chosen.name.ends_with(ext));
+        }
+    }
+
+    #[test]
+    fn returns_none_for_unknown_host_combo() {
+        let assets = fixture_assets();
+        assert!(
+            pick_asset_for_host(&assets, "v0.3.871", target("riscv64", "linux", "tar.gz"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn returns_none_for_wrong_extension() {
+        let assets = fixture_assets();
+        // Windows asset is .zip, not .tar.gz; mismatched extension must
+        // refuse to fall back to a different archive.
+        assert!(
+            pick_asset_for_host(&assets, "v0.3.871", target("x86_64", "windows", "tar.gz"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn host_target_is_some_on_supported_platforms() {
+        // The compiler picks the cfg branch; just assert the function
+        // returns Some for any host CI runs on (we ship binaries for all
+        // of them).
+        if cfg!(any(
+            all(target_arch = "x86_64", target_os = "windows"),
+            all(target_arch = "x86_64", target_os = "linux"),
+            all(target_arch = "x86_64", target_os = "macos"),
+            all(target_arch = "x86_64", target_os = "freebsd"),
+            all(target_arch = "aarch64", target_os = "linux"),
+            all(target_arch = "aarch64", target_os = "macos"),
+        )) {
+            let t = host_target().expect("supported host should resolve");
+            assert!(!t.arch.is_empty() && !t.os.is_empty() && !t.ext.is_empty());
+        }
     }
 }
