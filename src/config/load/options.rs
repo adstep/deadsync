@@ -6,6 +6,7 @@ pub(super) fn load(conf: &SimpleIni, default: Config, cfg: &mut Config) {
     load_audio_opts(conf, default, cfg);
     load_select_music_opts(conf, default, cfg);
     load_runtime_opts(conf, default, cfg);
+    load_updater_opts(conf, default, cfg);
 }
 
 fn load_system_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
@@ -492,4 +493,15 @@ fn load_runtime_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
             }
         })
         .unwrap_or(default.software_renderer_threads);
+}
+
+fn load_updater_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
+    cfg.update_check_mode = conf
+        .get("Options", "UpdateCheckMode")
+        .and_then(|v| UpdateCheckMode::from_str(&v).ok())
+        .unwrap_or(default.update_check_mode);
+    cfg.update_channel = conf
+        .get("Options", "UpdateChannel")
+        .and_then(|v| UpdateChannel::from_str(&v).ok())
+        .unwrap_or(default.update_channel);
 }

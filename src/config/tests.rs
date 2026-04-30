@@ -433,3 +433,43 @@ fn round_trip_gamepad_code() {
         );
     }
 }
+
+#[test]
+fn update_check_mode_round_trips_via_str() {
+    for mode in UPDATE_CHECK_MODE_VARIANTS {
+        let s = mode.as_str();
+        assert_eq!(UpdateCheckMode::from_str(s), Ok(mode), "round-trip {s}");
+    }
+}
+
+#[test]
+fn update_check_mode_accepts_legacy_aliases() {
+    assert_eq!(UpdateCheckMode::from_str("off"), Ok(UpdateCheckMode::Disabled));
+    assert_eq!(UpdateCheckMode::from_str("0"), Ok(UpdateCheckMode::Disabled));
+    assert_eq!(
+        UpdateCheckMode::from_str("on-startup"),
+        Ok(UpdateCheckMode::OnStartup)
+    );
+    assert_eq!(
+        UpdateCheckMode::from_str("DAILY"),
+        Ok(UpdateCheckMode::Daily)
+    );
+    assert!(UpdateCheckMode::from_str("nonsense").is_err());
+}
+
+#[test]
+fn update_channel_round_trips_via_str() {
+    for ch in [UpdateChannel::Stable, UpdateChannel::Prerelease] {
+        let s = ch.as_str();
+        assert_eq!(UpdateChannel::from_str(s), Ok(ch), "round-trip {s}");
+    }
+    assert_eq!(UpdateChannel::from_str("beta"), Ok(UpdateChannel::Prerelease));
+    assert!(UpdateChannel::from_str("nightly").is_err());
+}
+
+#[test]
+fn update_prefs_default_to_on_startup_stable() {
+    let cfg = Config::default();
+    assert_eq!(cfg.update_check_mode, UpdateCheckMode::OnStartup);
+    assert_eq!(cfg.update_channel, UpdateChannel::Stable);
+}
