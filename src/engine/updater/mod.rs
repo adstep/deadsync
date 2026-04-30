@@ -62,6 +62,10 @@ pub struct ReleaseAsset {
     pub name: String,
     pub browser_download_url: String,
     pub size: u64,
+    /// Optional GitHub-supplied digest (e.g. `"sha256:abcdef..."`) captured
+    /// from the release API.  Surfaced in the confirm overlay so users can
+    /// see what the binary will be verified against.
+    pub digest: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,6 +155,8 @@ struct RawAsset {
     name: String,
     browser_download_url: String,
     size: u64,
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 /// Parse a GitHub Releases JSON payload into [`ReleaseInfo`].
@@ -172,6 +178,7 @@ pub fn parse_release_json(bytes: &[u8]) -> Result<ReleaseInfo, UpdaterError> {
             name: a.name,
             browser_download_url: a.browser_download_url,
             size: a.size,
+            digest: a.digest,
         })
         .collect();
     Ok(ReleaseInfo {

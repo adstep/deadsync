@@ -19,7 +19,8 @@ use crate::screens::components::shared::{
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::cell::{Cell, RefCell};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 use winit::keyboard::KeyCode;
 
 use crate::engine::space::{screen_center_x, screen_width};
@@ -100,6 +101,7 @@ pub struct State {
     bg: heart_bg::State,
     i18n_revision: Cell<u64>,
     info_text_cache: RefCell<Option<(Option<String>, Arc<str>)>>,
+    update_banner_cache: RefCell<Option<(Option<String>, Arc<str>)>>,
     groovestats_text_cache: RefCell<Option<StatusTextCache<GrooveStatusKey, 3>>>,
     arrowcloud_text_cache: RefCell<Option<StatusTextCache<ArrowCloudStatusKey, 1>>>,
     menu_lr_chord: screen_input::MenuLrChordTracker,
@@ -115,6 +117,7 @@ pub fn init() -> State {
         bg: heart_bg::State::new(),
         i18n_revision: Cell::new(i18n::revision()),
         info_text_cache: RefCell::new(None),
+        update_banner_cache: RefCell::new(None),
         groovestats_text_cache: RefCell::new(None),
         arrowcloud_text_cache: RefCell::new(None),
         menu_lr_chord: screen_input::MenuLrChordTracker::default(),
@@ -163,6 +166,7 @@ pub fn out_transition(active_color_index: i32) -> (Vec<Actor>, f32) {
 
 pub fn clear_render_cache(state: &State) {
     *state.info_text_cache.borrow_mut() = None;
+    *state.update_banner_cache.borrow_mut() = None;
     *state.groovestats_text_cache.borrow_mut() = None;
     *state.arrowcloud_text_cache.borrow_mut() = None;
 }
@@ -185,12 +189,12 @@ fn menu_info_text(state: &State) -> Arc<str> {
         return text.clone();
     }
 
-    let version = env!("CARGO_PKG_VERSION");
+    let version = crate::engine::version::current().to_string();
     let song_cache = get_song_cache();
     let num_packs = song_cache.len();
     let num_songs: usize = song_cache.iter().map(|pack| pack.songs.len()).sum();
     let num_courses = get_course_cache().len();
-    let version_line = tr_fmt("Menu", "VersionLine", &[("version", version)]);
+    let version_line = tr_fmt("Menu", "VersionLine", &[("version", &version)]);
     let songs = num_songs.to_string();
     let packs = num_packs.to_string();
     let courses = num_courses.to_string();
@@ -199,16 +203,33 @@ fn menu_info_text(state: &State) -> Arc<str> {
         "SongSummary",
         &[("songs", &songs), ("packs", &packs), ("courses", &courses)],
     );
-    let body = match banner_tag.as_deref() {
-        Some(tag) => {
-            let banner = tr_fmt("Menu", "UpdateAvailableLine", &[("version", tag)]);
-            format!("{version_line}\n{summary}\n{banner}")
-        }
-        None => format!("{version_line}\n{summary}"),
-    };
+    let body = format!("{version_line}\n{summary}");
     let text = Arc::<str>::from(body);
     *state.info_text_cache.borrow_mut() = Some((banner_tag, text.clone()));
     text
+}
+
+/// Banner shown directly under the version/summary lines when an update is
+/// available.  Cached so we only re-format on tag changes.
+fn menu_update_banner_text(state: &State) -> Option<Arc<str>> {
+    let tag = update_banner_tag()?;
+    if let Some((cached_tag, text)) = state.update_banner_cache.borrow().as_ref()
+        && cached_tag.as_deref() == Some(tag.as_str())
+    {
+        return Some(text.clone());
+    }
+    let banner = tr_fmt("Menu", "UpdateAvailableLine", &[("version", &tag)]);
+    let text = Arc::<str>::from(banner);
+    *state.update_banner_cache.borrow_mut() = Some((Some(tag), text.clone()));
+    Some(text)
+}
+
+/// 0..1 sine pulse used to "flash" the update-available banner.
+fn update_banner_pulse() -> f32 {
+    static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    const PERIOD_S: f32 = 1.2;
+    let t = START.elapsed().as_secs_f32();
+    ((t / PERIOD_S) * std::f32::consts::TAU).sin() * 0.5 + 0.5
 }
 
 /// The release tag (e.g. `v0.3.875`) that should be advertised on the menu,
@@ -435,6 +456,28 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
         font("miso"): settext(menu_info_text(state)): horizalign(center):
         diffuse(info_color[0], info_color[1], info_color[2], info_color[3])
     ));
+
+    if let Some(banner) = menu_update_banner_text(state) {
+        let pulse = update_banner_pulse();
+        // Pulse between a soft yellow and bright orange so the banner reads
+        // even on the rainbow background.
+        let r = 1.0;
+        let g = 0.85_f32 - 0.55 * pulse;
+        let b = 0.20_f32 - 0.20 * pulse;
+        let a = (0.55_f32 + 0.45 * pulse) * alpha_multiplier;
+        // Centre the banner vertically in the `INFO_MARGIN_ABOVE` gap
+        // between the second info line and the logo, accounting for the
+        // banner's own glyph height (zoom 0.8 × INFO_PX).
+        let banner_glyph_h = INFO_PX * 0.8;
+        let info2_bottom = info2_y_tl + INFO_PX;
+        let banner_y_tl =
+            info2_bottom + (INFO_MARGIN_ABOVE - banner_glyph_h) * 0.5;
+        actors.push(act!(text:
+            align(0.5, 0.0): xy(screen_center_x(), banner_y_tl): zoom(0.8):
+            font("miso"): settext(banner): horizalign(center):
+            diffuse(r, g, b, a)
+        ));
+    }
 
     // 3) menu list
     let base_y = lp.top_margin + lp.target_h + MENU_BELOW_LOGO;

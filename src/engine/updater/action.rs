@@ -67,6 +67,12 @@ pub enum ActionPhase {
     /// The download finished and the file passed checksum verification.
     /// `path` is the absolute on-disk path to the verified archive.
     Ready { info: ReleaseInfo, path: PathBuf },
+    /// The user confirmed apply; the worker is extracting + swapping
+    /// files in place.  The overlay shows a spinner.  On success the
+    /// worker spawns the new process and `std::process::exit`s, so this
+    /// phase is normally terminal-on-success; on failure the worker
+    /// transitions to [`ActionPhase::Error`].
+    Applying { info: ReleaseInfo },
     /// A failure surfaced by the worker.  `kind` lets the UI pick a
     /// localised summary; `detail` is a developer-facing string for logs
     /// and tooltips.
@@ -134,7 +140,7 @@ fn set_phase(next: ActionPhase) {
 pub fn classify_check_result(state: UpdateState) -> ActionPhase {
     match state {
         UpdateState::UpToDate => ActionPhase::UpToDate {
-            tag: format!("v{}", env!("CARGO_PKG_VERSION")),
+            tag: crate::engine::version::current_tag(),
         },
         UpdateState::UnknownLatest => ActionPhase::Error {
             kind: ActionErrorKind::Parse,
@@ -207,7 +213,7 @@ fn run_check_now() {
             // We forced etag=None so this branch is unreachable, but
             // surface it as up-to-date if the server returns 304 anyway.
             set_phase(ActionPhase::UpToDate {
-                tag: format!("v{}", env!("CARGO_PKG_VERSION")),
+                tag: crate::engine::version::current_tag(),
             });
             return;
         }
@@ -244,6 +250,10 @@ pub fn request_download() {
 }
 
 fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
+    if let Some(fake) = std::env::var_os("DEADSYNC_UPDATER_FAKE_DOWNLOAD") {
+        run_fake_download(info, asset, std::path::PathBuf::from(fake));
+        return;
+    }
     let agent = network::get_agent();
     let sidecar = match fetch_checksum_sidecar(&agent, &asset.browser_download_url) {
         Ok(t) => t,
@@ -286,9 +296,116 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
     }
 }
 
+/// Debug-only download simulator.  When `DEADSYNC_UPDATER_FAKE_DOWNLOAD`
+/// is set to a path on disk, [`run_download`] dispatches here instead of
+/// hitting GitHub: we copy the local file to the cache dir while ticking
+/// the progress fraction over `DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS`
+/// seconds (default 5).  All overlay text continues to read from the
+/// real `ReleaseInfo` / `ReleaseAsset`, so the user-facing flow is
+/// indistinguishable from a real GitHub download.
+fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::PathBuf) {
+    let total_secs: f32 = std::env::var("DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .filter(|v: &f32| *v > 0.0)
+        .unwrap_or(5.0);
+    log::info!(
+        "Fake-download enabled: copying {} as {} over {:.1}s",
+        source.display(),
+        asset.name,
+        total_secs,
+    );
+    let bytes = match std::fs::read(&source) {
+        Ok(b) => b,
+        Err(err) => {
+            log::warn!(
+                "DEADSYNC_UPDATER_FAKE_DOWNLOAD={} could not be read: {err}",
+                source.display(),
+            );
+            set_phase(ActionPhase::Error {
+                kind: ActionErrorKind::Io,
+                detail: format!("fake source unreadable: {err}"),
+            });
+            return;
+        }
+    };
+    let dest_dir = downloads_dir();
+    if let Err(err) = std::fs::create_dir_all(&dest_dir) {
+        log::warn!("Failed to create downloads dir: {err}");
+        set_phase(ActionPhase::Error {
+            kind: ActionErrorKind::Io,
+            detail: err.to_string(),
+        });
+        return;
+    }
+    let dest = dest_dir.join(&asset.name);
+    if let Err(err) = std::fs::write(&dest, &bytes) {
+        log::warn!("Failed to stage fake download: {err}");
+        set_phase(ActionPhase::Error {
+            kind: ActionErrorKind::Io,
+            detail: err.to_string(),
+        });
+        return;
+    }
+
+    // Animate the progress bar across `total_secs` so the overlay UX
+    // matches a real slow download.  `asset.size` drives the fraction
+    // shown in the panel; we cap it at the actual file len so the bar
+    // never reads >100%.
+    let total_bytes = asset.size.max(bytes.len() as u64);
+    const TICKS: u32 = 50;
+    let tick_ms = ((total_secs * 1000.0) / TICKS as f32).max(20.0) as u64;
+    for i in 1..=TICKS {
+        let frac = i as f64 / TICKS as f64;
+        let written = ((total_bytes as f64) * frac).round() as u64;
+        set_phase(ActionPhase::Downloading {
+            info: info.clone(),
+            asset: asset.clone(),
+            written,
+            total: Some(total_bytes),
+        });
+        thread::sleep(std::time::Duration::from_millis(tick_ms));
+    }
+    log::info!("Fake update {} staged at {}", info.tag, dest.display());
+    set_phase(ActionPhase::Ready { info, path: dest });
+}
+
 /// Absolute path of the directory archives are downloaded into.
 pub fn downloads_dir() -> PathBuf {
     config::dirs::app_dirs().cache_dir.join(DOWNLOADS_SUBDIR)
+}
+
+/// Spawn a worker that runs the platform apply + relaunch.  No-op if
+/// the current phase isn't [`ActionPhase::Ready`].  On success the
+/// worker spawns the new process and calls `std::process::exit(0)`, so
+/// the caller never observes any phase past [`ActionPhase::Applying`]
+/// in the success path.
+pub fn request_apply() {
+    let _guard = match WORKER_LOCK.try_lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let (info, path) = match current() {
+        ActionPhase::Ready { info, path } => (info, path),
+        _ => return,
+    };
+    set_phase(ActionPhase::Applying { info: info.clone() });
+    let _ = thread::Builder::new()
+        .name("deadsync-updater-apply".to_owned())
+        .spawn(move || run_apply(path));
+}
+
+fn run_apply(archive_path: PathBuf) {
+    match super::cli::apply_archive_and_relaunch(&archive_path) {
+        Ok(()) => {
+            log::info!("Self-update applied; exiting to let new process take over");
+            std::process::exit(0);
+        }
+        Err(err) => {
+            log::error!("Self-update apply failed: {err}");
+            set_phase(classify_error(&err));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -308,6 +425,7 @@ mod tests {
                 name: asset_name.to_owned(),
                 browser_download_url: format!("https://example/{tag}/{asset_name}"),
                 size: 1024,
+                digest: None,
             }],
         }
     }

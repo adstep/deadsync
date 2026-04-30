@@ -128,10 +128,24 @@ pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
     // Always clear the snapshot so the UI doesn't re-prompt if apply
     // bails out below.
     dismiss();
-    let exe_dir = exe_dir()?;
-    apply_for_host(&archive_path, &exe_dir)?;
-    relaunch_self(&exe_dir)?;
+    apply_archive_and_relaunch(&archive_path)?;
     Ok(true)
+}
+
+/// Lower-level apply: caller has already chosen the archive (e.g. via
+/// the [`super::action::ActionPhase::Ready`] snapshot) and is responsible
+/// for any phase bookkeeping.  Performs the platform-specific extract +
+/// swap, then spawns the new process with the appropriate cleanup
+/// arguments.  Caller should `std::process::exit(0)` on success to
+/// release any binary locks (Windows in particular).
+#[allow(clippy::result_large_err)]
+pub fn apply_archive_and_relaunch(
+    archive_path: &std::path::Path,
+) -> Result<(), super::UpdaterError> {
+    let exe_dir = exe_dir()?;
+    apply_for_host(archive_path, &exe_dir)?;
+    relaunch_self(&exe_dir)?;
+    Ok(())
 }
 
 #[cfg(all(windows, feature = "self-update"))]

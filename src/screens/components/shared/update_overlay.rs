@@ -26,22 +26,32 @@ use crate::engine::space::{screen_center_x, screen_center_y, screen_height, scre
 use crate::engine::updater::action::{
     self, ActionErrorKind, ActionPhase,
 };
-use std::path::Path;
+
 
 use super::loading_bar;
 
-const PANEL_W: f32 = 620.0;
-const PANEL_H: f32 = 360.0;
-const PANEL_BG_HEX: &str = "#101010";
-const PANEL_BORDER_HEX: &str = "#404040";
-const TITLE_PX: f32 = 30.0;
-const BODY_PX: f32 = 18.0;
-const FOOTER_PX: f32 = 16.0;
+const PANEL_W: f32 = 720.0;
+const PANEL_H: f32 = 420.0;
+const PANEL_BG_HEX: &str = "#000000";
+const PANEL_BORDER_HEX: &str = "#ffffff";
+const TITLE_PX: f32 = 48.0;
+const BODY_PX: f32 = 28.0;
+const FOOTER_PX: f32 = 30.0;
 
 const Z_BACKDROP: i16 = 1500;
-const Z_PANEL_BG: i16 = 1501;
-const Z_PANEL_BORDER: i16 = 1502;
+const Z_PANEL_BORDER: i16 = 1501;
+const Z_PANEL_BG: i16 = 1502;
 const Z_PANEL_TEXT: i16 = 1503;
+
+/// Pixel size for the prominent version tag (e.g. "v0.3.875") shown
+/// above the body in download / apply phases.
+const VERSION_PX: f32 = 60.0;
+
+/// 30-frame spritesheet shared with the evaluation submit-status footer.
+const SPINNER_TEXTURE: &str = "submit/LoadingSpinner_10x3.png";
+const SPINNER_FRAMES: u32 = 30;
+const SPINNER_FPS: f32 = 30.0;
+const SPINNER_PX: f32 = 64.0;
 
 /// Controls how [`handle_input`] reports back to its caller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,25 +101,48 @@ pub fn build(phase: &ActionPhase) -> Vec<Actor> {
         z(Z_PANEL_BG)
     ));
 
-    let title_y = cy - PANEL_H * 0.5 + 30.0;
-    let body_y = cy - PANEL_H * 0.5 + 90.0;
-    let footer_y = cy + PANEL_H * 0.5 - 28.0;
+    let title_y = cy - PANEL_H * 0.5 + 50.0;
+    let footer_y = cy + PANEL_H * 0.5 - 40.0;
 
     let (title, body_lines, footer, progress) = phase_strings(phase);
+    let (title_rgba, body_rgba) = phase_palette(phase);
 
-    actors.push(panel_text(&title, cx, title_y, TITLE_PX, TextAlign::Center));
+    actors.push(panel_text_tinted(
+        &title,
+        cx,
+        title_y,
+        TITLE_PX,
+        TextAlign::Center,
+        title_rgba,
+    ));
 
-    let line_gap = 22.0;
+    // If the phase carries a version tag, render it BIG below the title
+    // as the visual focal point of the modal.
+    let mut next_y = title_y + TITLE_PX * 0.55 + 24.0;
+    if let Some(tag) = phase_version_tag(phase) {
+        next_y += VERSION_PX * 0.5;
+        actors.push(panel_text_tinted(
+            &tag,
+            cx,
+            next_y,
+            VERSION_PX,
+            TextAlign::Center,
+            [1.0, 1.0, 1.0, 1.0],
+        ));
+        next_y += VERSION_PX * 0.5 + 28.0;
+    }
+
+    let line_gap = 36.0;
     for (i, line) in body_lines.iter().enumerate() {
-        let y = body_y + (i as f32) * line_gap;
-        actors.push(panel_text(line, cx, y, BODY_PX, TextAlign::Center));
+        let y = next_y + (i as f32) * line_gap;
+        actors.push(panel_text_tinted(line, cx, y, BODY_PX, TextAlign::Center, body_rgba));
     }
 
     if let Some(progress) = progress {
-        let bar_w = PANEL_W - 80.0;
-        let bar_h = 22.0;
+        let bar_w = PANEL_W - 100.0;
+        let bar_h = 32.0;
         let bar_x = cx - bar_w * 0.5;
-        let bar_y = footer_y - 36.0;
+        let bar_y = footer_y - 56.0;
         actors.push(loading_bar::build(loading_bar::LoadingBarParams {
             align: [0.0, 1.0],
             offset: [bar_x, bar_y],
@@ -121,30 +154,116 @@ pub fn build(phase: &ActionPhase) -> Vec<Actor> {
             bg_rgba: color::rgba_hex("#202020"),
             border_rgba: color::rgba_hex("#606060"),
             text_rgba: [1.0, 1.0, 1.0, 1.0],
-            text_zoom: 0.6,
+            text_zoom: 0.8,
             z: Z_PANEL_TEXT,
         }));
     }
 
-    actors.push(panel_text(&footer, cx, footer_y, FOOTER_PX, TextAlign::Center));
+    let footer_display = animated_footer(&footer);
+    actors.push(panel_text(&footer_display, cx, footer_y, FOOTER_PX, TextAlign::Center));
+
+    if matches!(phase, ActionPhase::Checking | ActionPhase::Applying { .. }) {
+        actors.push(spinner_actor(cx, cy + 60.0));
+    }
 
     actors
 }
 
+/// Animated spinner sprite, frame derived from wall-clock time so the
+/// renderer doesn't need to thread per-overlay state through every
+/// build call.  Reuses the 10×3 spritesheet from the evaluation
+/// submit-status footer.
+fn spinner_actor(cx: f32, cy: f32) -> Actor {
+    use std::sync::LazyLock;
+    use std::time::Instant;
+    static SPIN_START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    let elapsed = SPIN_START.elapsed().as_secs_f32();
+    let frame = ((elapsed * SPINNER_FPS) as u32) % SPINNER_FRAMES;
+    act!(sprite(SPINNER_TEXTURE):
+        align(0.5, 0.5):
+        xy(cx, cy):
+        setsize(SPINNER_PX, SPINNER_PX):
+        setstate(frame):
+        z(Z_PANEL_TEXT):
+        diffuse(1.0, 1.0, 1.0, 1.0)
+    )
+}
+
+/// Replace any trailing horizontal-ellipsis ("…") on the footer with an
+/// animated 1→2→3 dot cycle so the user gets a clear "we're still
+/// working" cue while a worker thread is in flight.  Inputs without a
+/// trailing ellipsis are returned unchanged.
+fn animated_footer(footer: &str) -> String {
+    const DOT_PERIOD_S: f32 = 0.30;
+    let Some(stripped) = footer.strip_suffix('…') else {
+        return footer.to_owned();
+    };
+    use std::sync::LazyLock;
+    use std::time::Instant;
+    static DOT_START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    let elapsed = DOT_START.elapsed().as_secs_f32();
+    let phase = ((elapsed / DOT_PERIOD_S) as u32) % 4;
+    let dots: &str = match phase {
+        0 => "",
+        1 => ".",
+        2 => "..",
+        _ => "...",
+    };
+    format!("{stripped}{dots}")
+}
+
 #[inline]
 fn panel_text(text: &str, x: f32, y: f32, px: f32, align: TextAlign) -> Actor {
+    panel_text_tinted(text, x, y, px, align, [1.0, 1.0, 1.0, 1.0])
+}
+
+#[inline]
+fn panel_text_tinted(
+    text: &str,
+    x: f32,
+    y: f32,
+    px: f32,
+    align: TextAlign,
+    rgba: [f32; 4],
+) -> Actor {
     let mut actor = act!(text:
         font("miso"):
         settext(text.to_owned()):
         align(0.5, 0.5):
         xy(x, y):
         zoom(px / 28.0):
-        z(Z_PANEL_TEXT)
+        z(Z_PANEL_TEXT):
+        diffuse(rgba[0], rgba[1], rgba[2], rgba[3])
     );
     if let Actor::Text { align_text, .. } = &mut actor {
         *align_text = align;
     }
     actor
+}
+
+/// `(title_rgba, body_rgba)` for the phase.  Lets us tint the title green
+/// for "good news" phases (update available, ready to install), white for
+/// neutral status (checking, up to date), and red for errors.
+/// All overlay text renders white; the panel background carries the
+/// state, not the text colour.
+fn phase_palette(_phase: &ActionPhase) -> ([f32; 4], [f32; 4]) {
+    let white = [1.0, 1.0, 1.0, 1.0];
+    (white, white)
+}
+
+/// The release tag (e.g. `"v0.3.875"`) the modal is talking about, when
+/// the phase carries one.  Used so the build can render the tag as a
+/// prominent focal point above the body text.
+fn phase_version_tag(phase: &ActionPhase) -> Option<String> {
+    match phase {
+        // ConfirmDownload renders "Current: ..." / "Latest: ..." in the body,
+        // so the big focal tag would just duplicate the latest version.
+        ActionPhase::Downloading { info, .. }
+        | ActionPhase::Ready { info, .. }
+        | ActionPhase::Applying { info } => Some(info.tag.clone()),
+        ActionPhase::UpToDate { tag } => Some(tag.clone()),
+        _ => None,
+    }
 }
 
 /// Return `(title, body_lines, footer_hint, progress_fraction_opt)` for
@@ -160,9 +279,17 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
             None,
         ),
         ActionPhase::ConfirmDownload { info, asset } => {
-            let mut body = Vec::with_capacity(8);
+            let mut body = Vec::with_capacity(5);
             body.push(
-                tr_fmt("Updater", "BodyAvailable", &[("version", &info.tag)]).to_string(),
+                tr_fmt(
+                    "Updater",
+                    "BodyCurrent",
+                    &[("version", &crate::engine::version::current_tag())],
+                )
+                .to_string(),
+            );
+            body.push(
+                tr_fmt("Updater", "BodyLatest", &[("version", &info.tag)]).to_string(),
             );
             body.push(
                 tr_fmt(
@@ -172,13 +299,11 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
                 )
                 .to_string(),
             );
-            for line in info.body.lines().take(8) {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let truncated: String = trimmed.chars().take(80).collect();
-                body.push(truncated);
+            if let Some(date) = format_published_at(info.published_at.as_deref()) {
+                body.push(tr_fmt("Updater", "BodyPublished", &[("date", &date)]).to_string());
+            }
+            if let Some(sha) = format_sha256_short(asset.digest.as_deref()) {
+                body.push(tr_fmt("Updater", "BodySha256", &[("sha", &sha)]).to_string());
             }
             (
                 tr("Updater", "TitleConfirm").to_string(),
@@ -187,31 +312,25 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
                 None,
             )
         }
-        ActionPhase::UpToDate { tag } => (
+        ActionPhase::UpToDate { tag: _tag } => (
             tr("Updater", "TitleUpToDate").to_string(),
-            vec![tr_fmt("Updater", "BodyUpToDate", &[("version", tag)]).to_string()],
+            // Tag is rendered above as the focal point, so the body
+            // can stay empty (the title alone reads cleanly).
+            Vec::new(),
             tr("Updater", "FooterDismiss").to_string(),
             None,
         ),
         ActionPhase::Downloading {
-            info,
+            info: _info,
             written,
             total,
             ..
         } => {
-            let progress = total.and_then(|t| (t > 0).then_some(*written as f32 / t as f32));
             let body = match total {
-                Some(t) if *t > 0 => vec![
-                    tr_fmt("Updater", "BodyDownloading", &[("version", &info.tag)])
-                        .to_string(),
-                    format!("{} / {}", format_size(*written), format_size(*t)),
-                ],
-                _ => vec![
-                    tr_fmt("Updater", "BodyDownloading", &[("version", &info.tag)])
-                        .to_string(),
-                    format_size(*written),
-                ],
+                Some(t) if *t > 0 => vec![format!("{} / {}", format_size(*written), format_size(*t))],
+                _ => vec![format_size(*written)],
             };
+            let progress = total.and_then(|t| (t > 0).then_some(*written as f32 / t as f32));
             (
                 tr("Updater", "TitleDownloading").to_string(),
                 body,
@@ -219,14 +338,18 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
                 progress.or(Some(0.0)),
             )
         }
-        ActionPhase::Ready { info, path } => (
+        ActionPhase::Ready { info: _info, path: _path } => (
             tr("Updater", "TitleReady").to_string(),
-            vec![
-                tr_fmt("Updater", "BodyReady", &[("version", &info.tag)]).to_string(),
-                truncate_path(path, 70),
-                tr("Updater", "BodyApplyHint").to_string(),
-            ],
-            tr("Updater", "FooterDismiss").to_string(),
+            vec![tr("Updater", "BodyReadyShort").to_string()],
+            tr("Updater", "FooterInstall").to_string(),
+            None,
+        ),
+        ActionPhase::Applying { info: _info } => (
+            tr("Updater", "TitleApplying").to_string(),
+            // Version tag rendered above; body stays empty so the
+            // spinner has room to breathe.
+            Vec::new(),
+            tr("Updater", "FooterPleaseWait").to_string(),
             None,
         ),
         ActionPhase::Error { kind, detail } => (
@@ -277,16 +400,7 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
         },
         ActionPhase::Ready { .. } => match ev.action {
             VirtualAction::p1_start | VirtualAction::p2_start => {
-                match crate::engine::updater::cli::apply_pending_and_relaunch() {
-                    Ok(true) => {
-                        log::info!("Self-update applied; exiting to let new process take over");
-                        std::process::exit(0);
-                    }
-                    Ok(false) => {}
-                    Err(err) => {
-                        log::error!("Self-update apply failed: {err}");
-                    }
-                }
+                action::request_apply();
                 InputOutcome::Consumed
             }
             VirtualAction::p1_back | VirtualAction::p2_back => {
@@ -343,8 +457,31 @@ fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-fn truncate_path(path: &Path, max_chars: usize) -> String {
-    truncate(&path.display().to_string(), max_chars)
+/// Format the GitHub `published_at` ISO-8601 timestamp as a friendly
+/// `YYYY-MM-DD` date.  Returns `None` when missing or unparseable so the
+/// caller can simply skip the line.
+fn format_published_at(raw: Option<&str>) -> Option<String> {
+    let s = raw?.trim();
+    if s.len() < 10 {
+        return None;
+    }
+    let date = &s[..10];
+    if date.as_bytes().get(4) == Some(&b'-') && date.as_bytes().get(7) == Some(&b'-') {
+        Some(date.to_owned())
+    } else {
+        None
+    }
+}
+
+/// Trim GitHub's `"sha256:..."` digest prefix and lowercase the hex so
+/// the user can copy-paste the full hash for verification.  Returns
+/// `None` when the upstream API didn't supply a digest.
+fn format_sha256_short(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim().strip_prefix("sha256:").unwrap_or(raw?.trim());
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -365,6 +502,7 @@ mod tests {
                 name: "deadsync-v9.9.9-x86_64-linux.tar.gz".to_owned(),
                 browser_download_url: "https://example/asset".to_owned(),
                 size: 12 * 1024 * 1024,
+                digest: None,
             }],
         }
     }
@@ -391,32 +529,58 @@ mod tests {
 
     #[test]
     fn phase_strings_confirm_includes_version_and_size() {
-        let r = sample_release();
+        let mut r = sample_release();
+        r.published_at = Some("2026-04-30T04:17:40Z".to_owned());
+        r.assets[0].digest =
+            Some("sha256:c154351dd3874a4a4630b16dbe673eb81b549342ac374ebf547d6fc3ac2e2b68".to_owned());
         let asset = r.assets[0].clone();
         let phase = ActionPhase::ConfirmDownload { info: r, asset };
         let (_t, body, _f, progress) = phase_strings(&phase);
         assert!(progress.is_none());
         let joined = body.join("\n");
-        assert!(joined.contains("v9.9.9"), "body was {joined:?}");
+        // ConfirmDownload no longer renders a focal version tag — current/latest
+        // are surfaced in the body instead.
+        assert!(phase_version_tag(&phase).is_none());
+        assert!(joined.contains("Latest"), "latest label missing from {joined:?}");
+        assert!(joined.contains("v9.9.9"), "latest version missing from {joined:?}");
+        assert!(joined.contains("Current"), "current label missing from {joined:?}");
         assert!(joined.contains("MiB"), "size missing from {joined:?}");
+        assert!(joined.contains("2026-04-30"), "date missing from {joined:?}");
+        assert!(joined.contains("c154351dd3874a4a4630b16dbe673eb81b549342ac374ebf547d6fc3ac2e2b68"), "sha missing from {joined:?}");
         assert!(
-            joined.contains("first release note line"),
-            "release notes missing from {joined:?}",
+            !joined.contains("first release note"),
+            "release notes should be stripped from {joined:?}",
         );
     }
 
     #[test]
-    fn phase_strings_confirm_truncates_release_notes() {
+    fn phase_strings_confirm_omits_optional_lines_when_missing() {
         let mut r = sample_release();
-        r.body = (0..30)
-            .map(|i| format!("line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        r.published_at = None;
+        r.assets[0].digest = None;
         let asset = r.assets[0].clone();
         let phase = ActionPhase::ConfirmDownload { info: r, asset };
         let (_t, body, _f, _p) = phase_strings(&phase);
-        // Title-equivalent body lines = 2 (version + size) + at most 8 notes.
-        assert!(body.len() <= 10);
+        // Current + Latest + Size remain even when date/digest are absent.
+        assert_eq!(body.len(), 3, "body had {} lines: {body:?}", body.len());
+        assert!(body[0].contains("Current"));
+        assert!(body[1].contains("Latest"));
+        assert!(body[2].contains("MiB"));
+    }
+
+    #[test]
+    fn format_helpers() {
+        assert_eq!(
+            format_published_at(Some("2026-04-30T04:17:40Z")).as_deref(),
+            Some("2026-04-30")
+        );
+        assert!(format_published_at(Some("garbage")).is_none());
+        assert!(format_published_at(None).is_none());
+        assert_eq!(
+            format_sha256_short(Some("sha256:C154351DD3874A4A4630B16DBE673EB81B549342AC374EBF547D6FC3AC2E2B68")).as_deref(),
+            Some("c154351dd3874a4a4630b16dbe673eb81b549342ac374ebf547d6fc3ac2e2b68"),
+        );
+        assert!(format_sha256_short(None).is_none());
     }
 
     #[test]
@@ -449,16 +613,24 @@ mod tests {
     }
 
     #[test]
-    fn phase_strings_ready_includes_path() {
+    fn phase_strings_ready_shows_install_hint() {
         let r = sample_release();
         let phase = ActionPhase::Ready {
             info: r,
             path: PathBuf::from("/tmp/deadsync-v9.9.9-x86_64-linux.tar.gz"),
         };
-        let (_t, body, _f, _p) = phase_strings(&phase);
+        let (_t, body, footer, _p) = phase_strings(&phase);
+        assert_eq!(phase_version_tag(&phase).as_deref(), Some("v9.9.9"));
         let joined = body.join("\n");
-        assert!(joined.contains("v9.9.9"));
-        assert!(joined.contains("deadsync-v9.9.9"), "body was {joined:?}");
+        assert!(joined.contains("verified"), "body was {joined:?}");
+        assert!(footer.contains("Install"), "footer was {footer:?}");
+        // The install/restart hint belongs in the footer only — no duplicated
+        // body line.
+        assert!(!joined.contains("install"), "body should not duplicate footer hint: {joined:?}");
+        assert!(
+            !joined.contains("/tmp/"),
+            "raw download path should not be shown: {joined:?}",
+        );
     }
 
     #[test]
