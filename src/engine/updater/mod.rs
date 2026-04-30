@@ -34,6 +34,16 @@ pub const RELEASES_REPO: &str = "pnn64/deadsync";
 pub const LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/pnn64/deadsync/releases/latest";
 
+/// Resolves the URL the update check should hit.  By default this is
+/// [`LATEST_RELEASE_URL`], but the `DEADSYNC_UPDATER_RELEASE_URL`
+/// environment variable can override it for local end-to-end tests
+/// (typically pointing at `http://localhost:PORT/release.json`
+/// served by `python -m http.server` from a fixture directory).
+pub fn release_url() -> String {
+    std::env::var("DEADSYNC_UPDATER_RELEASE_URL")
+        .unwrap_or_else(|_| LATEST_RELEASE_URL.to_string())
+}
+
 /// User-Agent header value sent with every request.  GitHub rejects API
 /// calls that omit a UA.  Includes the build version so server-side logs
 /// can correlate stale clients.
@@ -273,8 +283,9 @@ pub fn fetch_latest_release(
     agent: &ureq::Agent,
     etag: Option<&str>,
 ) -> Result<FetchOutcome, UpdaterError> {
+    let url = release_url();
     let mut request = agent
-        .get(LATEST_RELEASE_URL)
+        .get(&url)
         .header("User-Agent", user_agent().as_str())
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
