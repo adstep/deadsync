@@ -196,6 +196,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::set_max_level(cfg.log_level.as_level_filter());
     engine::logging::write_startup_report(&startup_lines(&cfg));
 
+    // Load updater state cache and kick off the startup check (if enabled).
+    // Network IO runs on a detached worker thread; failures are logged.
+    engine::updater::state::load_persisted_cache();
+    let _ = engine::updater::state::spawn_startup_check();
+
     // Initialize localization after config (which provides the language preference)
     // and before profile/audio/screens which may use tr() for display strings.
     let locale = assets::i18n::resolve_locale(cfg.language_flag);

@@ -15,6 +15,8 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
+pub mod state;
+
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures
 /// and CI artifacts use the same string.
 pub const RELEASES_REPO: &str = "pnn64/deadsync";
