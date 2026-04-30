@@ -15,6 +15,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
+pub mod download;
 pub mod state;
 
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures
@@ -85,6 +86,10 @@ pub enum UpdaterError {
     HttpStatus(u16),
     RateLimited,
     Parse(String),
+    Io(String),
+    ChecksumMismatch { expected: String, actual: String },
+    ChecksumSidecarMalformed(String),
+    AssetNotFound(String),
 }
 
 impl Display for UpdaterError {
@@ -94,6 +99,15 @@ impl Display for UpdaterError {
             Self::HttpStatus(code) => write!(f, "unexpected HTTP status {code}"),
             Self::RateLimited => f.write_str("github API rate limit exceeded"),
             Self::Parse(msg) => write!(f, "failed to parse release JSON: {msg}"),
+            Self::Io(msg) => write!(f, "i/o error: {msg}"),
+            Self::ChecksumMismatch { expected, actual } => write!(
+                f,
+                "sha256 mismatch: expected {expected}, downloaded {actual}",
+            ),
+            Self::ChecksumSidecarMalformed(msg) => {
+                write!(f, "checksum sidecar malformed: {msg}")
+            }
+            Self::AssetNotFound(name) => write!(f, "release asset not found: {name}"),
         }
     }
 }

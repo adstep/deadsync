@@ -173,6 +173,13 @@ pub fn run_check_once() {
             log::warn!("Update check parse error: {msg}");
             return;
         }
+        Err(other) => {
+            // Download/checksum errors aren't producible by the JSON
+            // poll path today, but a catch-all keeps the match exhaustive
+            // as the error enum grows.
+            log::warn!("Update check failed: {other}");
+            return;
+        }
     };
 
     match outcome {
