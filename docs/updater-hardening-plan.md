@@ -80,7 +80,7 @@ lands so the rest of the document can stay descriptive.
 | C9  | Env-var release URL & fake-download active in release builds  | 🔴       | ⏳ Not started | Subsumes C2 + M6: `DEADSYNC_UPDATER_RELEASE_URL` (`mod.rs:47-50`) and `DEADSYNC_UPDATER_FAKE_DOWNLOAD` (`action.rs:393-397`) are unconditional. Together they let any process that controls the launch environment redirect the checker and stage an arbitrary local archive — the fake path bypasses sidecar + API digest entirely and publishes `Ready` with the hash of the attacker bytes. Gate both behind `cfg(any(test, debug_assertions, feature = "updater-test-overrides"))` and add a release-build test that proves the env vars are ignored. |
 | M23 | Relaunch may exec the renamed-out backup binary               | 🟠       | ⏳ Not started | `apply_archive_and_relaunch` runs apply (which renames the running exe to its backup path) and only then calls `std::env::current_exe()` to spawn (`cli.rs:207-227`). On Linux `/proc/self/exe` tracks the running inode, so `current_exe()` may now resolve to `<exe>.deadsync-bak-<token>`. The new process then runs recovery and may delete the backup it's executing. Capture the intended `exe_dir.join(original_exe_file_name)` *before* apply and spawn that path. |
 | M24 | Extracted file contents not fsynced before rename             | 🟠       | ✅ Done       | After `io::copy` of each tar/zip entry, `extract_tar_gz` and `extract_archive` now call `out.sync_all()` (with M20 IO-error context) before the file handle drops, so the C7 parent-dir fsync makes both directory entry *and* file body durable across power loss. |
-| M25 | Planner doesn't reject dir-vs-file type mismatches            | 🟠       | ⏳ Not started | `plan_ops` only checks `target.exists()` (`apply_unix.rs:212-227`, `apply_windows.rs:228-243`). If an archive entry's path exists as a directory (or vice versa), the rename can succeed — moving a whole subtree to the backup path — and `Applied` recovery's `remove_file` (`apply_journal.rs:465-474`) then fails forever. Reject any target whose existing inode type doesn't match the staged entry's type before journal write. |
+| M25 | Planner doesn't reject dir-vs-file type mismatches            | 🟠       | ✅ Done       | `plan_ops` now calls `fs::symlink_metadata(&target)` and refuses to plan an Op when the existing entry isn't a regular file (catches dir-at-target and symlink-at-target before the journal is ever written). Mirrored on both platforms with unit-test coverage. |
 | M26 | No read/idle timeout on download body                         | 🟠       | ⏳ Not started | `download_agent` deliberately has no global timeout (`mod.rs:83-89`), and `stream_to_file` only polls `should_cancel` between chunks (`download.rs:411-417`). A server that accepts the connection then stalls mid-body blocks the worker inside `read()` indefinitely; Back press bumps generation but the worker can't observe it. Configure a read/low-speed timeout on `download_agent`; on timeout, return `Cancelled` if generation is stale or surface a network timeout. ETA stays `None` during the stall and we never publish a fake estimate. |
 | M27 | Apply success + relaunch failure looks like apply failure     | 🟠       | ⏳ Not started | If `apply_archive_and_relaunch` succeeds at apply but fails to spawn (`cli.rs:143-147`, `action.rs:665-674`), the current old process keeps running against a mutated install tree and an `Applied` journal. Distinguish the two outcomes: on apply-ok-relaunch-fail, publish a phase that says "Update installed; please restart manually" (and ideally `process::exit` rather than continue). |
 | M28 | Tar extractor silently skips symlinks/devices instead of rejecting | 🟡    | ⏳ Not started | `apply_unix::extract_tar_gz` skips non-file/non-dir entries (`apply_unix.rs:163-167`). If a future release artifact accidentally ships a symlink that runtime depends on, the apply succeeds with missing files. Fail closed: reject any non-regular, non-directory entry. |
@@ -981,27 +981,27 @@ lands so the rest of the document can stay descriptive.
   fsynced by `write_atomic` (`apply_journal.rs:169`), so the full
   pipeline (file body → parent dir entry → journal) is now durable.
 
-### M25. Planner doesn't reject dir-vs-file type mismatches
+### M25. Planner doesn't reject dir-vs-file type mismatches ✅ Done
 
-- **Problem:** `plan_ops` keys off `target.exists()` only
-  (`apply_unix.rs:212-227`, `apply_windows.rs:228-243`). If an
-  archive entry's target path currently exists as a *directory*
+- **Problem:** `plan_ops` only checked `target.exists()`. If an
+  archive entry's target path currently existed as a *directory*
   (e.g. a future release renames `noteskins/foo.png` to a directory
-  `noteskins/foo/`), the rename will move the whole subtree to the
-  backup path. `Applied` cleanup later calls `remove_file` on that
-  backup (`apply_journal.rs:465-474`) which fails on a directory,
-  leaving the journal stuck forever. The reverse (target is a file,
-  staged is a dir) similarly produces an unrecoverable mix.
-- **Fix:** During `plan_ops`, fetch `metadata(target)` when
-  `target_existed` is true and reject any entry whose existing inode
-  type doesn't match the staged entry's type. Surface as
-  `UpdaterError::Io("type mismatch …")` before journal write so we
-  never enter the durable phase. Optionally also tighten C8's
-  denylist to forbid *directories* under `save/` etc. as a defense
-  in depth.
-- **Acceptance:** a unit test stages `foo` as a regular file with
-  `target/foo/` already existing as a directory, asserts `plan_ops`
-  errors before any rename happens.
+  `noteskins/foo/`), the rename moved the whole subtree to the
+  backup path. `Applied` cleanup later called `remove_file` on that
+  backup which fails on a directory, leaving the journal stuck
+  forever. Symlinks-at-target were similarly opaque.
+- **Fix shipped:** `plan_ops` on both platforms now calls
+  `fs::symlink_metadata(&target)` (no symlink-following) instead of
+  `target.exists()`. When the entry exists and is not a regular file
+  it returns `UpdaterError::Io("type mismatch for '...': existing
+  entry is not a regular file")` *before* the journal is written, so
+  we never enter the durable phase. NotFound still maps to
+  `target_existed = false`; other metadata errors propagate with
+  M20 path context.
+- **Tests:** added `plan_ops_rejects_directory_at_target` to both
+  `apply_unix` and `apply_windows` unit tests; staging a regular
+  file at `noteskins/foo.png` while a directory of the same path
+  exists now errors at planning time. 153 updater tests pass.
 
 ### M26. No read/idle timeout on download body
 

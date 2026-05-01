@@ -217,7 +217,25 @@ fn plan_ops(
             ))
         })?;
         let target = target_dir.join(rel);
-        let target_existed = target.exists();
+        let target_existed = match fs::symlink_metadata(&target) {
+            Ok(m) => {
+                if !m.is_file() {
+                    // M25: planner refuses to clobber a directory or
+                    // symlink with a regular file. The execute phase's
+                    // `rename` would otherwise move the entire subtree
+                    // aside as the "backup", and the `Applied` cleanup
+                    // would then fail trying to `remove_file` it,
+                    // wedging the journal forever.
+                    return Err(UpdaterError::Io(format!(
+                        "type mismatch for '{}': existing entry is not a regular file",
+                        target.display(),
+                    )));
+                }
+                true
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+            Err(e) => return Err(super::io_err_at("metadata", &target, e)),
+        };
         if !target_existed && apply_journal::is_portability_marker(rel) {
             // Don't introduce a portable.txt/ini marker the user didn't
             // already have — it would silently flip a non-portable
@@ -717,5 +735,34 @@ mod tests {
         let refs: Vec<&Op> = ops.iter().collect();
         assert!(!rollback(&refs));
         let _ = fs::remove_dir_all(&exe_dir);
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn plan_ops_rejects_directory_at_target() {
+        // M25: if the install tree currently has a directory where
+        // the new release wants to place a regular file, refuse the
+        // apply at planning time. Otherwise execute_with_rollback's
+        // `rename` would move the entire subtree to the backup path
+        // and `Applied` cleanup would fail trying to `remove_file` a
+        // directory, wedging the journal forever.
+        let target_dir = tempdir("m25-dir-at-target");
+        let staging_dir = tempdir("m25-staging");
+        // Stage a regular file at "noteskins/foo.png".
+        fs::create_dir_all(staging_dir.join("noteskins")).unwrap();
+        fs::write(staging_dir.join("noteskins/foo.png"), b"new").unwrap();
+        // Pre-create a directory at the same target path.
+        fs::create_dir_all(target_dir.join("noteskins/foo.png")).unwrap();
+        let journal = Journal::new(&target_dir);
+        let err = plan_ops(&journal, &staging_dir, &target_dir).unwrap_err();
+        match err {
+            UpdaterError::Io(msg) => assert!(
+                msg.contains("type mismatch"),
+                "unexpected error: {msg}",
+            ),
+            other => panic!("expected Io, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&target_dir);
+        let _ = fs::remove_dir_all(&staging_dir);
     }
 }
