@@ -96,13 +96,13 @@ pub fn sha256_of(bytes: &[u8]) -> [u8; 32] {
 /// any tampering or bit-rot between download and apply surfaces as
 /// [`UpdaterError::ChecksumMismatch`] rather than a corrupt install.
 pub fn sha256_of_file(path: &Path) -> Result<[u8; 32], UpdaterError> {
-    let mut file = File::open(path).map_err(|err| UpdaterError::Io(err.to_string()))?;
+    let mut file = File::open(path).map_err(|err| super::io_err_at("open", path, err))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; COPY_CHUNK_BYTES];
     loop {
         let read = file
             .read(&mut buf)
-            .map_err(|err| UpdaterError::Io(err.to_string()))?;
+            .map_err(|err| super::io_err_at("read", path, err))?;
         if read == 0 {
             break;
         }
@@ -306,7 +306,8 @@ pub fn download_to_file(
     if let Some(parent) = dest.parent()
         && !parent.as_os_str().is_empty()
     {
-        fs::create_dir_all(parent).map_err(|err| UpdaterError::Io(err.to_string()))?;
+        fs::create_dir_all(parent)
+            .map_err(|err| super::io_err_at("create_dir_all", parent, err))?;
     }
 
     let staging = staging_path(dest);
@@ -354,7 +355,7 @@ pub fn download_to_file(
                 // leave them masquerading as the next run's "leftover".
                 let _ = fs::remove_file(&staging);
                 UpdaterError::Io(format!(
-                    "rename {} -> {}: {err}",
+                    "rename '{}' -> '{}': {err}",
                     staging.display(),
                     dest.display(),
                 ))
@@ -402,7 +403,8 @@ fn stream_to_file<R: Read>(
     progress: &mut dyn FnMut(u64, Option<u64>),
     should_cancel: &dyn Fn() -> bool,
 ) -> Result<(), UpdaterError> {
-    let mut file = File::create(staging).map_err(|err| UpdaterError::Io(err.to_string()))?;
+    let mut file = File::create(staging)
+        .map_err(|err| super::io_err_at("create", staging, err))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; COPY_CHUNK_BYTES];
     let mut written: u64 = 0;
@@ -419,11 +421,12 @@ fn stream_to_file<R: Read>(
         let chunk = &buf[..read];
         hasher.update(chunk);
         file.write_all(chunk)
-            .map_err(|err| UpdaterError::Io(err.to_string()))?;
+            .map_err(|err| super::io_err_at("write", staging, err))?;
         written += read as u64;
         progress(written, total);
     }
-    file.flush().map_err(|err| UpdaterError::Io(err.to_string()))?;
+    file.flush()
+        .map_err(|err| super::io_err_at("flush", staging, err))?;
     // Re-check cancellation between the last chunk and the
     // multi-second flush/fsync tail.  Without this, a Back press
     // during the final fsync would still let the worker proceed to
@@ -435,7 +438,8 @@ fn stream_to_file<R: Read>(
     // rename it onto `dest`.  Without this, a crash between the rename
     // and the next fsync could expose a zero-length file at the final
     // name on some filesystems.
-    file.sync_all().map_err(|err| UpdaterError::Io(err.to_string()))?;
+    file.sync_all()
+        .map_err(|err| super::io_err_at("fsync", staging, err))?;
     drop(file);
 
     let actual: [u8; 32] = hasher.finalize().into();

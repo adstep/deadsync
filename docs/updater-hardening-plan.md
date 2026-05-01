@@ -72,7 +72,7 @@ lands so the rest of the document can stay descriptive.
 | M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ✅ Done       | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
 | M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ✅ Done | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ✅ Done | Resolved by removal: when `apply_supported_for_host()` is false or `UpdaterInstallEnabled = 0`, `options::activate_current_selection` no-ops the row and the renderer skips it. The menu banner still surfaces available releases through the passive check, so users on externally-managed builds (macOS, Steam, distro packages) still learn about new versions. |
-| M20 | I/O errors lose path/operation context                       | 🟡       | ⏳ Not started | Many call sites do `UpdaterError::Io(err.to_string())` without including which file/step failed. Real-world bug reports (UAC, AV locks, UNC, Program Files) will be much easier to triage with `op + path + os_error` context. |
+| M20 | I/O errors lose path/operation context                       | 🟡       | ✅ Done       | Added `io_err_at(op, path, err)` and `io_err_op(op, err)` helpers in `src/engine/updater/mod.rs`; call sites in `download.rs`, `apply_journal.rs`, `apply_unix.rs`, and `apply_windows.rs` now produce `IO("create '...': os error 5")` style messages instead of bare `os error 5`. |
 | C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ⏳ Not started | `write_atomic` and the apply-time renames fsync the file but not the directory. On POSIX power-loss this can lose the rename even though the file bytes are durable. Either weaken the durability claim in comments or add platform-specific dir syncs after journal rename and at apply boundaries. |
 
 ---
@@ -779,15 +779,20 @@ lands so the rest of the document can stay descriptive.
   locks, UNC shares, Program Files writes, read-only media) surface to
   the user as `IO("Access is denied. (os error 5)")` with no clue
   which path or step failed.
-- **Fix:** add `op + path + os_error` context everywhere
-  `UpdaterError::Io` is constructed inside the updater. Keep the
-  overlay text concise but log full context. Consider classifying
-  common errors into actionable hints
-  ("install directory not writable", "file locked by another
-  process — close deadsync and retry").
+- **Fix:** Added two helpers in `src/engine/updater/mod.rs`:
+  `io_err_at(op, path, err)` and `io_err_op(op, err)`. The
+  `Io(format!("{op} '{}': {err}"))` shape is used for all
+  filesystem operations that have a single meaningful path; the
+  op-only variant covers archive-iteration ops where no single path
+  applies (zip header reads, tar entry decode, current_exe). The
+  per-file `io_err` helpers in `apply_unix.rs` and `apply_windows.rs`
+  were removed.
 - **Acceptance:** representative failure modes (locked file, read-only
   install dir, missing parent) produce log lines that name the path
-  and the step.
+  and the step. Verified by inspection — every refactored call site
+  carries a verb (`open`/`read`/`write`/`create`/`create_dir_all`/
+  `flush`/`fsync`/`rename`) and, where applicable, the offending path.
+- **Resolution:** ✅ Done.
 
 
 

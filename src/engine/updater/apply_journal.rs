@@ -157,11 +157,11 @@ impl Journal {
     pub fn write_atomic(&self, exe_dir: &Path) -> Result<(), UpdaterError> {
         let path = journal_path(exe_dir);
         let tmp = with_tmp_suffix(&path);
-        let bytes =
-            serde_json::to_vec_pretty(self).map_err(|e| io_err_msg(format!("serialize: {e}")))?;
+        let bytes = serde_json::to_vec_pretty(self)
+            .map_err(|e| super::io_err_op("serialize journal", e))?;
         {
-            let mut f = File::create(&tmp).map_err(io_err)?;
-            f.write_all(&bytes).map_err(io_err)?;
+            let mut f = File::create(&tmp).map_err(|e| super::io_err_at("create", &tmp, e))?;
+            f.write_all(&bytes).map_err(|e| super::io_err_at("write", &tmp, e))?;
             // Best-effort durability: not every filesystem honours this
             // (tmpfs, some networked mounts), but on real disks it
             // ensures the journal hits stable storage before the
@@ -172,7 +172,11 @@ impl Journal {
             // On rename failure, leave the staging file in place but
             // try to clean it up so a partial write doesn't accumulate.
             let _ = fs::remove_file(&tmp);
-            io_err_msg(format!("rename journal tmp -> final: {e}"))
+            UpdaterError::Io(format!(
+                "rename '{}' -> '{}': {e}",
+                tmp.display(),
+                path.display(),
+            ))
         })?;
         Ok(())
     }
@@ -186,10 +190,10 @@ impl Journal {
         let bytes = match fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io_err(e)),
+            Err(e) => return Err(super::io_err_at("read", &path, e)),
         };
         let parsed: Self = serde_json::from_slice(&bytes)
-            .map_err(|e| io_err_msg(format!("parse journal: {e}")))?;
+            .map_err(|e| UpdaterError::Io(format!("parse journal '{}': {e}", path.display())))?;
         Ok(Some(parsed))
     }
 
@@ -366,10 +370,6 @@ fn is_simple_relative(path: &Path, root: &Path) -> bool {
         }
     }
     saw_any
-}
-
-fn io_err(e: io::Error) -> UpdaterError {
-    UpdaterError::Io(e.to_string())
 }
 
 fn io_err_msg(msg: String) -> UpdaterError {

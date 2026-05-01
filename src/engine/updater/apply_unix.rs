@@ -119,14 +119,14 @@ pub fn sanitize_entry(name: &str, prefix: Option<&str>) -> Option<PathBuf> {
 /// prefix, the second writes files.  We intentionally re-decode the
 /// gzip stream the second time because `tar::Archive` is single-pass.
 pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterError> {
-    fs::create_dir_all(dest).map_err(io_err)?;
+    fs::create_dir_all(dest).map_err(|e| super::io_err_at("create_dir_all", dest, e))?;
     let prefix = {
         let dec = GzDecoder::new(zip_bytes);
         let mut archive = Archive::new(dec);
         let mut names = Vec::new();
-        for entry in archive.entries().map_err(io_err)? {
-            let entry = entry.map_err(io_err)?;
-            let path = entry.path().map_err(io_err)?;
+        for entry in archive.entries().map_err(|e| super::io_err_op("read tar entries", e))? {
+            let entry = entry.map_err(|e| super::io_err_op("read tar entry", e))?;
+            let path = entry.path().map_err(|e| super::io_err_op("decode tar entry path", e))?;
             if let Some(s) = path.to_str() {
                 names.push(s.to_string());
             }
@@ -138,11 +138,11 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
     archive.set_preserve_permissions(true);
     archive.set_overwrite(true);
     let mut written = 0usize;
-    for entry in archive.entries().map_err(io_err)? {
-        let mut entry = entry.map_err(io_err)?;
+    for entry in archive.entries().map_err(|e| super::io_err_op("read tar entries", e))? {
+        let mut entry = entry.map_err(|e| super::io_err_op("read tar entry", e))?;
         let raw_name = entry
             .path()
-            .map_err(io_err)?
+            .map_err(|e| super::io_err_op("decode tar entry path", e))?
             .to_string_lossy()
             .to_string();
         let entry_type = entry.header().entry_type();
@@ -156,7 +156,8 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
         };
         let out_path = dest.join(&rel);
         if entry_type.is_dir() {
-            fs::create_dir_all(&out_path).map_err(io_err)?;
+            fs::create_dir_all(&out_path)
+                .map_err(|e| super::io_err_at("create_dir_all", &out_path, e))?;
             continue;
         }
         if !entry_type.is_file() {
@@ -166,10 +167,13 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
             continue;
         }
         if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
+            fs::create_dir_all(parent)
+                .map_err(|e| super::io_err_at("create_dir_all", parent, e))?;
         }
-        let mut out = File::create(&out_path).map_err(io_err)?;
-        io::copy(&mut entry, &mut out).map_err(io_err)?;
+        let mut out = File::create(&out_path)
+            .map_err(|e| super::io_err_at("create", &out_path, e))?;
+        io::copy(&mut entry, &mut out)
+            .map_err(|e| super::io_err_at("write", &out_path, e))?;
         // Preserve the executable bit on Unix; on Windows this is a
         // no-op, but the call still typechecks.
         #[cfg(unix)]
@@ -226,7 +230,7 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
         if let Some(parent) = op.target.parent() {
             if let Err(e) = fs::create_dir_all(parent) {
                 rollback(&executed);
-                return Err(io_err(e));
+                return Err(super::io_err_at("create_dir_all", parent, e));
             }
         }
         if op.target_existed {
@@ -292,7 +296,8 @@ pub fn apply_tar_gz(archive_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome,
     }
     let staging_guard =
         apply_journal::StagingGuard::new(journal.staging_dir.clone());
-    let bytes = fs::read(archive_path).map_err(io_err)?;
+    let bytes = fs::read(archive_path)
+        .map_err(|e| super::io_err_at("read", archive_path, e))?;
     let installed_file_count = extract_tar_gz(&bytes, &journal.staging_dir)?;
     journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
     journal.write_atomic(exe_dir)?;
@@ -338,19 +343,17 @@ pub fn is_dir_writable(dir: &Path) -> bool {
 
 /* ---------- helpers ---------- */
 
-fn io_err(e: io::Error) -> UpdaterError {
-    UpdaterError::Io(e.to_string())
-}
-
 #[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>, UpdaterError> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir).map_err(io_err)? {
-            let entry = entry.map_err(io_err)?;
+        for entry in fs::read_dir(&dir).map_err(|e| super::io_err_at("read_dir", &dir, e))? {
+            let entry = entry.map_err(|e| super::io_err_at("read_dir entry", &dir, e))?;
             let path = entry.path();
-            let ft = entry.file_type().map_err(io_err)?;
+            let ft = entry
+                .file_type()
+                .map_err(|e| super::io_err_at("file_type", &path, e))?;
             if ft.is_dir() {
                 stack.push(path);
             } else if ft.is_file() {

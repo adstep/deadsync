@@ -160,13 +160,14 @@ fn sanitize_entry(name: &str, prefix: Option<&str>) -> Option<PathBuf> {
 /// regular files written.  Any malformed entry aborts the whole
 /// extraction with [`UpdaterError::Io`].
 pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, UpdaterError> {
-    fs::create_dir_all(dest).map_err(io_err)?;
-    let mut archive = ZipArchive::new(reader).map_err(|e| UpdaterError::Io(e.to_string()))?;
+    fs::create_dir_all(dest).map_err(|e| super::io_err_at("create_dir_all", dest, e))?;
+    let mut archive =
+        ZipArchive::new(reader).map_err(|e| super::io_err_op("open zip archive", e))?;
     let mut names = Vec::with_capacity(archive.len());
     for idx in 0..archive.len() {
         let entry = archive
             .by_index_raw(idx)
-            .map_err(|e| UpdaterError::Io(e.to_string()))?;
+            .map_err(|e| super::io_err_op("read zip entry header", e))?;
         names.push(entry.name().to_string());
     }
     let prefix = detect_common_prefix(&names);
@@ -174,7 +175,7 @@ pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, 
     for idx in 0..archive.len() {
         let mut entry = archive
             .by_index(idx)
-            .map_err(|e| UpdaterError::Io(e.to_string()))?;
+            .map_err(|e| super::io_err_op("read zip entry", e))?;
         let raw_name = entry.name().to_string();
         let Some(rel) = sanitize_entry(&raw_name, prefix.as_deref()) else {
             if entry.is_dir() {
@@ -186,14 +187,18 @@ pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, 
         };
         let out_path = dest.join(&rel);
         if entry.is_dir() {
-            fs::create_dir_all(&out_path).map_err(io_err)?;
+            fs::create_dir_all(&out_path)
+                .map_err(|e| super::io_err_at("create_dir_all", &out_path, e))?;
             continue;
         }
         if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
+            fs::create_dir_all(parent)
+                .map_err(|e| super::io_err_at("create_dir_all", parent, e))?;
         }
-        let mut out = File::create(&out_path).map_err(io_err)?;
-        io::copy(&mut entry, &mut out).map_err(io_err)?;
+        let mut out = File::create(&out_path)
+            .map_err(|e| super::io_err_at("create", &out_path, e))?;
+        io::copy(&mut entry, &mut out)
+            .map_err(|e| super::io_err_at("write", &out_path, e))?;
         written += 1;
     }
     Ok(written)
@@ -245,7 +250,7 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
         if let Some(parent) = op.target.parent() {
             if let Err(e) = fs::create_dir_all(parent) {
                 rollback(&executed);
-                return Err(io_err(e));
+                return Err(super::io_err_at("create_dir_all", parent, e));
             }
         }
         if op.target_existed {
@@ -322,7 +327,7 @@ pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, Update
     }
     let staging_guard =
         apply_journal::StagingGuard::new(journal.staging_dir.clone());
-    let file = File::open(zip_path).map_err(io_err)?;
+    let file = File::open(zip_path).map_err(|e| super::io_err_at("open", zip_path, e))?;
     let installed_file_count = extract_archive(file, &journal.staging_dir)?;
     journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
     journal.write_atomic(exe_dir)?;
@@ -345,18 +350,16 @@ pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, Update
 
 /* ---------- helpers ---------- */
 
-fn io_err(e: io::Error) -> UpdaterError {
-    UpdaterError::Io(e.to_string())
-}
-
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>, UpdaterError> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir).map_err(io_err)? {
-            let entry = entry.map_err(io_err)?;
+        for entry in fs::read_dir(&dir).map_err(|e| super::io_err_at("read_dir", &dir, e))? {
+            let entry = entry.map_err(|e| super::io_err_at("read_dir entry", &dir, e))?;
             let path = entry.path();
-            let ft = entry.file_type().map_err(io_err)?;
+            let ft = entry
+                .file_type()
+                .map_err(|e| super::io_err_at("file_type", &path, e))?;
             if ft.is_dir() {
                 stack.push(path);
             } else if ft.is_file() {

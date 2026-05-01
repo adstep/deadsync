@@ -185,6 +185,22 @@ impl Display for UpdaterError {
 
 impl Error for UpdaterError {}
 
+/// Wraps an `io::Error` with the operation name and path that produced
+/// it, so user-facing messages identify *what* failed instead of
+/// surfacing bare OS strings like `"Access is denied. (os error 5)"`.
+///
+/// `op` is a short verb (e.g. `"create_dir_all"`, `"rename"`,
+/// `"open"`); `path` is the affected filesystem path.
+pub fn io_err_at(op: &str, path: &std::path::Path, err: std::io::Error) -> UpdaterError {
+    UpdaterError::Io(format!("{op} '{}': {err}", path.display()))
+}
+
+/// Like [`io_err_at`] but for operations without a meaningful single
+/// path (zip header read, archive entry by-index, current_exe).
+pub fn io_err_op(op: &str, err: impl Display) -> UpdaterError {
+    UpdaterError::Io(format!("{op}: {err}"))
+}
+
 /* ---------- raw JSON shape ---------- */
 
 #[derive(Deserialize)]
