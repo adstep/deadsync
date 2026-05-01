@@ -154,6 +154,10 @@ pub enum UpdaterError {
     ChecksumMismatch { expected: String, actual: String },
     ChecksumSidecarMalformed(String),
     AssetNotFound(String),
+    /// The user cancelled an in-flight check or download via the
+    /// overlay; surfaced so the caller can route to `Idle` rather than
+    /// the error phase.
+    Cancelled,
 }
 
 impl Display for UpdaterError {
@@ -172,6 +176,7 @@ impl Display for UpdaterError {
                 write!(f, "checksum sidecar malformed: {msg}")
             }
             Self::AssetNotFound(name) => write!(f, "release asset not found: {name}"),
+            Self::Cancelled => f.write_str("cancelled by user"),
         }
     }
 }

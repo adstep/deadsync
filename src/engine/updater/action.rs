@@ -21,6 +21,7 @@
 //! renderer.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, RwLock};
 use std::thread;
 
@@ -118,6 +119,10 @@ impl ActionErrorKind {
             UpdaterError::ChecksumMismatch { .. }
             | UpdaterError::ChecksumSidecarMalformed(_) => Self::Checksum,
             UpdaterError::Io(_) => Self::Io,
+            // Cancelled flows return early in the worker before
+            // surfacing here, but classify defensively as Io so the
+            // overlay degrades gracefully if it ever leaks through.
+            UpdaterError::Cancelled => Self::Io,
         }
     }
 }
@@ -129,6 +134,43 @@ static PHASE: LazyLock<RwLock<ActionPhase>> =
 /// rapid-fire button presses never spawn two workers; the second call
 /// becomes a no-op.
 static WORKER_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+/// Cancellation flag, observed by the check / download workers at
+/// natural checkpoints.  Set by [`request_cancel`] when the user
+/// dismisses the overlay during `Checking` / `Downloading`.  Cleared
+/// at the start of every fresh worker so a previous cancel doesn't
+/// poison the next attempt.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Returns `true` if the user requested the in-flight check / download
+/// be cancelled.  Workers should poll this at safe points and exit by
+/// transitioning to [`ActionPhase::Idle`] rather than `Error`.
+pub fn cancel_requested() -> bool {
+    CANCEL.load(Ordering::SeqCst)
+}
+
+fn clear_cancel() {
+    CANCEL.store(false, Ordering::SeqCst);
+}
+
+/// Mark the in-flight check / download as cancelled and immediately
+/// flip the overlay to [`ActionPhase::Idle`].  The worker thread keeps
+/// running until it reaches the next polling point but its result is
+/// discarded.
+///
+/// No-op if the current phase isn't cancellable (i.e. only `Checking`
+/// and `Downloading` consult the flag); calling it from `Applying` is
+/// deliberately ignored because a partial apply can't safely be
+/// abandoned.
+pub fn request_cancel() {
+    match current() {
+        ActionPhase::Checking | ActionPhase::Downloading { .. } => {
+            CANCEL.store(true, Ordering::SeqCst);
+            set_phase(ActionPhase::Idle);
+        }
+        _ => {}
+    }
+}
 
 /// Snapshot of the current phase.  Cheap; clones strings.
 pub fn current() -> ActionPhase {
@@ -225,6 +267,7 @@ pub fn request_check_now() {
     if matches!(current(), ActionPhase::Checking | ActionPhase::Downloading { .. }) {
         return;
     }
+    clear_cancel();
     set_phase(ActionPhase::Checking);
     let _ = thread::Builder::new()
         .name("deadsync-updater-check".to_owned())
@@ -239,11 +282,18 @@ fn run_check_now() {
     let outcome = match fetch_latest_release(&agent, None) {
         Ok(o) => o,
         Err(err) => {
+            if cancel_requested() {
+                return;
+            }
             log::warn!("Manual update check failed: {err}");
             set_phase(classify_error(&err));
             return;
         }
     };
+    if cancel_requested() {
+        log::info!("Manual update check cancelled by user; discarding result");
+        return;
+    }
     let info = match outcome {
         FetchOutcome::NotModified => {
             // We forced etag=None so this branch is unreachable, but
@@ -282,6 +332,7 @@ pub fn request_download() {
         set_phase(ActionPhase::AvailableNoInstall { info });
         return;
     }
+    clear_cancel();
     set_phase(ActionPhase::Downloading {
         info: info.clone(),
         asset: asset.clone(),
@@ -302,11 +353,18 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
     let sidecar = match fetch_checksum_sidecar(&check, &asset.browser_download_url) {
         Ok(t) => t,
         Err(err) => {
+            if cancel_requested() {
+                return;
+            }
             log::warn!("Failed to fetch checksum sidecar: {err}");
             set_phase(classify_error(&err));
             return;
         }
     };
+    if cancel_requested() {
+        log::info!("Update download cancelled before sidecar parse");
+        return;
+    }
     let expected = match parse_checksum_sidecar(&sidecar, &asset.name) {
         Ok(d) => d,
         Err(err) => {
@@ -350,7 +408,14 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
         });
     };
 
-    match download_to_file(&super::download_agent(), &asset, &expected, &dest, progress) {
+    match download_to_file(
+        &super::download_agent(),
+        &asset,
+        &expected,
+        &dest,
+        progress,
+        cancel_requested,
+    ) {
         Ok(()) => {
             log::info!("Update {} downloaded to {}", info.tag, dest.display());
             set_phase(ActionPhase::Ready {
@@ -358,6 +423,10 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
                 path: dest,
                 sha256: expected,
             });
+        }
+        Err(UpdaterError::Cancelled) => {
+            log::info!("Update download cancelled by user");
+            // request_cancel already flipped the phase to Idle.
         }
         Err(err) => {
             log::warn!("Update download failed: {err}");
@@ -426,6 +495,10 @@ fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::
     const TICKS: u32 = 50;
     let tick_ms = ((total_secs * 1000.0) / TICKS as f32).max(20.0) as u64;
     for i in 1..=TICKS {
+        if cancel_requested() {
+            log::info!("Fake update download cancelled by user");
+            return;
+        }
         let frac = i as f64 / TICKS as f64;
         let written = ((total_bytes as f64) * frac).round() as u64;
         set_phase(ActionPhase::Downloading {
@@ -670,6 +743,59 @@ mod tests {
                 other => panic!("expected Error, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn request_cancel_flips_checking_to_idle_and_sets_flag() {
+        // Serialise behind WORKER_LOCK so we don't trample concurrent tests.
+        let _g = WORKER_LOCK.lock().unwrap();
+        clear_cancel();
+        set_phase(ActionPhase::Checking);
+        request_cancel();
+        assert_eq!(current(), ActionPhase::Idle);
+        assert!(cancel_requested());
+        clear_cancel();
+        set_phase(ActionPhase::Idle);
+    }
+
+    #[test]
+    fn request_cancel_flips_downloading_to_idle_and_sets_flag() {
+        let _g = WORKER_LOCK.lock().unwrap();
+        clear_cancel();
+        let info = release_with_tag("v9.9.9", "x");
+        let asset = info.assets[0].clone();
+        set_phase(ActionPhase::Downloading {
+            info,
+            asset,
+            written: 0,
+            total: None,
+        });
+        request_cancel();
+        assert_eq!(current(), ActionPhase::Idle);
+        assert!(cancel_requested());
+        clear_cancel();
+        set_phase(ActionPhase::Idle);
+    }
+
+    #[test]
+    fn request_cancel_is_noop_outside_check_or_download() {
+        let _g = WORKER_LOCK.lock().unwrap();
+        clear_cancel();
+        // Applying must not be cancellable: a partial extract / swap
+        // would corrupt the install.
+        set_phase(ActionPhase::Applying {
+            info: release_with_tag("v9.9.9", "x"),
+        });
+        request_cancel();
+        assert!(matches!(current(), ActionPhase::Applying { .. }));
+        assert!(!cancel_requested());
+        set_phase(ActionPhase::Idle);
+
+        // Idle is also a no-op (nothing to cancel).
+        set_phase(ActionPhase::Idle);
+        request_cancel();
+        assert_eq!(current(), ActionPhase::Idle);
+        assert!(!cancel_requested());
     }
 
     #[test]

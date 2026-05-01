@@ -275,17 +275,27 @@ pub fn fetch_checksum_sidecar(
 /// so the UI layer (PR 10) can render a progress bar.  The total may be
 /// `None` if the server omits Content-Length; we fall back to the asset
 /// metadata in that case.
+///
+/// `should_cancel` is polled before each chunk write; returning `true`
+/// aborts the download with [`UpdaterError::Cancelled`] and removes any
+/// partial file.  Callers that don't need cancellation can pass
+/// `|| false`.
 pub fn download_to_file(
     agent: &ureq::Agent,
     asset: &ReleaseAsset,
     expected_sha256: &[u8; 32],
     dest: &Path,
     mut progress: impl FnMut(u64, Option<u64>),
+    should_cancel: impl Fn() -> bool,
 ) -> Result<(), UpdaterError> {
     if let Some(parent) = dest.parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent).map_err(|err| UpdaterError::Io(err.to_string()))?;
+    }
+
+    if should_cancel() {
+        return Err(UpdaterError::Cancelled);
     }
 
     let response = agent
@@ -307,7 +317,14 @@ pub fn download_to_file(
         .or_else(|| (asset.size > 0).then_some(asset.size));
 
     let mut reader = response.into_body().into_reader();
-    let result = stream_to_file(&mut reader, dest, expected_sha256, total, &mut progress);
+    let result = stream_to_file(
+        &mut reader,
+        dest,
+        expected_sha256,
+        total,
+        &mut progress,
+        &should_cancel,
+    );
     if result.is_err() {
         // Best-effort cleanup; ignore secondary I/O errors.
         let _ = fs::remove_file(dest);
@@ -321,12 +338,16 @@ fn stream_to_file<R: Read>(
     expected_sha256: &[u8; 32],
     total: Option<u64>,
     progress: &mut dyn FnMut(u64, Option<u64>),
+    should_cancel: &dyn Fn() -> bool,
 ) -> Result<(), UpdaterError> {
     let mut file = File::create(dest).map_err(|err| UpdaterError::Io(err.to_string()))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; COPY_CHUNK_BYTES];
     let mut written: u64 = 0;
     loop {
+        if should_cancel() {
+            return Err(UpdaterError::Cancelled);
+        }
         let read = reader
             .read(&mut buf)
             .map_err(|err| UpdaterError::Network(err.to_string()))?;
@@ -562,6 +583,7 @@ mod tests {
             &expected,
             Some(payload.len() as u64),
             &mut |w, _| seen_progress = w,
+            &|| false,
         )
         .unwrap();
         assert_eq!(seen_progress, payload.len() as u64);
@@ -578,11 +600,56 @@ mod tests {
         wrong[0] ^= 0xff;
         let mut reader = std::io::Cursor::new(payload.clone());
         let err =
-            stream_to_file(&mut reader, &dest, &wrong, None, &mut |_, _| {}).unwrap_err();
+            stream_to_file(&mut reader, &dest, &wrong, None, &mut |_, _| {}, &|| false)
+                .unwrap_err();
         assert!(matches!(err, UpdaterError::ChecksumMismatch { .. }));
         // download_to_file performs the cleanup; here we mimic that contract:
         let _ = std::fs::remove_file(&dest);
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn stream_to_file_returns_cancelled_when_flag_set_before_first_chunk() {
+        let dir = tempdir();
+        let dest = dir.join("cancelled.bin");
+        let payload = vec![0u8; 256 * 1024];
+        let expected = sha256_of(&payload);
+        let mut reader = std::io::Cursor::new(payload);
+        let err = stream_to_file(
+            &mut reader,
+            &dest,
+            &expected,
+            None,
+            &mut |_, _| {},
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::Cancelled));
+    }
+
+    #[test]
+    fn stream_to_file_returns_cancelled_mid_stream() {
+        let dir = tempdir();
+        let dest = dir.join("cancel-mid.bin");
+        // 4 chunks worth of bytes so we reach the second loop iteration.
+        let payload = vec![0xabu8; COPY_CHUNK_BYTES * 4];
+        let expected = sha256_of(&payload);
+        let mut reader = std::io::Cursor::new(payload);
+        let calls = std::cell::Cell::new(0u32);
+        let err = stream_to_file(
+            &mut reader,
+            &dest,
+            &expected,
+            None,
+            &mut |_, _| {},
+            &|| {
+                let n = calls.get();
+                calls.set(n + 1);
+                n >= 2 // cancel on the third poll (after some bytes written)
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::Cancelled));
     }
 
     fn tempdir() -> std::path::PathBuf {

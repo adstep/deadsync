@@ -431,8 +431,19 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
             }
             _ => InputOutcome::Consumed,
         },
-        // Checking / Downloading: swallow input so the user can't escape
-        // a worker thread mid-flight (cancellation is its own PR).
+        // Checking / Downloading: Back / Start cancel the in-flight
+        // worker (the worker polls the cancel flag at safe points and
+        // exits to Idle without committing partial state).  All other
+        // input is swallowed so the user can't open menus underneath.
+        ActionPhase::Checking | ActionPhase::Downloading { .. } => match ev.action {
+            VirtualAction::p1_back | VirtualAction::p2_back => {
+                action::request_cancel();
+                InputOutcome::Consumed
+            }
+            _ => InputOutcome::Consumed,
+        },
+        // Applying: cannot safely abort a partial extract / swap, so
+        // every input is swallowed.
         _ => InputOutcome::Consumed,
     }
 }

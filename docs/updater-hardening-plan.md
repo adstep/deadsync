@@ -57,7 +57,7 @@ lands so the rest of the document can stay descriptive.
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
 | N1  | ETag bookkeeping                                              | 🟡       | ✅ Done        | `apply_fresh_to_cache` lifted out of `run_check_once` and now overwrites `etag` unconditionally so a Fresh-without-ETag drops the previous value instead of carrying it into the next `If-None-Match`. Channel-scoping deferred: M5 removed `UpdateChannel`, so there's only one release URL today. |
 | N2  | Verify GitHub's API `digest` field too                        | 🟡       | ✅ Done        | New `cross_check_api_digest` helper compares `assets[].digest` (e.g. `sha256:…`) against the parsed `.sha256` sidecar before downloading; mismatch fails closed via `ChecksumMismatch`, unsupported algorithms log-and-skip, missing field is no-op. Wired into `action::run_download`. |
-| N3  | Add cancellation during long checks/downloads                 | 🟡       | ⏳ Not started |                                                                                   |
+| N3  | Add cancellation during long checks/downloads                 | 🟡       | ✅ Done        | New `action::request_cancel()` + `cancel_requested()` flag, polled by check / sidecar / download / fake-download workers; `download_to_file` takes a `should_cancel` callback that fires before/between chunks and returns `UpdaterError::Cancelled` (partial file is removed). Overlay binds Back during Checking/Downloading to cancel; Applying remains uncancellable. |
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ⏳ Not started |                                                                                   |
 | N5  | Audit unused i18n keys                                        | 🟡       | ⏳ Not started |                                                                                   |
 | N6  | Refresh stale comments                                        | 🟡       | ⏳ Not started |                                                                                   |
@@ -354,10 +354,37 @@ lands so the rest of the document can stay descriptive.
 
 ### N3. Add cancellation during long checks/downloads
 
-- The overlay intentionally consumes input during checking/downloading
+- **Problem:** the overlay intentionally consumed input during
+  checking/downloading
   (`src/screens/components/shared/update_overlay.rs:423-425`). Add a
   cancel binding for downloads and a "Later" escape during checking
   where safe.
+- **Resolution:**
+  - `src/engine/updater/mod.rs`: added `UpdaterError::Cancelled`.
+  - `src/engine/updater/download.rs`: `download_to_file` and
+    `stream_to_file` take a `should_cancel: impl Fn() -> bool` polled
+    before each chunk; on cancel they return `Cancelled` and the
+    partial file is removed by the existing cleanup path.
+  - `src/engine/updater/action.rs`: new `static CANCEL: AtomicBool`
+    plus `request_cancel()` / `cancel_requested()` / `clear_cancel()`.
+    `request_cancel` is a no-op unless the current phase is
+    `Checking` or `Downloading` — `Applying` deliberately can't be
+    cancelled because a partial extract / swap would corrupt the
+    install. Workers clear the flag at start, poll after the sidecar
+    fetch, and pass `cancel_requested` to `download_to_file`. The
+    fake-download path also polls between sleeps.
+  - `src/screens/components/shared/update_overlay.rs`: Back
+    (`p1_back` / `p2_back`) during Checking / Downloading now calls
+    `action::request_cancel()`; all other input is still swallowed.
+- **Tests:** added 5 tests:
+  - `stream_to_file_returns_cancelled_when_flag_set_before_first_chunk`
+    (early cancel before any bytes); 
+  - `stream_to_file_returns_cancelled_mid_stream` (cancel after a few
+    chunks);
+  - `request_cancel_flips_checking_to_idle_and_sets_flag`,
+    `request_cancel_flips_downloading_to_idle_and_sets_flag`,
+    `request_cancel_is_noop_outside_check_or_download`
+    (covers Applying + Idle being uncancellable).
 
 ### N4. Stage downloads to `*.part`, then atomically rename
 
