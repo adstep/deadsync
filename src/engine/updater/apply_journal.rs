@@ -271,6 +271,24 @@ pub fn journal_path(exe_dir: &Path) -> PathBuf {
     exe_dir.join(JOURNAL_FILENAME)
 }
 
+/// Returns true when `rel` is a top-level portability marker that
+/// `crate::config::dirs` reads to switch between portable and
+/// system-config modes (`portable.txt` / `portable.ini`).  The
+/// updater uses this to leave the user's existing portability state
+/// alone: if they didn't already have a marker, we don't create one
+/// just because the release archive ships an empty placeholder; if
+/// they did, we overwrite with the (also empty) replacement.
+pub fn is_portability_marker(rel: &Path) -> bool {
+    let mut comps = rel.components();
+    let Some(first) = comps.next() else {
+        return false;
+    };
+    if comps.next().is_some() {
+        return false;
+    }
+    matches!(first.as_os_str().to_str(), Some("portable.txt") | Some("portable.ini"))
+}
+
 /// Rejects op lists where two paths fold to the same name on a
 /// case-insensitive filesystem (NTFS, default APFS, FAT, casefolded
 /// ext4).  A staging tree containing both `foo.dll` and `FOO.dll`

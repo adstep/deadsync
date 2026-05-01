@@ -211,6 +211,13 @@ fn plan_ops(
         })?;
         let target = target_dir.join(rel);
         let target_existed = target.exists();
+        if !target_existed && apply_journal::is_portability_marker(rel) {
+            // Don't introduce a portable.txt/ini marker the user didn't
+            // already have — it would silently flip a non-portable
+            // install into portable mode on the next launch and hide
+            // their existing AppData/XDG config.
+            continue;
+        }
         let backup = journal.backup_path_for(&target);
         ops.push(Op {
             staged,
@@ -436,6 +443,41 @@ mod tests {
             msg.to_lowercase().contains("collision"),
             "expected collision error, got: {msg}"
         );
+
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&target);
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn plan_ops_skips_portability_marker_when_target_missing() {
+        let staging = tempdir("plan-portable-skip-staging");
+        let target = tempdir("plan-portable-skip-target");
+        fs::write(staging.join("a.txt"), b"A").unwrap();
+        fs::write(staging.join("portable.txt"), b"").unwrap();
+
+        let journal = apply_journal::Journal::new(&target);
+        let ops = plan_ops(&journal, &staging, &target).unwrap();
+        assert_eq!(ops.len(), 1, "portable.txt should be skipped");
+        assert_eq!(ops[0].target, target.join("a.txt"));
+
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&target);
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn plan_ops_replaces_portability_marker_when_target_exists() {
+        let staging = tempdir("plan-portable-keep-staging");
+        let target = tempdir("plan-portable-keep-target");
+        fs::write(staging.join("portable.txt"), b"").unwrap();
+        fs::write(target.join("portable.txt"), b"").unwrap();
+
+        let journal = apply_journal::Journal::new(&target);
+        let ops = plan_ops(&journal, &staging, &target).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].target, target.join("portable.txt"));
+        assert!(ops[0].target_existed);
 
         let _ = fs::remove_dir_all(&staging);
         let _ = fs::remove_dir_all(&target);
