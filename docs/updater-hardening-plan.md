@@ -85,7 +85,7 @@ lands so the rest of the document can stay descriptive.
 | M27 | Apply success + relaunch failure looks like apply failure     | 🟠       | ⏳ Not started | If `apply_archive_and_relaunch` succeeds at apply but fails to spawn (`cli.rs:143-147`, `action.rs:665-674`), the current old process keeps running against a mutated install tree and an `Applied` journal. Distinguish the two outcomes: on apply-ok-relaunch-fail, publish a phase that says "Update installed; please restart manually" (and ideally `process::exit` rather than continue). |
 | M28 | Tar extractor silently skips symlinks/devices instead of rejecting | 🟡    | ✅ Done | `apply_unix::extract_tar_gz` skips non-file/non-dir entries (`apply_unix.rs:163-167`). If a future release artifact accidentally ships a symlink that runtime depends on, the apply succeeds with missing files. Fail closed: reject any non-regular, non-directory entry. |
 | M29 | Future-version journal recovery is silent                     | 🟡       | ✅ Done | When `Journal::load` parses a journal whose state is unknown (e.g. a downgraded/old binary picking up a newer-format journal), `recover()` leaves it untouched and returns a no-op `RecoveryReport` with no warning log (`apply_journal.rs:210-216, 449-458`). Add a `log::warn!` so the stuck state is visible in support reports. |
-| M30 | Progress publication is per-chunk and clones release metadata | 🟡       | ⏳ Not started | `download_to_file`'s progress closure fires every 64 KiB and clones `ReleaseInfo` + `ReleaseAsset` into a fresh `Downloading` phase under the `PHASE` write lock (`action.rs:454-489`). On a fast connection or large future archive that's a lot of allocator/lock churn for no UI benefit. Throttle to ~5–10 Hz plus a final update, or only publish when `(percent, eta_bucket)` actually changes. |
+| M30 | Progress publication is per-chunk and clones release metadata | 🟡       | ✅ Done | `download_to_file`'s progress closure fires every 64 KiB and clones `ReleaseInfo` + `ReleaseAsset` into a fresh `Downloading` phase under the `PHASE` write lock (`action.rs:454-489`). On a fast connection or large future archive that's a lot of allocator/lock churn for no UI benefit. Throttle to ~5–10 Hz plus a final update, or only publish when `(percent, eta_bucket)` actually changes. |
 | M31 | Redirect host pinning isn't explicit                          | 🟡       | ⏳ Not started | M18 sanitizes cached URLs and N2 cross-checks the API digest, but live asset/sidecar requests follow whatever redirect chain GitHub returns without an explicit allowlist (`download.rs:241-256, 324-329`). GitHub release downloads do legitimately redirect to GitHub-owned object/CDN hosts, so the policy needs to be written down (and ideally enforced) rather than implicit. Becomes much less load-bearing once C1 (signature verification) ships, since CDN host trust would no longer be the security boundary. |
 
 ---
@@ -1087,7 +1087,7 @@ lands so the rest of the document can stay descriptive.
   unknown `state` field asserts a warning is logged and the file is
   unchanged after `recover()`.
 
-### M30. Per-chunk progress publication is wasteful
+### M30. Per-chunk progress publication is wasteful ✅ Done
 
 - **Problem:** The download progress closure
   (`action.rs:454-489`) fires every 64 KiB chunk, clones

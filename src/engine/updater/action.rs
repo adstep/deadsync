@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, RwLock};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::download::{
     cross_check_api_digest, download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
@@ -128,6 +128,55 @@ impl ActionErrorKind {
             // overlay degrades gracefully if it ever leaks through.
             UpdaterError::Cancelled => Self::Io,
         }
+    }
+}
+
+/// Decides when a download progress tick is worth publishing to the
+/// global PHASE.  Cloning `ReleaseInfo`/`ReleaseAsset` and taking the
+/// PHASE write lock per ~64 KiB chunk burns thousands of allocations
+/// and lock acquisitions per second on a fast link; throttling keeps
+/// the overlay smooth without flooding.
+#[derive(Default)]
+struct ProgressThrottle {
+    last_published: Option<Instant>,
+    last_pct: Option<u32>,
+    last_eta: Option<u64>,
+}
+
+impl ProgressThrottle {
+    /// Returns `true` if this tick should be published.  Always
+    /// publishes the first tick, the final byte, and any change in
+    /// integer percent or ETA bucket; otherwise rate-limits to one
+    /// publication per 100 ms.
+    fn should_publish(
+        &mut self,
+        now: Instant,
+        written: u64,
+        total: Option<u64>,
+        eta_secs: Option<u64>,
+    ) -> bool {
+        let pct = total.and_then(|t| {
+            if t == 0 {
+                None
+            } else {
+                Some(((written.min(t) as u128 * 100) / t as u128) as u32)
+            }
+        });
+        let is_final = matches!(total, Some(t) if written >= t);
+        let publish = is_final
+            || self.last_published.is_none()
+            || pct != self.last_pct
+            || eta_secs != self.last_eta
+            || self
+                .last_published
+                .map(|t| now.duration_since(t) >= Duration::from_millis(100))
+                .unwrap_or(true);
+        if publish {
+            self.last_published = Some(now);
+            self.last_pct = pct;
+            self.last_eta = eta_secs;
+        }
+        publish
     }
 }
 
@@ -451,6 +500,7 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
     // download start) discards TLS handshake / TTFB latency, which
     // would otherwise drag the early estimate way too high.
     let mut first_sample: Option<(Instant, u64)> = None;
+    let mut throttle = ProgressThrottle::default();
     let progress = move |written: u64, total: Option<u64>| {
         let now = Instant::now();
         let (start_t, start_w) = *first_sample.get_or_insert((now, written));
@@ -474,6 +524,9 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
             }
             _ => None,
         };
+        if !throttle.should_publish(now, written, total, eta_secs) {
+            return;
+        }
         // Progress updates use the gen-aware setter so a superseded
         // download's residual progress ticks can't overwrite a fresh
         // ConfirmDownload / Idle phase.
@@ -680,6 +733,67 @@ mod tests {
     use super::*;
     use crate::engine::version;
     use semver::Version;
+
+    #[test]
+    fn progress_throttle_publishes_first_tick_then_rate_limits() {
+        let mut t = ProgressThrottle::default();
+        let t0 = Instant::now();
+        // First call always publishes, even with no total / no pct.
+        assert!(t.should_publish(t0, 0, None, None));
+        // Second call with no change in pct/eta and only a few millis
+        // elapsed must be suppressed.
+        assert!(!t.should_publish(t0 + Duration::from_millis(5), 1024, None, None));
+    }
+
+    #[test]
+    fn progress_throttle_publishes_on_pct_change() {
+        let mut t = ProgressThrottle::default();
+        let t0 = Instant::now();
+        let total = Some(1000u64);
+        assert!(t.should_publish(t0, 0, total, None));
+        // Same percent (0), <100ms elapsed -> suppressed.
+        assert!(!t.should_publish(t0 + Duration::from_millis(1), 5, total, None));
+        // Percent ticked from 0 -> 1 -> publish even though only a
+        // millisecond passed.
+        assert!(t.should_publish(t0 + Duration::from_millis(2), 11, total, None));
+    }
+
+    #[test]
+    fn progress_throttle_always_publishes_final_byte() {
+        let mut t = ProgressThrottle::default();
+        let t0 = Instant::now();
+        let total = Some(100u64);
+        assert!(t.should_publish(t0, 0, total, None));
+        assert!(!t.should_publish(t0 + Duration::from_millis(1), 0, total, None));
+        // Final byte must publish so the UI never sticks at 99%.
+        assert!(t.should_publish(t0 + Duration::from_millis(2), 100, total, None));
+    }
+
+    #[test]
+    fn progress_throttle_caps_publication_count_for_streaming_download() {
+        // Simulate a 10 MiB download streamed in 64 KiB chunks at
+        // ~1 GiB/s.  Without throttling that's ~160 publications;
+        // with throttling we expect roughly one per integer percent
+        // (~100) plus a few elapsed-time ticks, well under 160.
+        let mut t = ProgressThrottle::default();
+        let total: u64 = 10 * 1024 * 1024;
+        let chunk: u64 = 64 * 1024;
+        let mut now = Instant::now();
+        let mut written = 0u64;
+        let mut publishes = 0usize;
+        while written < total {
+            written = (written + chunk).min(total);
+            now += Duration::from_micros(64); // ~1 GiB/s
+            if t.should_publish(now, written, Some(total), None) {
+                publishes += 1;
+            }
+        }
+        assert!(
+            publishes <= 110,
+            "expected throttled count <=110, got {publishes}",
+        );
+        assert!(publishes >= 1);
+    }
 
     fn release_with_tag(tag: &str, asset_name: &str) -> ReleaseInfo {
         ReleaseInfo {
