@@ -58,7 +58,7 @@ lands so the rest of the document can stay descriptive.
 | N1  | ETag bookkeeping                                              | 🟡       | ✅ Done        | `apply_fresh_to_cache` lifted out of `run_check_once` and now overwrites `etag` unconditionally so a Fresh-without-ETag drops the previous value instead of carrying it into the next `If-None-Match`. Channel-scoping deferred: M5 removed `UpdateChannel`, so there's only one release URL today. |
 | N2  | Verify GitHub's API `digest` field too                        | 🟡       | ✅ Done        | New `cross_check_api_digest` helper compares `assets[].digest` (e.g. `sha256:…`) against the parsed `.sha256` sidecar before downloading; mismatch fails closed via `ChecksumMismatch`, unsupported algorithms log-and-skip, missing field is no-op. Wired into `action::run_download`. |
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ✅ Done        | New `action::request_cancel()` + `cancel_requested()` flag, polled by check / sidecar / download / fake-download workers; `download_to_file` takes a `should_cancel` callback that fires before/between chunks and returns `UpdaterError::Cancelled` (partial file is removed). Overlay binds Back during Checking/Downloading to cancel; Applying remains uncancellable. |
-| N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ⏳ Not started |                                                                                   |
+| N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ✅ Done        | `download_to_file` now writes to `<dest>.part`, fsyncs after the final flush, and renames onto `dest` only after sha256 verifies. Crash / cancel / mismatch leaves no file at the canonical name; any pre-existing `dest` is preserved. Stale `.part` from a previous run is removed before staging. |
 | N5  | Audit unused i18n keys                                        | 🟡       | ⏳ Not started |                                                                                   |
 | N6  | Refresh stale comments                                        | 🟡       | ⏳ Not started |                                                                                   |
 
@@ -388,10 +388,26 @@ lands so the rest of the document can stay descriptive.
 
 ### N4. Stage downloads to `*.part`, then atomically rename
 
-- `download_to_file` writes directly to the final cache path
-  (`src/engine/updater/download.rs:187-227`). Crash/power loss leaves
-  partial files behind. Write to `*.part`, fsync, rename when
-  verified.
+- **Problem:** `download_to_file` wrote directly to the final cache path
+  (`src/engine/updater/download.rs:187-227`). Crash/power loss left
+  partial files behind. Write to `*.part`, fsync, rename when verified.
+- **Resolution:** added `staging_path(dest) -> PathBuf` (`<dest>.part`)
+  and rewired `download_to_file` to:
+  1. remove any leftover `<dest>.part` from a prior crashed run;
+  2. stream into the staging file (cancel still cleans up via the
+     existing best-effort path);
+  3. `flush()` then `sync_all()` so bytes are durable on disk;
+  4. only after sha256 verifies, `fs::rename(staging, dest)` —
+     atomic on every supported filesystem (NTFS / ext4 / APFS / HFS+
+     all guarantee the rename or no rename).
+  A pre-existing `dest` from a previous successful download is left
+  untouched on cancel / mismatch, so a reboot mid-redownload doesn't
+  wipe a usable archive.
+- **Tests:** added `staging_path_appends_part_extension`,
+  `staging_path_handles_extensionless_filenames`, and updated the
+  three existing `stream_to_file_*` tests to assert that
+  `stream_to_file` writes to `<dest>.part` and never touches `dest`
+  itself (the rename is `download_to_file`'s contract).
 
 ### N5. Audit unused i18n keys
 

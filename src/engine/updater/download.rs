@@ -24,7 +24,7 @@ use super::{user_agent, ReleaseAsset, UpdaterError};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Length of an upload `.sha256` sidecar in bytes is bounded; we refuse
 /// anything larger than this to avoid pathological allocations on bad
@@ -267,9 +267,23 @@ pub fn fetch_checksum_sidecar(
         .map_err(|err| UpdaterError::ChecksumSidecarMalformed(err.to_string()))
 }
 
-/// Stream `asset` into `dest`, hashing as it goes and verifying against
-/// `expected_sha256` before returning.  On mismatch or any I/O failure
-/// the partial file is removed.
+/// Returns the staging path (`<dest>.part`) where bytes are written
+/// before checksum verification.  The download is renamed on top of
+/// `dest` only after a successful verify, so a crash / cancel / hash
+/// mismatch can never leave a half-written file at the canonical name.
+pub fn staging_path(dest: &Path) -> PathBuf {
+    let mut name = dest
+        .file_name()
+        .map(std::ffi::OsString::from)
+        .unwrap_or_default();
+    name.push(".part");
+    dest.with_file_name(name)
+}
+
+/// Stream `asset` into `<dest>.part`, hashing as it goes.  On success the
+/// staging file is fsynced and atomically renamed onto `dest`; on
+/// failure (network, cancel, checksum mismatch) the staging file is
+/// removed and any pre-existing `dest` is left untouched.
 ///
 /// `progress` is invoked after every chunk with `(written, total_opt)`
 /// so the UI layer (PR 10) can render a progress bar.  The total may be
@@ -277,8 +291,8 @@ pub fn fetch_checksum_sidecar(
 /// metadata in that case.
 ///
 /// `should_cancel` is polled before each chunk write; returning `true`
-/// aborts the download with [`UpdaterError::Cancelled`] and removes any
-/// partial file.  Callers that don't need cancellation can pass
+/// aborts the download with [`UpdaterError::Cancelled`] and removes the
+/// staging file.  Callers that don't need cancellation can pass
 /// `|| false`.
 pub fn download_to_file(
     agent: &ureq::Agent,
@@ -293,6 +307,13 @@ pub fn download_to_file(
     {
         fs::create_dir_all(parent).map_err(|err| UpdaterError::Io(err.to_string()))?;
     }
+
+    let staging = staging_path(dest);
+    // Drop any leftover staging file from a previous crashed / killed
+    // run; otherwise File::create would just truncate it but anything
+    // weirder (different perms, hardlink) would surface as an error
+    // partway through.
+    let _ = fs::remove_file(&staging);
 
     if should_cancel() {
         return Err(UpdaterError::Cancelled);
@@ -319,28 +340,43 @@ pub fn download_to_file(
     let mut reader = response.into_body().into_reader();
     let result = stream_to_file(
         &mut reader,
-        dest,
+        &staging,
         expected_sha256,
         total,
         &mut progress,
         &should_cancel,
     );
-    if result.is_err() {
-        // Best-effort cleanup; ignore secondary I/O errors.
-        let _ = fs::remove_file(dest);
+    match result {
+        Ok(()) => {
+            fs::rename(&staging, dest).map_err(|err| {
+                // Rename failed — drop the staged bytes so we don't
+                // leave them masquerading as the next run's "leftover".
+                let _ = fs::remove_file(&staging);
+                UpdaterError::Io(format!(
+                    "rename {} -> {}: {err}",
+                    staging.display(),
+                    dest.display(),
+                ))
+            })?;
+            Ok(())
+        }
+        Err(err) => {
+            // Best-effort cleanup; ignore secondary I/O errors.
+            let _ = fs::remove_file(&staging);
+            Err(err)
+        }
     }
-    result
 }
 
 fn stream_to_file<R: Read>(
     reader: &mut R,
-    dest: &Path,
+    staging: &Path,
     expected_sha256: &[u8; 32],
     total: Option<u64>,
     progress: &mut dyn FnMut(u64, Option<u64>),
     should_cancel: &dyn Fn() -> bool,
 ) -> Result<(), UpdaterError> {
-    let mut file = File::create(dest).map_err(|err| UpdaterError::Io(err.to_string()))?;
+    let mut file = File::create(staging).map_err(|err| UpdaterError::Io(err.to_string()))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; COPY_CHUNK_BYTES];
     let mut written: u64 = 0;
@@ -362,6 +398,11 @@ fn stream_to_file<R: Read>(
         progress(written, total);
     }
     file.flush().map_err(|err| UpdaterError::Io(err.to_string()))?;
+    // fsync the staging file so its bytes are durable on disk before we
+    // rename it onto `dest`.  Without this, a crash between the rename
+    // and the next fsync could expose a zero-length file at the final
+    // name on some filesystems.
+    file.sync_all().map_err(|err| UpdaterError::Io(err.to_string()))?;
     drop(file);
 
     let actual: [u8; 32] = hasher.finalize().into();
@@ -573,13 +614,14 @@ mod tests {
     fn stream_to_file_writes_and_verifies() {
         let dir = tempdir();
         let dest = dir.join("payload.bin");
+        let staging = staging_path(&dest);
         let payload = b"the quick brown fox jumps over the lazy dog".to_vec();
         let expected = sha256_of(&payload);
         let mut reader = std::io::Cursor::new(payload.clone());
         let mut seen_progress = 0u64;
         stream_to_file(
             &mut reader,
-            &dest,
+            &staging,
             &expected,
             Some(payload.len() as u64),
             &mut |w, _| seen_progress = w,
@@ -587,24 +629,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(seen_progress, payload.len() as u64);
-        let written = std::fs::read(&dest).unwrap();
+        // stream_to_file writes to the staging path; download_to_file is
+        // responsible for the rename onto `dest`.
+        let written = std::fs::read(&staging).unwrap();
         assert_eq!(written, payload);
+        assert!(!dest.exists(), "stream_to_file must not touch the final dest");
     }
 
     #[test]
     fn stream_to_file_rejects_mismatch_and_removes_partial() {
         let dir = tempdir();
         let dest = dir.join("bad.bin");
+        let staging = staging_path(&dest);
         let payload = b"hello world".to_vec();
         let mut wrong = sha256_of(&payload);
         wrong[0] ^= 0xff;
         let mut reader = std::io::Cursor::new(payload.clone());
         let err =
-            stream_to_file(&mut reader, &dest, &wrong, None, &mut |_, _| {}, &|| false)
+            stream_to_file(&mut reader, &staging, &wrong, None, &mut |_, _| {}, &|| false)
                 .unwrap_err();
         assert!(matches!(err, UpdaterError::ChecksumMismatch { .. }));
         // download_to_file performs the cleanup; here we mimic that contract:
-        let _ = std::fs::remove_file(&dest);
+        let _ = std::fs::remove_file(&staging);
+        assert!(!staging.exists());
         assert!(!dest.exists());
     }
 
@@ -612,12 +659,13 @@ mod tests {
     fn stream_to_file_returns_cancelled_when_flag_set_before_first_chunk() {
         let dir = tempdir();
         let dest = dir.join("cancelled.bin");
+        let staging = staging_path(&dest);
         let payload = vec![0u8; 256 * 1024];
         let expected = sha256_of(&payload);
         let mut reader = std::io::Cursor::new(payload);
         let err = stream_to_file(
             &mut reader,
-            &dest,
+            &staging,
             &expected,
             None,
             &mut |_, _| {},
@@ -631,6 +679,7 @@ mod tests {
     fn stream_to_file_returns_cancelled_mid_stream() {
         let dir = tempdir();
         let dest = dir.join("cancel-mid.bin");
+        let staging = staging_path(&dest);
         // 4 chunks worth of bytes so we reach the second loop iteration.
         let payload = vec![0xabu8; COPY_CHUNK_BYTES * 4];
         let expected = sha256_of(&payload);
@@ -638,7 +687,7 @@ mod tests {
         let calls = std::cell::Cell::new(0u32);
         let err = stream_to_file(
             &mut reader,
-            &dest,
+            &staging,
             &expected,
             None,
             &mut |_, _| {},
@@ -650,6 +699,24 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, UpdaterError::Cancelled));
+    }
+
+    #[test]
+    fn staging_path_appends_part_extension() {
+        let dest = std::path::Path::new("/cache/updates/deadsync-v1.2.3.tar.zst");
+        assert_eq!(
+            staging_path(dest),
+            std::path::PathBuf::from("/cache/updates/deadsync-v1.2.3.tar.zst.part"),
+        );
+    }
+
+    #[test]
+    fn staging_path_handles_extensionless_filenames() {
+        let dest = std::path::Path::new("/cache/updates/deadsync");
+        assert_eq!(
+            staging_path(dest),
+            std::path::PathBuf::from("/cache/updates/deadsync.part"),
+        );
     }
 
     fn tempdir() -> std::path::PathBuf {
