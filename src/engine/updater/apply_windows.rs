@@ -333,6 +333,7 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), apply_journal::Execute
         if let Err(e) = fs::rename(&op.staged, &op.target) {
             // Roll back this op's own backup before recursing.
             if op.target_existed {
+                clear_target_for_restore(&op.target);
                 let _ = fs::rename(&op.backup, &op.target);
             }
             let rollback_clean = rollback(&executed);
@@ -369,6 +370,14 @@ fn rollback(executed: &[&Op]) -> bool {
             clean = false;
         }
         if op.target_existed {
+            // Windows `fs::rename` refuses to replace an existing
+            // file, so make sure `target` is clear before restoring
+            // the backup.  Mirrors the recovery path in
+            // `apply_journal::recover` (Applying branch).  In the
+            // happy path the preceding `rename(target -> staged)`
+            // already cleared it and the remove returns NotFound,
+            // which we tolerate.
+            clear_target_for_restore(&op.target);
             if let Err(e) = fs::rename(&op.backup, &op.target) {
                 log::warn!(
                     "updater rollback: failed to restore backup '{}' -> '{}': {e}",
@@ -380,6 +389,20 @@ fn rollback(executed: &[&Op]) -> bool {
         }
     }
     clean
+}
+
+/// Remove `target` if it exists so a subsequent
+/// `fs::rename(backup, target)` doesn't trip on Windows'
+/// no-overwrite rename semantics.  NotFound is the success case.
+fn clear_target_for_restore(target: &Path) {
+    match fs::remove_file(target) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => log::warn!(
+            "updater rollback: failed to clear '{}' before restore: {e}",
+            target.display(),
+        ),
+    }
 }
 
 /* ---------- top-level orchestration ---------- */
@@ -889,6 +912,49 @@ mod tests {
         }];
         let refs: Vec<&Op> = ops.iter().collect();
         assert!(!rollback(&refs));
+        let _ = fs::remove_dir_all(&exe_dir);
+    }
+
+    #[test]
+    fn rollback_restores_backup_over_stale_target() {
+        // Simulate the live-rollback case where `rename(target -> staged)`
+        // succeeded but a stale or AV-recreated file is sitting at
+        // `target` when we try to put the backup back.  Without
+        // `clear_target_for_restore`, Windows' no-overwrite rename
+        // would fail and the backup would be stranded -- here we
+        // construct that shape directly by leaving a file at
+        // `target` *and* ensuring `staged` already holds the new
+        // bytes (so `rename(target -> staged)` would no-op-fail in
+        // reality).  The function should still end up with the
+        // backup contents at `target` and report `clean = true`.
+        let exe_dir = tempdir("rb-stale-target");
+        let journal = Journal::new(&exe_dir);
+        let staging_dir = exe_dir.join(".staging");
+        fs::create_dir_all(&staging_dir).unwrap();
+
+        let target = exe_dir.join("deadsync.exe");
+        let staged = staging_dir.join("deadsync.exe");
+        let backup = journal.backup_path_for(&target);
+
+        // Set up the post-`rename(target,staged)` shape with a stale
+        // file at target: staged holds NEW, backup holds OLD, target
+        // has STALE content.
+        fs::write(&staged, b"NEW").unwrap();
+        fs::write(&backup, b"OLD").unwrap();
+        fs::write(&target, b"STALE").unwrap();
+
+        let ops = vec![Op {
+            staged: staged.clone(),
+            target: target.clone(),
+            backup: backup.clone(),
+            target_existed: true,
+        }];
+        let refs: Vec<&Op> = ops.iter().collect();
+
+        assert!(rollback(&refs), "rollback should report clean");
+        assert_eq!(fs::read(&target).unwrap(), b"OLD");
+        assert!(!backup.exists(), "backup should have been moved onto target");
+
         let _ = fs::remove_dir_all(&exe_dir);
     }
 

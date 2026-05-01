@@ -88,7 +88,7 @@ lands so the rest of the document can stay descriptive.
 | M30 | Progress publication is per-chunk and clones release metadata | 🟡       | ✅ Done | `download_to_file`'s progress closure fires every 64 KiB and clones `ReleaseInfo` + `ReleaseAsset` into a fresh `Downloading` phase under the `PHASE` write lock (`action.rs:454-489`). On a fast connection or large future archive that's a lot of allocator/lock churn for no UI benefit. Throttle to ~5–10 Hz plus a final update, or only publish when `(percent, eta_bucket)` actually changes. |
 | M31 | Redirect host pinning isn't explicit                          | 🟡       | ⏳ Not started | M18 sanitizes cached URLs and N2 cross-checks the API digest, but live asset/sidecar requests follow whatever redirect chain GitHub returns without an explicit allowlist (`download.rs:241-256, 324-329`). GitHub release downloads do legitimately redirect to GitHub-owned object/CDN hosts, so the policy needs to be written down (and ideally enforced) rather than implicit. Becomes much less load-bearing once C1 (signature verification) ships, since CDN host trust would no longer be the security boundary. |
 | C10 | Apply-ok-relaunch-fail dropped when overlay dismissed mid-apply | 🔴      | ✅ Done        | `request_apply` now passes the captured `ReleaseInfo` into `run_apply` (`action.rs:590-636`); the `AppliedNoRelaunch` arm publishes `AppliedRestartRequired { info, detail }` directly using the move-captured `info` instead of re-reading `current()`. A dismissal that races with the apply worker can no longer strand the user on the old binary without a restart prompt — the install committed, the journal is `Applied`, and the overlay is guaranteed to surface the restart-required phase. |
-| C11 | Windows live rollback can't replace stale `target` after mid-rename crash | 🔴 | ⏳ Not started | `apply_windows::rollback` calls `fs::rename(&op.backup, &op.target)` (`apply_windows.rs:363-379`) without first removing `op.target`. On Windows `fs::rename` refuses to overwrite, so a crash in the narrow window between `rename(target → backup)` and `rename(staged → target)` leaves a stale `target` that wedges the live rollback with `AlreadyExists`. The journal recovery path already handles this (`apply_journal.rs:515-525`); mirror the same pre-`remove_file` step in the live rollback. |
+| C11 | Windows live rollback can't replace stale `target` after mid-rename crash | 🔴 | ✅ Done | New `clear_target_for_restore(target)` helper in `apply_windows.rs` does a NotFound-tolerant `remove_file` before each `rename(backup, target)` (mirrors the recovery path's defence in `apply_journal::recover` Applying branch). Wired into both call sites: the in-flight per-op rollback after `rename(staged, target)` failure, and the executed-ops `rollback()` loop. POSIX is unaffected because `rename(2)` already overwrites atomically. New test `rollback_restores_backup_over_stale_target` covers the case. |
 | C12 | Windows release sidecar may carry a UTF-8 BOM                 | 🔴       | ❎ Won't fix    | Investigated and dismissed: `shell: pwsh` runs PowerShell 7+ on .NET 5+, where `[System.IO.File]::WriteAllText(path, contents)` defaults to `UTF8NoBOM` (verified locally on pwsh 7.6.1; first bytes were `61 62 63`). The actual v0.3.876 Windows sidecar published from this workflow starts with `66 33 61 61` (= "f3aa…"), pure hex, no BOM. The original review finding assumed .NET Framework semantics. |
 | M32 | `run_check_once` reads cache twice without holding the lock   | 🟠       | ⏳ Not started | `state.rs:330` reads `cache().etag.clone()` and later passes a fresh `cache()` snapshot to `apply_fresh_to_cache` (`state.rs:367`). The two reads aren't atomic with respect to `write_cache`. Single-threaded today (only the startup worker calls it), but fragile against any future second caller. Capture once: `let prev = cache(); let prev_etag = prev.etag.clone(); …; let next = apply_fresh_to_cache(prev, …);`. |
 | M33 | `Applying` overlay phase falls into `_` catch-all             | 🟡       | ⏳ Not started | `update_overlay.rs:463-465` documents that `Applying` swallows all input but doesn't list the variant explicitly — it relies on the final `_ => Consumed` arm. Behaviour is correct today but a future `ActionPhase` variant added without an explicit arm would silently inherit the swallow-all behaviour. Replace `_ => InputOutcome::Consumed` with `ActionPhase::Applying { .. } => InputOutcome::Consumed` so the compiler enforces exhaustiveness. |
@@ -1283,30 +1283,30 @@ Harness suggestion: use the existing portable test script
   / error transition is harmlessly overwritten by the
   install-already-committed state.
 
-### C11. Windows live rollback can't replace stale `target` after mid-rename crash
+### C11. Windows live rollback can't replace stale `target` after mid-rename crash ✅ Done
 
 - **Problem:** `apply_windows::rollback` (`apply_windows.rs:363-379`)
-  loops over installed ops in reverse and calls
+  looped over installed ops in reverse and called
   `fs::rename(&op.backup, &op.target)` without first removing
   `op.target`. Windows `MoveFileExW` (and therefore
   `std::fs::rename`) refuses to overwrite an existing file unless
   `MOVEFILE_REPLACE_EXISTING` is requested, which the std-lib
-  wrapper does not. If the process crashes (or the FS faults) in the
-  narrow window between `rename(target → backup)` and
-  `rename(staged → target)` for op N, the partial `target` from a
-  previous attempt or a half-completed op survives, and the live
-  rollback fails with `AlreadyExists`. The execute-with-rollback
-  caller then surfaces `ExecuteFailure { rollback_clean: false }`,
-  the `Applying` journal is preserved (per M22) and recovery has to
-  finish the job on the next launch — but the live error message the
-  user sees is misleading.
-- **Fix:** Mirror the recovery path's defence
-  (`apply_journal.rs:515-525`): in the live rollback, attempt
-  `fs::remove_file(&op.target)` (NotFound-tolerant) before the
-  rename. POSIX is unaffected because `rename(2)` already overwrites
-  atomically.
-- **Acceptance:** Windows-only unit test that pre-populates
-  `op.target` with stale content, runs `rollback`, and asserts
-  `op.target` ends up byte-identical to `op.backup` and the
-  rollback returns `Clean`.
+  wrapper does not. If the FS faulted between `rename(target → staged)`
+  and `rename(backup → target)` (or AV recreated the target, or the
+  in-flight per-op fallback at line 336 ran with target non-empty),
+  the rollback failed with `AlreadyExists`, the
+  `Applying` journal was preserved (per M22), and recovery had to
+  finish the job on the next launch -- but the live error message the
+  user saw was misleading.
+- **Resolution:** New `clear_target_for_restore(target)` helper does
+  a NotFound-tolerant `remove_file` before each `rename(backup, target)`,
+  mirroring the recovery path's defence in `apply_journal::recover`
+  (Applying branch). Wired into both call sites: the in-flight per-op
+  rollback after `rename(staged, target)` failure, and the
+  executed-ops `rollback()` loop. POSIX is unaffected because
+  `rename(2)` already overwrites atomically.
+- **Test:** `rollback_restores_backup_over_stale_target` constructs
+  the post-`rename(target,staged)` shape with a stale file at `target`
+  and asserts the backup contents end up at `target` and the rollback
+  reports `Clean`.
 
