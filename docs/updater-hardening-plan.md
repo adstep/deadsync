@@ -61,6 +61,19 @@ lands so the rest of the document can stay descriptive.
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ✅ Done        | `download_to_file` now writes to `<dest>.part`, fsyncs after the final flush, and renames onto `dest` only after sha256 verifies. Crash / cancel / mismatch leaves no file at the canonical name; any pre-existing `dest` is preserved. Stale `.part` from a previous run is removed before staging. |
 | N5  | Audit unused i18n keys                                        | 🟡       | ✅ Done        | Dropped `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` from `en.ini`/`sv.ini`/`pseudo.ini`; the overlay only uses `BodyReadyShort` (and the M8-era `BodyManualDownload`). pseudo.ini regenerated via `cargo run --bin generate_pseudo`. |
 | N6  | Refresh stale comments                                        | 🟡       | ✅ Done        | Fixed `state.rs` module doc (was `Settings.ini`, actually `deadsync.ini`); rewrote `last_seen_tag` doc to drop the obsolete "M5 (channel wiring)" reference (M5 removed channels); replaced `(PR 10)` / `(PR 10b)` markers in `action.rs` and `download.rs` with the actual module path now that the UI overlay has shipped. |
+| C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ⏳ Not started | `main.rs` runs `apply_journal::recover` before grabbing the single-instance guard; a second instance launching during a slow `Applying` window can roll back/clean while the first instance is still relaunching. |
+| C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ⏳ Not started | `recover` does `fs::rename(backup, target)`; on Windows this fails if `target` already exists (partial new file from the crashed apply). The journal then gets removed anyway, so the rollback recipe is lost mid-restore. |
+| C6  | `--no-default-features` build is broken                       | 🔴       | ⏳ Not started | `main.rs` calls `apply_journal::recover` unconditionally, but `apply_journal` is gated behind `feature = "self-update"`. Packagers can't actually strip the apply code today, undercutting the M9 cargo-feature escape hatch. |
+| M12 | Cancellation generation token (worker-result race)            | 🟠       | ⏳ Not started | A cancelled worker keeps running until its next poll; if the user starts a new check/download in between, the new worker's `clear_cancel()` lets the old worker eventually publish `Ready` / `Error` over fresh state. Use a monotonic op-id captured by each worker. |
+| M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ⏳ Not started | `stream_to_file` polls between chunks but not after EOF; `download_to_file` then flushes/fsyncs/hashes/renames with no cancel check, so a Back press during the final tail still surfaces `Ready`. |
+| M14 | Windows download rename fails when `dest` already exists      | 🟠       | ⏳ Not started | `fs::rename(staging, dest)` on Windows errors out if `dest` exists (e.g. user dismissed Ready and re-checked). Either replace via `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` semantics, or detect a pre-verified `dest` and reuse it. |
+| M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏳ Not started | `plan_ops` walks the staging tree only, so files removed in a future release stay on disk (stale DLLs, helper binaries, retired assets). Need a release-side manifest of updater-owned paths and journaled deletes confined to that set. |
+| M16 | Case-insensitive collisions in apply plan                     | 🟠       | ⏳ Not started | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
+| M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ⏳ Not started | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
+| M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ⏳ Not started | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
+| M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ⏳ Not started | Overlay shows a 80-char-truncated URL with Dismiss only — controller-only users can't open or copy it. Either expose an "open in browser" affordance where supported or surface the full URL via logs + an explicit "see deadsync.log" hint. |
+| M20 | I/O errors lose path/operation context                       | 🟡       | ⏳ Not started | Many call sites do `UpdaterError::Io(err.to_string())` without including which file/step failed. Real-world bug reports (UAC, AV locks, UNC, Program Files) will be much easier to triage with `op + path + os_error` context. |
+| C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ⏳ Not started | `write_atomic` and the apply-time renames fsync the file but not the directory. On POSIX power-loss this can lose the rename even though the file bytes are durable. Either weaken the durability claim in comments or add platform-specific dir syncs after journal rename and at apply boundaries. |
 
 ---
 
@@ -83,6 +96,24 @@ lands so the rest of the document can stay descriptive.
     malformed, or doesn't verify against the embedded key.
   - The signing key is documented and rotated through a versioned
     process.
+- **Design prereqs (lock down before implementing):**
+  - **What is signed?** Recommend signing a manifest (JSON or
+    minisign-trusted-comment) that pins `tag`, `asset_name`,
+    `asset_size`, `sha256`, and `host_target`. Signing only the archive
+    bytes leaves tag/version/asset-mapping unverified.
+  - **Where is verification re-done?** `Ready` snapshot must carry
+    enough state for `apply_archive_and_relaunch`
+    (`src/engine/updater/cli.rs:147-173`) to re-verify the *signature*
+    too, not just the SHA-256 (M2 only handles the digest).
+  - **Key management.** Embed one or more ed25519 public keys at
+    build time. Document a documented rotation policy (overlap window,
+    revocation file, etc.).
+  - **Downgrade policy.** Decide whether the manifest must include a
+    monotonically-increasing build/version number to refuse
+    downgrades, even if signed.
+  - **Failure mode.** Missing/malformed/unverified signature must
+    fail closed (no `Ready` transition) rather than silently degrade
+    to digest-only.
 
 ### C2. Gate `DEADSYNC_UPDATER_FAKE_DOWNLOAD` to dev/test builds only
 
@@ -443,6 +474,263 @@ lands so the rest of the document can stay descriptive.
 
 ---
 
+## 🔴 Critical (added by post-N rubber-duck pass)
+
+### C4. Run journal recovery *before* the singleton lock is acquired
+
+- **Problem:** `src/main.rs:206-227` calls
+  `engine::updater::apply_journal::recover(&exe_dir)` before
+  `src/main.rs:239-245` acquires the single-instance guard. After a
+  self-update relaunch the previous process can still be in the tail of
+  `Applying` (extracting / renaming the last few files) for several
+  hundred milliseconds. A second user-initiated launch during that
+  window will:
+  1. read the journal that the still-running process is mid-way through
+     committing,
+  2. attempt rollback (rename `backup -> target`) on files the original
+     process is still holding open,
+  3. delete the journal file out from under the original process,
+  4. only *then* try to take the singleton lock and exit with
+     `AlreadyRunning`.
+  By that point the install tree is in an undefined mixed state.
+- **Fix:** acquire the singleton lock *first*, then run recovery only on
+  the lock-winning path. For `--restart`, keep the existing 3-second
+  retry — recovery still runs after the previous process has actually
+  released the lock and gone away.
+- **Acceptance:**
+  - Recovery never executes from a process that loses the singleton
+    race.
+  - A unit/integration test starts two processes against the same exe
+    dir and asserts only one runs `recover`.
+
+### C5. `recover(Applying)` doesn't restore backups when the new target survives the crash
+
+- **Problem:** `src/engine/updater/apply_journal.rs:376-389` rolls back
+  with `fs::rename(&op.backup, &op.target)`. On Windows, `rename` fails
+  if `target` already exists. The `Applying` state can be left mid-op
+  with both `backup` *and* a partially-written new `target` (e.g.
+  `target -> backup` succeeded, `staged -> target` partially completed,
+  then crash). Recovery's rename then errors, but
+  `src/engine/updater/apply_journal.rs:390-396` proceeds to remove the
+  staging dir *and* the journal anyway, permanently losing the
+  rollback recipe and leaving the install tree mixed.
+- **Fix:** for each op with a `backup` present, first move/remove the
+  current `target` to a side path (or just `remove_file`), then rename
+  `backup -> target`. Only delete the journal if every op restored or
+  cleanly noop'd; otherwise leave the journal in place so the next
+  startup can retry. Mirror the same logic for the `installed_removed`
+  branch.
+- **Acceptance:**
+  - Crash injected after `target -> backup` succeeds and `staged ->
+    target` partially completes leaves the install bit-identical to
+    pre-apply on the next start, on both Windows and Unix.
+  - Recovery refuses to delete the journal when any restore step
+    failed.
+
+### C6. `--no-default-features` build is broken
+
+- **Problem:** `src/main.rs:217` calls
+  `engine::updater::apply_journal::recover` unconditionally, but
+  `src/engine/updater/mod.rs:26-27` only declares the module behind
+  `#[cfg(feature = "self-update")]`. `cargo check
+  --no-default-features` fails. The M9 plan claims packagers can ship
+  with `self-update` disabled to strip the apply code; today they
+  can't.
+- **Fix:** gate the recovery block in `main.rs` with
+  `#[cfg(feature = "self-update")]`, or expose a no-op `recover` shim
+  from a non-feature-gated module.
+- **Acceptance:** `cargo check --no-default-features` and `cargo build
+  --no-default-features` both succeed; CI gains a job that exercises
+  the feature-stripped configuration.
+
+### C7. Journal & apply renames don't fsync the parent directory
+
+- **Problem:** `src/engine/updater/apply_journal.rs:164-179`
+  (`write_atomic`) fsyncs the temp file then renames it; the apply-time
+  renames in `apply_windows.rs:263-283` and `apply_unix.rs:239-258` do
+  the same. Neither fsyncs the *containing directory*. On POSIX
+  filesystems, the directory entry created by the rename can be lost
+  on power loss even though the renamed file's bytes are durable.
+- **Fix:** either weaken the "durable journal" claim in the doc
+  comments, or add `File::open(parent).sync_all()` after each
+  durability-critical rename (journal write, target install, backup
+  promotion). Windows behaves differently and may not need explicit
+  parent fsync.
+- **Acceptance:** comments either match the implementation, or a fault
+  injection test (where supported) shows a power-loss simulation can't
+  lose the journal entry.
+
+---
+
+## 🟠 Major (added by post-N rubber-duck pass)
+
+### M12. Cancellation generation token (worker-result race)
+
+- **Problem:** `src/engine/updater/action.rs:155-173` flips the phase to
+  `Idle` and sets `CANCEL` synchronously, but the worker keeps running
+  until its next poll. If the user starts a new check/download in
+  between, the new worker calls `clear_cancel()`
+  (`src/engine/updater/action.rs:270`, `src/engine/updater/action.rs:335`)
+  and the *old* worker — which never observed the flag — eventually
+  returns `Ok` and calls `set_phase`, clobbering the new worker's
+  state with a stale `Ready` / `ConfirmDownload` / `Error`.
+- **Fix:** replace the global bool with a monotonic op-id (e.g.
+  `static OP_ID: AtomicU64`, incremented by `request_check_now` /
+  `request_download` / `request_cancel`). Each worker captures its
+  generation at spawn, polls "is my generation still current?" instead
+  of "is cancel set?", and refuses to publish results if a newer
+  generation has started.
+- **Acceptance:** unit test that spawns a slow worker (e.g. via the
+  fake-download path), cancels it, starts a new fake download, then
+  unblocks the old worker and asserts the new worker's phase wins.
+
+### M13. Cancellation not checked after final flush/fsync/rename
+
+- **Problem:** `stream_to_file` (`src/engine/updater/download.rs:374-416`)
+  polls `should_cancel` between chunks but stops checking after EOF;
+  `download_to_file` then flushes, fsyncs, hashes, and renames without
+  re-checking. The fake-download path
+  (`src/engine/updater/action.rs:497-518`) has the same final-window
+  bug. A Back press during the multi-second tail of a large archive
+  flips the phase to `Idle` but the worker still publishes `Ready`
+  immediately afterwards.
+- **Fix:** check the cancel flag (or M12 generation token) after the
+  rename succeeds and before publishing `Ready`. If cancelled, delete
+  the staged archive (or leave it for the next attempt and route to
+  `Idle`).
+- **Acceptance:** test that injects a "cancel after rename, before
+  set_phase" pause and asserts the published phase is `Idle`, not
+  `Ready`.
+
+### M14. Windows download rename fails when `dest` already exists
+
+- **Problem:** `src/engine/updater/download.rs:352-361` uses
+  `fs::rename(staging, dest)`. On Windows this errors if `dest` exists
+  — and `dest` is the canonical cache filename, so a user who
+  dismisses `Ready` and re-checks will hit `IO("rename ... -> ...:
+  ...")` even though the new `.part` verified successfully. N4 fixed
+  the partial-file problem but introduced this regression.
+- **Fix:** either replace the destination atomically (Windows:
+  `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` via `winapi`/`windows-sys`,
+  or wrap with `fs::remove_file(dest); fs::rename(staging, dest)`
+  knowing the gap is non-atomic), or detect a pre-existing verified
+  `dest` (re-hash; if matches, skip the download entirely; if
+  mismatches, delete and proceed).
+- **Acceptance:** test creates a stub `dest`, runs a download against
+  a local fixture server, asserts the download succeeds and `dest` now
+  contains the new bytes.
+
+### M15. Apply is add/replace-only — files removed from a release stay forever
+
+- **Problem:** `plan_ops` in `src/engine/updater/apply_windows.rs:204-231`
+  and `src/engine/updater/apply_unix.rs:192-218` walks only the
+  staging tree, so a release that removes (or renames) a DLL, asset,
+  helper binary, or config template leaves the old file installed.
+  Stale DLLs in particular can produce mixed-version crashes that are
+  very hard to diagnose.
+- **Fix:** ship a release-side manifest of "updater-owned" paths
+  (relative to the install root). At apply time, journal a delete op
+  for any owned path that exists on disk but is not in staging. Confine
+  the delete set to the manifest so portable user content
+  (`songs/`, `courses/`, `replays/`, etc.) is never touched.
+- **Acceptance:**
+  - A test release that removes `foo.dll` from the staging tree results
+    in `foo.dll` being deleted from the install root (with rollback
+    via the journal-stored backup).
+  - User content named identically to anything outside the manifest is
+    untouched.
+
+### M16. Case-insensitive collisions in apply plan
+
+- **Problem:** `plan_ops` joins each staged relative path onto
+  `target_dir` and writes one op per staged file. A staging tree
+  containing `foo.dll` and `FOO.dll` produces two ops mapping to the
+  same NTFS / default-Windows target. The first op installs file A; the
+  second op then backs up file A (calling it the backup of file B!) and
+  overwrites it with B. Recovery rollback is now ambiguous and almost
+  certainly wrong.
+- **Fix:** during planning, normalize target paths with the host's
+  case-folding semantics, detect duplicates, and abort the apply with a
+  clear error before writing the journal. Same treatment for backup
+  paths (collisions there too if two ops share a token suffix root).
+- **Acceptance:** unit test feeds a staging dir with case-colliding
+  paths and asserts the planner returns `Err`.
+
+### M17. Pre-journal extraction failures leak staging directories
+
+- **Problem:** `src/engine/updater/apply_windows.rs:318-325` (and the
+  Unix analogue) creates the staging dir, extracts the archive, plans
+  ops, and *then* writes the journal. If anything between
+  `create_dir_all(&staging_dir)` and the first `write_atomic(journal)`
+  fails (disk full mid-extract, AV quarantine, ZIP corruption,
+  case-collision per M16), there's no journal so `recover` never
+  cleans up the staging dir, and the next apply attempt creates yet
+  another timestamped sibling.
+- **Fix:** wrap the pre-journal block in a guard that
+  `remove_dir_all(&staging_dir)` on the error path. Once the journal
+  is durable, hand ownership over to the recovery code (which already
+  cleans staging in both `Applied` and `Applying` branches).
+- **Acceptance:** test injects an extraction failure (e.g. corrupt
+  ZIP) and asserts no `.deadsync-update-staging-*` directory survives
+  next to the install root.
+
+### M18. Cached release URLs from a prior override survive into release builds
+
+- **Problem:** `src/engine/updater/state.rs:37-50,130-135` persists the
+  full `cached_release` (including `assets[].browser_download_url`).
+  A developer or CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at
+  `http://localhost:PORT` can leave a `cached_release` whose asset URLs
+  point at localhost. A subsequent release build (which under C2/M6
+  should ignore the env var) would happily reconstruct `Available`
+  from that cache and try to download from the attacker-controlled
+  host.
+- **Fix:** when loading the cache in a build that doesn't honor the
+  override (i.e. release builds after C2/M6), drop any
+  `cached_release` whose `browser_download_url` host doesn't match the
+  canonical GitHub asset host. Or: never persist a `cached_release`
+  that came from an overridden URL in the first place (taint-track the
+  flag through the cache write path).
+- **Acceptance:** test seeds a `cached_release` with a localhost URL,
+  loads under "release-build" semantics, asserts the cache reverts to
+  empty.
+
+### M19. `AvailableNoInstall` UX is a dead end on console / no-keyboard input
+
+- **Problem:** `src/screens/components/shared/update_overlay.rs:324-331`
+  renders the GitHub URL truncated to 80 chars; the only input handled
+  (`update_overlay.rs:422-431`) is Dismiss. macOS users and managed
+  distros (`UpdaterInstallEnabled = 0`) are left with a URL they
+  cannot click, copy, or open from a controller-driven UI.
+- **Fix:** at minimum, log the full URL at INFO when entering
+  `AvailableNoInstall` and surface a "see logs" hint. Where platform
+  APIs allow, add an "Open in browser" affordance (Windows
+  `ShellExecuteW`, macOS `open`, Linux `xdg-open`).
+- **Acceptance:** users on macOS and on Steam (managed) builds can
+  reach the GitHub release page without alt-tabbing to find the URL.
+
+### M20. I/O errors lose path/operation context
+
+- **Problem:** Many call sites stringify the raw `io::Error` with no
+  surrounding context: `src/engine/updater/download.rs:98-106`
+  (`sha256_of_file`), `src/engine/updater/apply_windows.rs:344-346`
+  (`io_err`), most extraction helpers. Real-world failures (UAC, AV
+  locks, UNC shares, Program Files writes, read-only media) surface to
+  the user as `IO("Access is denied. (os error 5)")` with no clue
+  which path or step failed.
+- **Fix:** add `op + path + os_error` context everywhere
+  `UpdaterError::Io` is constructed inside the updater. Keep the
+  overlay text concise but log full context. Consider classifying
+  common errors into actionable hints
+  ("install directory not writable", "file locked by another
+  process — close deadsync and retry").
+- **Acceptance:** representative failure modes (locked file, read-only
+  install dir, missing parent) produce log lines that name the path
+  and the step.
+
+
+
+---
+
 ## 💡 Future / Platform Blockers
 
 ### Windows portable (today)
@@ -515,3 +803,50 @@ lands so the rest of the document can stay descriptive.
 5. **M3, M4, M5** — cache schema improvements + channel wiring.
 6. **N1–N6** — polish.
 7. Platform-specific work as new distribution channels are picked up.
+
+
+---
+
+## 🧪 Integration test plan (formerly the `integration-tests` todo)
+
+Cross-process / fault-injection cases that the journal-level unit tests
+can't cover. Each case spawns a child binary built with a
+`updater-test-fault-injection` feature that aborts at a named
+checkpoint, then the parent inspects the install-tree state and re-runs
+recovery via a fresh process.
+
+Required cases:
+
+1. **Kill after extraction, before journal write** — staging dir is
+   cleaned up (covers M17), no journal exists, no install mutations.
+2. **Kill after `Applying` journal write, before any rename** — recovery
+   removes journal + staging, install bit-identical to pre-apply.
+3. **Kill after `target -> backup` of op N, before `staged -> target`**
+   — recovery rolls back op N (rename `backup -> target`).
+4. **Kill mid-`staged -> target` of op N, with backup still present** —
+   recovery removes the partial `target` *and* renames `backup ->
+   target` (covers C5 on Windows).
+5. **Kill after several ops complete** — recovery walks ops in reverse,
+   rolls back every backup, install bit-identical.
+6. **Kill after all ops complete, before `Applied` journal write** —
+   recovery rolls back to old version.
+7. **Kill after `Applied` journal write, before relaunch** — next
+   startup sees `Applied`, removes backups, leaves new install.
+8. **Restart while previous process still holds singleton lock** —
+   recovery doesn't run on the loser (covers C4).
+9. **Locked backup or target during recovery** — recovery returns a
+   partial report and *leaves the journal in place* for retry on the
+   next launch.
+10. **Corrupt journal** (truncated JSON, wrong version, validate
+    failure) — no install mutations, journal removed iff safe.
+11. **Power-loss simulation** (where filesystem testing tools allow) —
+    asserts the directory entry survives, or weakens the comment to
+    match (covers C7).
+12. **Concurrent re-download into existing `dest`** — second download
+    succeeds without spurious rename error (covers M14).
+
+Harness suggestion: use the existing portable test script
+(`scripts/test-updater-portable.ps1`) as the per-case runner, with a
+`--fault-checkpoint <name>` flag wired into the
+`updater-test-fault-injection` feature.
+
