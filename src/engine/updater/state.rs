@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{FetchOutcome, UpdateState, UpdaterError, classify, fetch_latest_release};
 use crate::config;
-use crate::engine::network;
 
 /// Filename inside `cache_dir` that persists the updater cache.
 pub const CACHE_FILENAME: &str = "updater_state.json";
@@ -142,7 +141,7 @@ fn env_opt_out() -> bool {
 /// persisted cache on success.  Errors are logged, not returned, so the
 /// caller (a fire-and-forget thread) can stay simple.
 pub fn run_check_once() {
-    let agent = network::get_agent();
+    let agent = super::check_agent();
     let prev_etag = cache().etag.clone();
 
     let outcome = match fetch_latest_release(&agent, prev_etag.as_deref()) {

@@ -54,7 +54,7 @@ lands so the rest of the document can stay descriptive.
 | M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ⏳ Not started |                                                                                   |
 | M9  | Make `self-update` opt-in per distribution                    | 🟠       | ⏳ Not started |                                                                                   |
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
-| M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ⏳ Not started |                                                                                   |
+| M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
 | N1  | ETag bookkeeping                                              | 🟡       | ⏳ Not started |                                                                                   |
 | N2  | Verify GitHub's API `digest` field too                        | 🟡       | ⏳ Not started |                                                                                   |
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ⏳ Not started |                                                                                   |

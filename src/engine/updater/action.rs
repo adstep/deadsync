@@ -33,7 +33,6 @@ use super::{
     UpdaterError,
 };
 use crate::config;
-use crate::engine::network;
 
 /// Subdirectory of `cache_dir` where downloaded archives land.
 pub const DOWNLOADS_SUBDIR: &str = "updates";
@@ -196,7 +195,7 @@ pub fn request_check_now() {
 }
 
 fn run_check_now() {
-    let agent = network::get_agent();
+    let agent = super::check_agent();
     // We deliberately ignore the persisted ETag so a manual "Check now"
     // always returns Fresh; otherwise the user would be stuck staring at
     // a Checking spinner with nothing happening on a 304.
@@ -254,8 +253,8 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
         run_fake_download(info, asset, std::path::PathBuf::from(fake));
         return;
     }
-    let agent = network::get_agent();
-    let sidecar = match fetch_checksum_sidecar(&agent, &asset.browser_download_url) {
+    let check = super::check_agent();
+    let sidecar = match fetch_checksum_sidecar(&check, &asset.browser_download_url) {
         Ok(t) => t,
         Err(err) => {
             log::warn!("Failed to fetch checksum sidecar: {err}");
@@ -284,7 +283,7 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
         });
     };
 
-    match download_to_file(&agent, &asset, &expected, &dest, progress) {
+    match download_to_file(&super::download_agent(), &asset, &expected, &dest, progress) {
         Ok(()) => {
             log::info!("Update {} downloaded to {}", info.tag, dest.display());
             set_phase(ActionPhase::Ready { info, path: dest });

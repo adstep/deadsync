@@ -55,10 +55,49 @@ pub fn user_agent() -> String {
     format!("deadsync/{} (+https://github.com/pnn64/deadsync)", env!("CARGO_PKG_VERSION"))
 }
 
-/// Networking timeout applied to update-check HTTP calls.  Distinct from
-/// the score-submission default so we don't block startup behind a slow
-/// network indefinitely.
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+/// Networking timeouts for the updater's HTTP traffic.  Two distinct
+/// agents are exposed:
+///
+/// * [`check_agent`] — short global timeout, used for the small
+///   release JSON / sidecar / etag-poke requests.  These should be
+///   snappy so a slow network can't block startup indefinitely.
+///
+/// * [`download_agent`] — no global timeout (a 50 MiB archive on a
+///   1 Mbps link genuinely takes minutes), but generous connect and
+///   resolve timeouts so unreachable hosts still fail fast.
+///
+/// Both agents are kept process-wide via [`LazyLock`] so the
+/// underlying connection pool is reused across calls.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const DOWNLOAD_RESOLVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+static CHECK_AGENT: std::sync::LazyLock<ureq::Agent> = std::sync::LazyLock::new(|| {
+    crate::engine::network::build_agent(crate::engine::network::AgentConfig::with_global(
+        CHECK_TIMEOUT,
+    ))
+});
+
+static DOWNLOAD_AGENT: std::sync::LazyLock<ureq::Agent> = std::sync::LazyLock::new(|| {
+    crate::engine::network::build_agent(crate::engine::network::AgentConfig {
+        timeout: None,
+        connect_timeout: Some(DOWNLOAD_CONNECT_TIMEOUT),
+        resolve_timeout: Some(DOWNLOAD_RESOLVE_TIMEOUT),
+    })
+});
+
+/// Returns the shared agent used for the small update-check HTTP
+/// calls (release JSON, ETag polls, checksum sidecar).
+pub fn check_agent() -> ureq::Agent {
+    CHECK_AGENT.clone()
+}
+
+/// Returns the shared agent used for streaming archive downloads.
+/// No global timeout; relies on connect / resolve timeouts to fail
+/// fast on unreachable hosts.
+pub fn download_agent() -> ureq::Agent {
+    DOWNLOAD_AGENT.clone()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReleaseAsset {

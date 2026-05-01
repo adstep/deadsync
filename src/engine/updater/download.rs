@@ -20,7 +20,7 @@
 //! No UI integration lives here — the screen layer (PR 10) calls these
 //! functions and decides what to do with the resulting path.
 
-use super::{user_agent, ReleaseAsset, UpdaterError, REQUEST_TIMEOUT};
+use super::{user_agent, ReleaseAsset, UpdaterError};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -252,7 +252,6 @@ fn stream_to_file<R: Read>(
             actual: sha256_hex(&actual),
         });
     }
-    let _ = REQUEST_TIMEOUT; // keep import live; ureq applies it via agent config.
     Ok(())
 }
 
