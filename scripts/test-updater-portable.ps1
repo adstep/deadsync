@@ -4,14 +4,10 @@
 
 .DESCRIPTION
   Builds *one* debug-mode binary at -Version, lays it out as a portable
-  install, and packages a matching .zip into the staging dir so it can be
-  used as either the install target or the source for the
-  DEADSYNC_UPDATER_FAKE_DOWNLOAD shortcut.
+  install, and packages a matching .zip into the staging dir.
 
   No HTTP server is started.  Point the running binary at a real GitHub
-  release on your fork via DEADSYNC_UPDATER_RELEASE_URL, and (optionally)
-  use DEADSYNC_UPDATER_FAKE_DOWNLOAD to skip the network on the download
-  step.
+  release on your fork via DEADSYNC_UPDATER_RELEASE_URL.
 
 .PARAMETER Version
   Cargo.toml version to build at.  The resulting binary will be staged as
@@ -101,10 +97,6 @@ try {
   Write-Host "Point the binary at a real GitHub release on your fork:" -ForegroundColor Yellow
   Write-Host "  `$env:DEADSYNC_UPDATER_RELEASE_URL = 'https://api.github.com/repos/<owner>/deadsync/releases/latest'"
   Write-Host "  `$env:DEADSYNC_VERSION_OVERRIDE   = '<an older semver>'"
-  Write-Host ""
-  Write-Host "Skip the network download (use the staged archive locally):" -ForegroundColor Yellow
-  Write-Host "  `$env:DEADSYNC_UPDATER_FAKE_DOWNLOAD      = '$archivePath'"
-  Write-Host "  `$env:DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS = '5'"
   Write-Host ""
   Write-Host "Then:"
   Write-Host "  cd '$installDir'; .\deadsync.exe"

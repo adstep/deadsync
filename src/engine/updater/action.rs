@@ -448,10 +448,6 @@ pub fn request_download() {
 }
 
 fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
-    if let Some(fake) = std::env::var_os("DEADSYNC_UPDATER_FAKE_DOWNLOAD") {
-        run_fake_download(info, asset, std::path::PathBuf::from(fake), generation);
-        return;
-    }
     let check = super::check_agent();
     let sidecar = match fetch_checksum_sidecar(&check, &asset.browser_download_url) {
         Ok(t) => t,
@@ -579,123 +575,6 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
             set_phase_if_current(generation, classify_error(&err));
         }
     }
-}
-
-/// Debug-only download simulator.  When `DEADSYNC_UPDATER_FAKE_DOWNLOAD`
-/// is set to a path on disk, [`run_download`] dispatches here instead of
-/// hitting GitHub: we copy the local file to the cache dir while ticking
-/// the progress fraction over `DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS`
-/// seconds (default 5).  All overlay text continues to read from the
-/// real `ReleaseInfo` / `ReleaseAsset`, so the user-facing flow is
-/// indistinguishable from a real GitHub download.
-fn run_fake_download(
-    info: ReleaseInfo,
-    asset: ReleaseAsset,
-    source: std::path::PathBuf,
-    generation: u64,
-) {
-    let total_secs: f32 = std::env::var("DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS")
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .filter(|v: &f32| *v > 0.0)
-        .unwrap_or(5.0);
-    log::info!(
-        "Fake-download enabled: copying {} as {} over {:.1}s",
-        source.display(),
-        asset.name,
-        total_secs,
-    );
-    let bytes = match std::fs::read(&source) {
-        Ok(b) => b,
-        Err(err) => {
-            log::warn!(
-                "DEADSYNC_UPDATER_FAKE_DOWNLOAD={} could not be read: {err}",
-                source.display(),
-            );
-            set_phase_if_current(
-                generation,
-                ActionPhase::Error {
-                    kind: ActionErrorKind::Io,
-                    detail: format!("fake source unreadable: {err}"),
-                },
-            );
-            return;
-        }
-    };
-    let dest_dir = downloads_dir();
-    if let Err(err) = std::fs::create_dir_all(&dest_dir) {
-        log::warn!("Failed to create downloads dir: {err}");
-        set_phase_if_current(
-            generation,
-            ActionPhase::Error {
-                kind: ActionErrorKind::Io,
-                detail: err.to_string(),
-            },
-        );
-        return;
-    }
-    let dest = dest_dir.join(&asset.name);
-    if let Err(err) = std::fs::write(&dest, &bytes) {
-        log::warn!("Failed to stage fake download: {err}");
-        set_phase_if_current(
-            generation,
-            ActionPhase::Error {
-                kind: ActionErrorKind::Io,
-                detail: err.to_string(),
-            },
-        );
-        return;
-    }
-
-    // Animate the progress bar across `total_secs` so the overlay UX
-    // matches a real slow download.  `asset.size` drives the fraction
-    // shown in the panel; we cap it at the actual file len so the bar
-    // never reads >100%.
-    let total_bytes = asset.size.max(bytes.len() as u64);
-    const TICKS: u32 = 50;
-    let tick_ms = ((total_secs * 1000.0) / TICKS as f32).max(20.0) as u64;
-    for i in 1..=TICKS {
-        if worker_should_stop(generation) {
-            log::info!("Fake update download cancelled by user");
-            let _ = std::fs::remove_file(&dest);
-            return;
-        }
-        let frac = i as f64 / TICKS as f64;
-        let written = ((total_bytes as f64) * frac).round() as u64;
-        let remaining_ticks = TICKS - i;
-        let eta_secs = (remaining_ticks > 0).then(|| {
-            ((remaining_ticks as f64 * tick_ms as f64) / 1000.0).ceil() as u64
-        });
-        set_phase_if_current(
-            generation,
-            ActionPhase::Downloading {
-                info: info.clone(),
-                asset: asset.clone(),
-                written,
-                total: Some(total_bytes),
-                eta_secs,
-            },
-        );
-        thread::sleep(std::time::Duration::from_millis(tick_ms));
-    }
-    // Final cancel check between the last progress tick and Ready.
-    // Without this, a Back press during the very last sleep would
-    // still publish Ready and leave a stale archive on disk.
-    if worker_should_stop(generation) {
-        log::info!("Fake update download cancelled by user (post-write)");
-        let _ = std::fs::remove_file(&dest);
-        return;
-    }
-    log::info!("Fake update {} staged at {}", info.tag, dest.display());
-    let sha256 = super::download::sha256_of(&bytes);
-    set_phase_if_current(
-        generation,
-        ActionPhase::Ready {
-            info,
-            path: dest,
-            sha256,
-        },
-    );
 }
 
 /// Absolute path of the directory archives are downloaded into.

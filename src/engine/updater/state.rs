@@ -30,10 +30,6 @@ use crate::config;
 /// Filename inside `cache_dir` that persists the updater cache.
 pub const CACHE_FILENAME: &str = "updater_state.json";
 
-/// Environment variable that disables the startup check regardless of
-/// config (intended for `--no-update-check` and CI use).
-pub const ENV_OPT_OUT: &str = "DEADSYNC_NO_UPDATE_CHECK";
-
 /// Minimal serializable mirror of [`ReleaseAsset`].  Lives in the
 /// persisted cache so a `304 Not Modified` on the next launch can
 /// restore the previously-seen [`UpdateState::Available`] without an
@@ -288,40 +284,6 @@ fn load_cache_from(path: &Path) -> Option<UpdaterCache> {
     serde_json::from_slice::<UpdaterCache>(&bytes).ok()
 }
 
-/// Pure decision: should we run the check right now?
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
-    Check,
-    Skip(SkipReason),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkipReason {
-    EnvOptOut,
-}
-
-/// Decide whether a check should run.  Pure so it can be exhaustively
-/// unit-tested without IO.
-///
-/// The startup poll is intentionally *not* throttled by elapsed-time:
-/// every check sends an `If-None-Match` ETag (see [`run_check_once`]),
-/// so the steady state is a 304 with an empty body.  That's cheap
-/// enough on both sides that adding a "have we checked recently?"
-/// gate would add complexity without buying us anything material on
-/// the unauthenticated 60/hr GitHub budget.  Manual "Check now"
-/// requests don't go through this decision at all.
-pub fn decide(env_opt_out: bool) -> Decision {
-    if env_opt_out {
-        Decision::Skip(SkipReason::EnvOptOut)
-    } else {
-        Decision::Check
-    }
-}
-
-fn env_opt_out() -> bool {
-    std::env::var_os(ENV_OPT_OUT).is_some_and(|v| !v.is_empty())
-}
-
 /// Reconcile a Fresh fetch outcome with the persisted cache.  Pure so
 /// the bookkeeping is unit-testable without spinning up the worker.
 ///
@@ -417,42 +379,23 @@ pub fn run_check_once() {
     }
 }
 
-/// Spawn a background thread to run the startup update check, if the
-/// current configuration says to.  Returns `Decision::Skip(...)` if no
-/// thread was spawned, otherwise [`Decision::Check`].
-pub fn spawn_startup_check() -> Decision {
-    let decision = decide(env_opt_out());
-    match decision {
-        Decision::Skip(reason) => {
-            log::debug!("Update check skipped: {reason:?}");
-        }
-        Decision::Check => {
-            thread::Builder::new()
-                .name("deadsync-updater".to_string())
-                .spawn(run_check_once)
-                .map(|_| ())
-                .unwrap_or_else(|err| {
-                    log::warn!("Failed to spawn updater thread: {err}");
-                });
-        }
-    }
-    decision
+/// Spawn a background thread to run the startup update check.  The
+/// only opt-out path is the `--no-update-check` CLI flag, which is
+/// gated by the caller (`main.rs`); reaching here always spawns.
+pub fn spawn_startup_check() {
+    thread::Builder::new()
+        .name("deadsync-updater".to_string())
+        .spawn(run_check_once)
+        .map(|_| ())
+        .unwrap_or_else(|err| {
+            log::warn!("Failed to spawn updater thread: {err}");
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
-
-    #[test]
-    fn env_opt_out_skips_check() {
-        assert_eq!(decide(true), Decision::Skip(SkipReason::EnvOptOut));
-    }
-
-    #[test]
-    fn no_env_opt_out_runs_check() {
-        assert_eq!(decide(false), Decision::Check);
-    }
 
     #[test]
     fn cache_round_trips_through_disk() {
