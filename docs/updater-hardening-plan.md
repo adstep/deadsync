@@ -62,7 +62,7 @@ lands so the rest of the document can stay descriptive.
 | N5  | Audit unused i18n keys                                        | 🟡       | ✅ Done        | Dropped `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` from `en.ini`/`sv.ini`/`pseudo.ini`; the overlay only uses `BodyReadyShort` (and the M8-era `BodyManualDownload`). pseudo.ini regenerated via `cargo run --bin generate_pseudo`. |
 | N6  | Refresh stale comments                                        | 🟡       | ✅ Done        | Fixed `state.rs` module doc (was `Settings.ini`, actually `deadsync.ini`); rewrote `last_seen_tag` doc to drop the obsolete "M5 (channel wiring)" reference (M5 removed channels); replaced `(PR 10)` / `(PR 10b)` markers in `action.rs` and `download.rs` with the actual module path now that the UI overlay has shipped. |
 | C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ✅ Done        | `main.rs` now acquires the singleton guard *first* and only runs `apply_journal::recover` afterwards (on the lock-winning path or the OS-error soft-fail path). A losing-race second instance exits before recovery can touch live install files. |
-| C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ⏳ Not started | `recover` does `fs::rename(backup, target)`; on Windows this fails if `target` already exists (partial new file from the crashed apply). The journal then gets removed anyway, so the rollback recipe is lost mid-restore. |
+| C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ✅ Done        | `recover` now removes a partially-written `target` before renaming `backup -> target`, and only deletes the journal when every rollback step succeeded (locked / failed restores leave the journal in place for the next startup to retry). 3 new unit tests cover the partial-target rename, the journal-preservation-on-failure path, and the missing-backup idempotence case. |
 | C6  | `--no-default-features` build is broken                       | 🔴       | ⏳ Not started | `main.rs` calls `apply_journal::recover` unconditionally, but `apply_journal` is gated behind `feature = "self-update"`. Packagers can't actually strip the apply code today, undercutting the M9 cargo-feature escape hatch. |
 | M12 | Cancellation generation token (worker-result race)            | 🟠       | ⏳ Not started | A cancelled worker keeps running until its next poll; if the user starts a new check/download in between, the new worker's `clear_cancel()` lets the old worker eventually publish `Ready` / `Error` over fresh state. Use a monotonic op-id captured by each worker. |
 | M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ⏳ Not started | `stream_to_file` polls between chunks but not after EOF; `download_to_file` then flushes/fsyncs/hashes/renames with no cancel check, so a Back press during the final tail still surfaces `Ready`. |
@@ -503,27 +503,39 @@ lands so the rest of the document can stay descriptive.
 
 ### C5. `recover(Applying)` doesn't restore backups when the new target survives the crash
 
-- **Problem:** `src/engine/updater/apply_journal.rs:376-389` rolls back
-  with `fs::rename(&op.backup, &op.target)`. On Windows, `rename` fails
-  if `target` already exists. The `Applying` state can be left mid-op
-  with both `backup` *and* a partially-written new `target` (e.g.
-  `target -> backup` succeeded, `staged -> target` partially completed,
-  then crash). Recovery's rename then errors, but
-  `src/engine/updater/apply_journal.rs:390-396` proceeds to remove the
-  staging dir *and* the journal anyway, permanently losing the
-  rollback recipe and leaving the install tree mixed.
-- **Fix:** for each op with a `backup` present, first move/remove the
-  current `target` to a side path (or just `remove_file`), then rename
-  `backup -> target`. Only delete the journal if every op restored or
-  cleanly noop'd; otherwise leave the journal in place so the next
-  startup can retry. Mirror the same logic for the `installed_removed`
-  branch.
-- **Acceptance:**
-  - Crash injected after `target -> backup` succeeds and `staged ->
-    target` partially completes leaves the install bit-identical to
-    pre-apply on the next start, on both Windows and Unix.
-  - Recovery refuses to delete the journal when any restore step
-    failed.
+- **Status:** Done.
+- **Problem:** `src/engine/updater/apply_journal.rs:376-389` (pre-fix)
+  rolled back with `fs::rename(&op.backup, &op.target)`. On Windows,
+  `rename` fails if `target` already exists. The `Applying` state
+  could be left mid-op with both `backup` *and* a partially-written
+  new `target` (e.g. `target -> backup` succeeded, `staged -> target`
+  partially completed, then crash). Recovery's rename then errored,
+  but the code proceeded to remove the staging dir *and* the journal
+  anyway, permanently losing the rollback recipe and leaving the
+  install tree mixed.
+- **Resolution:**
+  - `recover` now removes a partially-written `target` first when both
+    `backup` and `target` exist, so the subsequent
+    `fs::rename(backup, target)` succeeds on Windows.
+  - Per-op success is tracked via a local `all_ops_succeeded` bool;
+    the journal is removed only when every recoverable op completed.
+    Locked or otherwise unrecoverable ops leave the journal in place
+    so the next startup can retry — fulfilling the doc-comment promise
+    that "the journal is only removed when the major work succeeded."
+  - `Applied` cleanup gets the same treatment: backup deletions that
+    return `NotFound` are treated as already-cleaned (idempotent
+    second pass), but real I/O errors keep the journal around.
+  - Staging-dir cleanup failure no longer blocks journal removal —
+    leftover staging is annoying but not corruption.
+- **Tests:** 3 new unit tests in `apply_journal::tests`:
+  - `recover_applying_overwrites_partial_target_with_backup` exercises
+    the Windows-specific partial-target rename path.
+  - `recover_applying_preserves_journal_when_partial_install_cant_be_removed`
+    uses a non-empty directory at the target path to force
+    `remove_file` to fail and asserts the journal survives.
+  - `recover_applied_skips_already_missing_backup_and_still_drops_journal`
+    proves a partially-cleaned `Applied` journal can be finished by a
+    second recovery pass.
 
 ### C6. `--no-default-features` build is broken
 

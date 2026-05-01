@@ -352,9 +352,19 @@ pub struct RecoveryReport {
 ///
 /// All filesystem work is best-effort; errors are surfaced via the
 /// returned report's counters and the journal is only removed when
-/// the major work succeeded so a future startup can retry on persistent
-/// errors (e.g. a locked file held by AV).  A malformed or
-/// out-of-version journal is left in place with no mutations.
+/// every recoverable op completed successfully so a future startup can
+/// retry on persistent errors (e.g. a locked file held by AV).  A
+/// malformed or out-of-version journal is left in place with no
+/// mutations.
+///
+/// The `Applying` branch is careful about the "crash mid-rename"
+/// window: if both the backup and a partially-written new target
+/// exist, the target is removed first so the subsequent
+/// `rename(backup, target)` succeeds on Windows (where rename refuses
+/// to replace an existing destination).  Without this, a crash in the
+/// narrow window between `target -> backup` and `staged -> target`
+/// completing would leave the install permanently mixed because the
+/// rename would error and the journal would be dropped.
 pub fn recover(exe_dir: &Path) -> RecoveryReport {
     let mut report = RecoveryReport::default();
     let journal = match Journal::load(exe_dir) {
@@ -365,25 +375,56 @@ pub fn recover(exe_dir: &Path) -> RecoveryReport {
     if journal.validate(exe_dir).is_err() {
         return report;
     }
+    // Tracks whether the journal's recipe is fully resolved.  If any
+    // recoverable step fails (locked file, permission denied, partial
+    // rename), the journal is left in place so the next startup can
+    // retry instead of permanently losing the recovery instructions.
+    let mut all_ops_succeeded = true;
     match journal.state {
         JournalState::Applied => {
             for op in &journal.ops {
-                if op.target_existed && fs::remove_file(&op.backup).is_ok() {
-                    report.backups_removed += 1;
+                if !op.target_existed {
+                    continue;
+                }
+                match fs::remove_file(&op.backup) {
+                    Ok(()) => report.backups_removed += 1,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(_) => all_ops_succeeded = false,
                 }
             }
         }
         JournalState::Applying => {
             for op in journal.ops.iter().rev() {
-                if op.backup.exists() {
+                let backup_exists = op.backup.try_exists().unwrap_or(false);
+                let target_exists = op.target.try_exists().unwrap_or(false);
+                if backup_exists {
+                    if target_exists {
+                        // Crash landed between `target -> backup` and
+                        // `staged -> target` finishing, leaving a
+                        // partial new target.  On Windows
+                        // `fs::rename` refuses to replace an existing
+                        // file, so drop the partial first.
+                        if fs::remove_file(&op.target).is_err() {
+                            all_ops_succeeded = false;
+                            continue;
+                        }
+                    }
                     if fs::rename(&op.backup, &op.target).is_ok() {
                         report.backups_restored += 1;
+                    } else {
+                        all_ops_succeeded = false;
                     }
-                } else if !op.target_existed && op.target.exists() {
+                } else if !op.target_existed && target_exists {
                     if fs::remove_file(&op.target).is_ok() {
                         report.installed_removed += 1;
+                    } else {
+                        all_ops_succeeded = false;
                     }
                 }
+                // Other shapes (no backup + target_existed=true, or
+                // no backup + target gone) are noops: either the op
+                // never started or a previous recovery pass already
+                // restored it.
             }
         }
     }
@@ -392,7 +433,13 @@ pub fn recover(exe_dir: &Path) -> RecoveryReport {
     } else {
         true
     };
-    report.journal_removed = fs::remove_file(journal_path(exe_dir)).is_ok();
+    // Staging cleanup failure is annoying but not corruption; only the
+    // op-level state gates whether we drop the journal.
+    report.journal_removed = if all_ops_succeeded {
+        fs::remove_file(journal_path(exe_dir)).is_ok()
+    } else {
+        false
+    };
     report
 }
 
@@ -699,5 +746,99 @@ mod tests {
     fn is_simple_relative_rejects_root_itself() {
         let root = PathBuf::from("/install");
         assert!(!is_simple_relative(&PathBuf::from("/install"), &root));
+    }
+
+    #[test]
+    fn recover_applying_overwrites_partial_target_with_backup() {
+        // Simulates a crash in the narrow window between
+        // `target -> backup` and `staged -> target` finishing: backup
+        // exists AND a partially-written new target exists.  On
+        // Windows the naive `rename(backup, target)` would fail
+        // because rename refuses to replace an existing destination,
+        // and the install would be left mixed with the journal
+        // dropped.  The recovery code must remove the partial first.
+        let dir = tempdir("recover-partial-target");
+        let mut j = Journal::new(&dir);
+        let t = dir.join("a.bin");
+        let b = j.backup_path_for(&t);
+        fs::write(&t, b"PARTIAL_NEW").unwrap();
+        fs::write(&b, b"OLD").unwrap();
+        fs::create_dir_all(&j.staging_dir).unwrap();
+        j.ops.push(Op {
+            staged: j.staging_dir.join("a.bin"),
+            target: t.clone(),
+            backup: b.clone(),
+            target_existed: true,
+        });
+        j.state = JournalState::Applying;
+        j.write_atomic(&dir).unwrap();
+
+        let r = recover(&dir);
+        assert_eq!(r.backups_restored, 1, "backup should restore over partial target");
+        assert!(r.journal_removed, "journal should be removed after successful rollback");
+        assert_eq!(fs::read(&t).unwrap(), b"OLD");
+        assert!(!b.exists(), "backup file must be consumed by the rename");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recover_applying_preserves_journal_when_partial_install_cant_be_removed() {
+        // If a rollback step fails (here: a partially-installed
+        // target is actually a non-empty directory, so remove_file
+        // errors), the journal must be preserved so a future startup
+        // can retry.  Pre-fix this would silently drop the journal
+        // and the user would be stuck with the partial install
+        // forever.
+        let dir = tempdir("recover-retry");
+        let mut j = Journal::new(&dir);
+        let t = dir.join("blocker");
+        fs::create_dir(&t).unwrap();
+        fs::write(t.join("inside"), b"x").unwrap();
+        let b = j.backup_path_for(&t);
+        fs::create_dir_all(&j.staging_dir).unwrap();
+        j.ops.push(Op {
+            staged: j.staging_dir.join("blocker"),
+            target: t.clone(),
+            backup: b,
+            target_existed: false,
+        });
+        j.state = JournalState::Applying;
+        j.write_atomic(&dir).unwrap();
+
+        let r = recover(&dir);
+        assert_eq!(r.installed_removed, 0);
+        assert!(
+            !r.journal_removed,
+            "journal must persist when a rollback step fails"
+        );
+        assert!(journal_path(&dir).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recover_applied_skips_already_missing_backup_and_still_drops_journal() {
+        // A previous (partial) recovery may have already removed some
+        // backups; the second recovery pass must treat NotFound as
+        // success and still complete cleanup.
+        let dir = tempdir("recover-applied-missing");
+        let mut j = Journal::new(&dir);
+        let t = dir.join("a.bin");
+        let b = j.backup_path_for(&t);
+        fs::write(&t, b"NEW").unwrap();
+        // Note: backup b deliberately not created.
+        fs::create_dir_all(&j.staging_dir).unwrap();
+        j.ops.push(Op {
+            staged: j.staging_dir.join("a.bin"),
+            target: t,
+            backup: b,
+            target_existed: true,
+        });
+        j.state = JournalState::Applied;
+        j.write_atomic(&dir).unwrap();
+
+        let r = recover(&dir);
+        assert_eq!(r.backups_removed, 0, "no backup file existed to remove");
+        assert!(r.journal_removed, "missing backup is treated as already cleaned");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
