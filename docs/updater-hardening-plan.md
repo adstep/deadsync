@@ -47,7 +47,7 @@ lands so the rest of the document can stay descriptive.
 | M1  | Make `apply` transactional / rollback-capable                 | 🟠       | ✅ Done        | Durable JSON journal + per-op backup-then-install + crash recovery on next launch (`apply_journal`). |
 | M2  | Re-verify the staged archive immediately before extraction    | 🟠       | ✅ Done        | `Ready` snapshot now carries the expected SHA-256; `apply_archive_and_relaunch` re-hashes the file via `download::sha256_of_file` and rejects mismatches as `ChecksumMismatch`, dropping the staged archive. |
 | M3  | Persist enough release metadata to reconstruct `Available` after a 304 | 🟠 | ✅ Done | `UpdaterCache.cached_release` now holds tag/url/body/assets; `load_persisted_cache` reclassifies it on startup so the banner survives a 304 / offline launch and degrades to UpToDate once installed. |
-| M4  | Use `last_checked_at` to throttle startup checks              | 🟠       | ⏳ Not started | `UpdateCheckMode` setting removed; always-on-startup is the only mode now, but no throttle yet. |
+| M4  | Use `last_checked_at` to throttle startup checks              | 🟠       | ❎ Won't fix   | Reviewed and closed: ETag-conditional polls keep startup checks ~free (304 with empty body), and the existing `RateLimited` path handles the corner case gracefully. `last_checked_at` was dropped from `UpdaterCache`; misleading "Daily mode" comments were removed. Manual checks were never throttled in the first place. |
 | M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ⏳ Not started |                                                                                   |
 | M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
 | M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
@@ -167,12 +167,20 @@ lands so the rest of the document can stay descriptive.
 
 ### M4. Use `last_checked_at` to throttle startup checks
 
-- **Problem:** `decide` only inspects the env opt-out
+- **Status:** Closed as won't-fix.
+- **Problem (original):** `decide` only inspects the env opt-out
   (`src/engine/updater/state.rs:122-128`); every launch contacts
-  GitHub. Comments still imply throttling exists.
-- **Fix:** add a check interval (e.g. 24 h), respect it on startup,
-  bypass it for manual checks. Treat future timestamps (wrong clock)
-  conservatively.
+  GitHub. Comments still implied throttling exists.
+- **Resolution:** Reviewed and intentionally not implemented. Every
+  startup poll sends an `If-None-Match` ETag, so the steady-state
+  response is a 304 with an empty body — cheap on both sides. The
+  worst case (NAT'd shared IP exceeding 60/hr) is already handled by
+  the `UpdaterError::RateLimited` path: logged, snapshot untouched,
+  banner survives via the M3 cached release. Adding an interval gate
+  would have required a new tunable, a state-dependent skip path,
+  and "why is Check For Updates stale?" UX questions for marginal
+  benefit. The misleading throttling comments were removed and the
+  unused `last_checked_at` field was dropped from `UpdaterCache`.
 
 ### M5. Wire up `UpdateChannel::Prerelease` or remove the choice
 

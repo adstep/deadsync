@@ -4,10 +4,11 @@
 //!
 //! * A *snapshot* of the most recent [`UpdateState`] — what the UI reads
 //!   to decide whether to draw a banner.  Lives in memory only.
-//! * A small persisted *cache* (`last_checked_at`, `last_seen_tag`,
-//!   `etag`) — written next to the other cache files so we can do
-//!   conditional requests on the next run and avoid the 60/hr
-//!   unauthenticated GitHub rate limit.
+//! * A small persisted *cache* (`etag`, last seen tag, cached release)
+//!   — written next to the other cache files so we can do conditional
+//!   requests on the next run (the ETag does the heavy lifting against
+//!   GitHub's 60/hr unauthenticated rate limit) and so the banner
+//!   survives a 304 / offline launch.
 //!
 //! The persisted cache lives outside [`crate::config::Config`] on
 //! purpose.  Config is `Copy`, copied per-frame, and exposed in the user-
@@ -17,7 +18,6 @@
 use std::path::Path;
 use std::sync::{LazyLock, RwLock};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -119,8 +119,10 @@ impl CachedRelease {
 /// field in the JSON file from a future build doesn't crash startup.
 #[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdaterCache {
-    #[serde(default)]
-    pub last_checked_at: Option<i64>,
+    /// Tag string of the last release we successfully classified.
+    /// Currently informational; M5 (channel wiring) will use it to
+    /// suppress re-popping the "update available" overlay for a tag
+    /// the user has already dismissed.
     #[serde(default)]
     pub last_seen_tag: Option<String>,
     #[serde(default)]
@@ -226,19 +228,20 @@ pub enum SkipReason {
 
 /// Decide whether a check should run.  Pure so it can be exhaustively
 /// unit-tested without IO.
+///
+/// The startup poll is intentionally *not* throttled by elapsed-time:
+/// every check sends an `If-None-Match` ETag (see [`run_check_once`]),
+/// so the steady state is a 304 with an empty body.  That's cheap
+/// enough on both sides that adding a "have we checked recently?"
+/// gate would add complexity without buying us anything material on
+/// the unauthenticated 60/hr GitHub budget.  Manual "Check now"
+/// requests don't go through this decision at all.
 pub fn decide(env_opt_out: bool) -> Decision {
     if env_opt_out {
         Decision::Skip(SkipReason::EnvOptOut)
     } else {
         Decision::Check
     }
-}
-
-fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 fn env_opt_out() -> bool {
@@ -281,11 +284,6 @@ pub fn run_check_once() {
 
     match outcome {
         FetchOutcome::NotModified => {
-            // Server confirmed nothing changed; just bump the timestamp
-            // so Daily mode doesn't re-fire immediately.
-            let mut next = cache();
-            next.last_checked_at = Some(now_unix());
-            write_cache(next);
             log::debug!("Update check: 304 Not Modified");
         }
         FetchOutcome::Fresh { info, etag } => {
@@ -293,7 +291,6 @@ pub fn run_check_once() {
             let state = classify(info);
             replace_snapshot(state.clone());
             let mut next = cache();
-            next.last_checked_at = Some(now_unix());
             next.last_seen_tag = Some(tag);
             if etag.is_some() {
                 next.etag = etag;
@@ -368,7 +365,6 @@ mod tests {
         let dir = tempdir_for("updater-cache-round-trip");
         let path = dir.join(CACHE_FILENAME);
         let original = UpdaterCache {
-            last_checked_at: Some(123_456),
             last_seen_tag: Some("v0.3.871".into()),
             etag: Some("\"abc\"".into()),
             cached_release: Some(CachedRelease {
@@ -403,8 +399,8 @@ mod tests {
         )
         .unwrap();
         let loaded = load_cache_from(&path).expect("loads");
-        assert_eq!(loaded.last_checked_at, Some(7));
         assert_eq!(loaded.last_seen_tag.as_deref(), Some("v0.1.0"));
+        assert_eq!(loaded.etag.as_deref(), Some("\"e\""));
         assert!(loaded.cached_release.is_none());
         let _ = std::fs::remove_file(&path);
     }
