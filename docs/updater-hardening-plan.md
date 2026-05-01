@@ -60,7 +60,7 @@ lands so the rest of the document can stay descriptive.
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ✅ Done        | New `action::request_cancel()` + `cancel_requested()` flag, polled by check / sidecar / download / fake-download workers; `download_to_file` takes a `should_cancel` callback that fires before/between chunks and returns `UpdaterError::Cancelled` (partial file is removed). Overlay binds Back during Checking/Downloading to cancel; Applying remains uncancellable. |
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ✅ Done        | `download_to_file` now writes to `<dest>.part`, fsyncs after the final flush, and renames onto `dest` only after sha256 verifies. Crash / cancel / mismatch leaves no file at the canonical name; any pre-existing `dest` is preserved. Stale `.part` from a previous run is removed before staging. |
 | N5  | Audit unused i18n keys                                        | 🟡       | ✅ Done        | Dropped `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` from `en.ini`/`sv.ini`/`pseudo.ini`; the overlay only uses `BodyReadyShort` (and the M8-era `BodyManualDownload`). pseudo.ini regenerated via `cargo run --bin generate_pseudo`. |
-| N6  | Refresh stale comments                                        | 🟡       | ⏳ Not started |                                                                                   |
+| N6  | Refresh stale comments                                        | 🟡       | ✅ Done        | Fixed `state.rs` module doc (was `Settings.ini`, actually `deadsync.ini`); rewrote `last_seen_tag` doc to drop the obsolete "M5 (channel wiring)" reference (M5 removed channels); replaced `(PR 10)` / `(PR 10b)` markers in `action.rs` and `download.rs` with the actual module path now that the UI overlay has shipped. |
 
 ---
 
@@ -423,8 +423,23 @@ lands so the rest of the document can stay descriptive.
 
 ### N6. Refresh stale comments
 
-- `src/engine/updater/state.rs:177-178, 208-210` still reference Daily
-  mode / config-driven frequency, which no longer exist.
+- **Problem:** `src/engine/updater/state.rs:177-178, 208-210` still
+  referenced Daily mode / config-driven frequency, which no longer
+  exist.
+- **Resolution:** the specific Daily / frequency comments were already
+  cleaned up by the M3/M4 work; this pass mopped up the remaining
+  stale references found by a fresh repo-wide grep:
+  - `state.rs` module doc said "user-editable `Settings.ini`" — the
+    actual filename is `deadsync.ini`. Fixed.
+  - `UpdaterCache::last_seen_tag` doc still pointed at "M5 (channel
+    wiring) will use it" — M5 actually *removed* channels. Rewrote
+    the comment to call the field "informational, kept for future
+    dismissal-tracking work" without the obsolete forward reference.
+  - `action.rs` and `download.rs` carried `(PR 10)` / `(PR 10b)`
+    in-progress markers from the original PR series. Replaced with
+    the concrete module path
+    (`screens::components::shared::update_overlay`) now that the UI
+    overlay has shipped.
 
 ---
 

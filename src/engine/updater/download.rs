@@ -17,7 +17,8 @@
 //!   bytes as they arrive, writes them to disk, and refuses to leave a
 //!   file behind on mismatch.
 //!
-//! No UI integration lives here — the screen layer (PR 10) calls these
+//! No UI integration lives here — the screen layer
+//! (`screens::components::shared::update_overlay`) calls these
 //! functions and decides what to do with the resulting path.
 
 use super::{user_agent, ReleaseAsset, UpdaterError};
@@ -286,7 +287,7 @@ pub fn staging_path(dest: &Path) -> PathBuf {
 /// removed and any pre-existing `dest` is left untouched.
 ///
 /// `progress` is invoked after every chunk with `(written, total_opt)`
-/// so the UI layer (PR 10) can render a progress bar.  The total may be
+/// so the UI layer can render a progress bar.  The total may be
 /// `None` if the server omits Content-Length; we fall back to the asset
 /// metadata in that case.
 ///

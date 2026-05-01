@@ -11,9 +11,9 @@
 //!   survives a 304 / offline launch.
 //!
 //! The persisted cache lives outside [`crate::config::Config`] on
-//! purpose.  Config is `Copy`, copied per-frame, and exposed in the user-
-//! editable `Settings.ini`.  The updater cache contains opaque ETag
-//! strings the user has no business seeing or editing.
+//! purpose.  Config is `Copy`, copied per-frame, and exposed in the
+//! user-editable `deadsync.ini`.  The updater cache contains opaque
+//! ETag strings the user has no business seeing or editing.
 
 use std::path::Path;
 use std::sync::{LazyLock, RwLock};
@@ -120,9 +120,10 @@ impl CachedRelease {
 #[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdaterCache {
     /// Tag string of the last release we successfully classified.
-    /// Currently informational; M5 (channel wiring) will use it to
-    /// suppress re-popping the "update available" overlay for a tag
-    /// the user has already dismissed.
+    /// Currently informational; kept persisted so future "remember
+    /// dismissals" work can suppress re-popping the overlay for a
+    /// tag the user has already acknowledged without changing the
+    /// on-disk cache schema.
     #[serde(default)]
     pub last_seen_tag: Option<String>,
     #[serde(default)]

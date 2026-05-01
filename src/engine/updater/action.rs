@@ -16,9 +16,9 @@
 //! disk.  The thin `request_*` helpers wrap a worker thread that calls
 //! into the existing fetch / download primitives.
 //!
-//! The UI overlay (PR 10b) renders [`ActionPhase`] and dispatches user
-//! input here; nothing in this module touches winit, fonts, or the
-//! renderer.
+//! The UI overlay (`screens::components::shared::update_overlay`)
+//! renders [`ActionPhase`] and dispatches user input here; nothing in
+//! this module touches winit, fonts, or the renderer.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
