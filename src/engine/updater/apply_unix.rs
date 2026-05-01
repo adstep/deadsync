@@ -174,11 +174,11 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
             .map_err(|e| super::io_err_at("create", &out_path, e))?;
         io::copy(&mut entry, &mut out)
             .map_err(|e| super::io_err_at("write", &out_path, e))?;
-        // M24: fsync the staged file's contents before it can be
-        // rename()'d into place. The C7 parent-dir fsync only makes
-        // the directory entry durable; without this, a power loss
-        // between rename and the next boot can resurrect a directory
-        // entry that points at zero/partial bytes.
+        // Fsync the staged file's contents before it can be
+        // rename()'d into place. The parent-dir fsync only makes the
+        // directory entry durable; without this, a power loss between
+        // rename and the next boot can resurrect a directory entry
+        // that points at zero/partial bytes.
         out.sync_all()
             .map_err(|e| super::io_err_at("sync_all", &out_path, e))?;
         // Preserve the executable bit on Unix; on Windows this is a
@@ -220,12 +220,12 @@ fn plan_ops(
         let target_existed = match fs::symlink_metadata(&target) {
             Ok(m) => {
                 if !m.is_file() {
-                    // M25: planner refuses to clobber a directory or
-                    // symlink with a regular file. The execute phase's
-                    // `rename` would otherwise move the entire subtree
-                    // aside as the "backup", and the `Applied` cleanup
-                    // would then fail trying to `remove_file` it,
-                    // wedging the journal forever.
+                    // Refuse to clobber a directory or symlink with a
+                    // regular file. The execute phase's `rename` would
+                    // otherwise move the entire subtree aside as the
+                    // "backup", and the `Applied` cleanup would then
+                    // fail trying to `remove_file` it, wedging the
+                    // journal forever.
                     return Err(UpdaterError::Io(format!(
                         "type mismatch for '{}': existing entry is not a regular file",
                         target.display(),
@@ -714,11 +714,11 @@ mod tests {
     #[test]
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn rollback_reports_dirty_when_restore_rename_fails() {
-        // M22: when rollback can't restore a target, the function
-        // must signal `clean = false` so the caller preserves the
-        // journal for the next launch's `recover` to retry.  We
-        // simulate the failure by pointing the op's `staged` path
-        // under a non-existent parent directory: the rollback's
+        // When rollback can't restore a target, the function must
+        // signal `clean = false` so the caller preserves the journal
+        // for the next launch's `recover` to retry.  We simulate the
+        // failure by pointing the op's `staged` path under a
+        // non-existent parent directory: the rollback's
         // `rename(target -> staged)` then fails with ENOENT.
         let exe_dir = tempdir("rb-dirty");
         let journal = Journal::new(&exe_dir);
@@ -740,8 +740,8 @@ mod tests {
     #[test]
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn plan_ops_rejects_directory_at_target() {
-        // M25: if the install tree currently has a directory where
-        // the new release wants to place a regular file, refuse the
+        // If the install tree currently has a directory where the
+        // new release wants to place a regular file, refuse the
         // apply at planning time. Otherwise execute_with_rollback's
         // `rename` would move the entire subtree to the backup path
         // and `Applied` cleanup would fail trying to `remove_file` a

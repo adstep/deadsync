@@ -140,10 +140,27 @@ pub fn apply_archive_and_relaunch(
     archive_path: &std::path::Path,
     expected_sha256: &[u8; 32],
 ) -> Result<(), super::UpdaterError> {
-    let exe_dir = exe_dir()?;
+    // Capture the install-tree path of the currently-running binary
+    // BEFORE any apply renames touch the filesystem.  On Linux (and
+    // historically macOS) `std::env::current_exe()` resolves through
+    // `/proc/self/exe`, which after apply points at the renamed-out
+    // backup `<exe>.deadsync-bak-<token>`, not the new binary at the
+    // original path.  Spawning that backup would run the *old* binary
+    // against the new install tree, and its recovery pass would then
+    // delete the very file it's executing.
+    let original_exe = std::env::current_exe()
+        .map_err(|e| super::UpdaterError::Io(format!("current_exe: {e}")))?;
+    let exe_dir = original_exe
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| super::UpdaterError::Io("exe has no parent dir".to_string()))?;
+    let relaunch_target = match original_exe.file_name() {
+        Some(name) => exe_dir.join(name),
+        None => original_exe.clone(),
+    };
     reverify_archive(archive_path, expected_sha256)?;
     apply_for_host(archive_path, &exe_dir)?;
-    relaunch_self(&exe_dir)?;
+    relaunch_self(&relaunch_target)?;
     Ok(())
 }
 
@@ -192,36 +209,13 @@ fn apply_for_host(
     ))
 }
 
-fn exe_dir() -> Result<PathBuf, super::UpdaterError> {
-    let exe = std::env::current_exe()
-        .map_err(|e| super::UpdaterError::Io(format!("current_exe: {e}")))?;
-    exe.parent()
-        .map(PathBuf::from)
-        .ok_or_else(|| super::UpdaterError::Io("exe has no parent dir".to_string()))
-}
-
-#[cfg(windows)]
-fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
+#[cfg(any(windows, target_os = "linux", target_os = "freebsd"))]
+fn relaunch_self(exe: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
-    let _ = exe_dir;
-    let exe = std::env::current_exe()
-        .map_err(|e| super::UpdaterError::Io(format!("current_exe: {e}")))?;
     // No `--cleanup-old <path>` is needed anymore: the new process
     // discovers the apply journal at its install root and runs
     // recovery unconditionally on startup.
-    Command::new(&exe)
-        .arg("--restart")
-        .spawn()
-        .map_err(|e| super::UpdaterError::Io(format!("spawn new exe: {e}")))?;
-    Ok(())
-}
-
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
-    use std::process::Command;
-    let exe = std::env::current_exe()
-        .map_err(|e| super::UpdaterError::Io(format!("current_exe: {e}")))?;
-    Command::new(&exe)
+    Command::new(exe)
         .arg("--restart")
         .spawn()
         .map_err(|e| super::UpdaterError::Io(format!("spawn new exe: {e}")))?;
@@ -229,7 +223,7 @@ fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> 
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "freebsd")))]
-fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
+fn relaunch_self(_exe: &std::path::Path) -> Result<(), super::UpdaterError> {
     Ok(())
 }
 

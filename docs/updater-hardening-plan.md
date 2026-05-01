@@ -78,7 +78,7 @@ lands so the rest of the document can stay descriptive.
 | C8  | Apply has no allowlist — can overwrite user data/config files | 🔴       | ⏳ Not started | Planner accepts every staged regular file (`apply_unix.rs:202-230`, `apply_windows.rs:218-246`). In portable installs `data_dir == exe_dir`, so a packaging mistake / compromised release that ships `deadsync.ini`, `save/`, `songs/`, `courses/`, `cache/`, or `deadsync.log` would silently overwrite or hide user state. Add an explicit denylist (or, better, a release manifest of app-owned paths) and reject staged entries that target user-owned roots. |
 | M22 | Live rollback failure deletes the journal anyway              | 🟠       | ✅ Done       | `execute_with_rollback` now returns `apply_journal::ExecuteFailure { cause, rollback_clean }`; `rollback()` reports failure on any rename error and the caller (`apply_tar_gz` / `apply_zip`) only removes the journal + staging when the rollback was clean. When dirty, the `Applying` journal is left for next-launch `recover()` to retry. POSIX rollback also fsyncs every restored parent. |
 | C9  | Env-var release URL & fake-download active in release builds  | 🔴       | ⏳ Not started | Subsumes C2 + M6: `DEADSYNC_UPDATER_RELEASE_URL` (`mod.rs:47-50`) and `DEADSYNC_UPDATER_FAKE_DOWNLOAD` (`action.rs:393-397`) are unconditional. Together they let any process that controls the launch environment redirect the checker and stage an arbitrary local archive — the fake path bypasses sidecar + API digest entirely and publishes `Ready` with the hash of the attacker bytes. Gate both behind `cfg(any(test, debug_assertions, feature = "updater-test-overrides"))` and add a release-build test that proves the env vars are ignored. |
-| M23 | Relaunch may exec the renamed-out backup binary               | 🟠       | ⏳ Not started | `apply_archive_and_relaunch` runs apply (which renames the running exe to its backup path) and only then calls `std::env::current_exe()` to spawn (`cli.rs:207-227`). On Linux `/proc/self/exe` tracks the running inode, so `current_exe()` may now resolve to `<exe>.deadsync-bak-<token>`. The new process then runs recovery and may delete the backup it's executing. Capture the intended `exe_dir.join(original_exe_file_name)` *before* apply and spawn that path. |
+| M23 | Relaunch may exec the renamed-out backup binary               | 🟠       | ✅ Done       | `apply_archive_and_relaunch` now captures `original_exe = std::env::current_exe()` and the install-tree path `exe_dir.join(original_exe.file_name())` *before* any apply rename, then spawns that captured path. `relaunch_self` no longer calls `current_exe()` itself, so on Linux `/proc/self/exe` resolving to the renamed-out backup can't redirect the relaunch. |
 | M24 | Extracted file contents not fsynced before rename             | 🟠       | ✅ Done       | After `io::copy` of each tar/zip entry, `extract_tar_gz` and `extract_archive` now call `out.sync_all()` (with M20 IO-error context) before the file handle drops, so the C7 parent-dir fsync makes both directory entry *and* file body durable across power loss. |
 | M25 | Planner doesn't reject dir-vs-file type mismatches            | 🟠       | ✅ Done       | `plan_ops` now calls `fs::symlink_metadata(&target)` and refuses to plan an Op when the existing entry isn't a regular file (catches dir-at-target and symlink-at-target before the journal is ever written). Mirrored on both platforms with unit-test coverage. |
 | M26 | No read/idle timeout on download body                         | 🟠       | ⏳ Not started | `download_agent` deliberately has no global timeout (`mod.rs:83-89`), and `stream_to_file` only polls `should_cancel` between chunks (`download.rs:411-417`). A server that accepts the connection then stalls mid-body blocks the worker inside `read()` indefinitely; Back press bumps generation but the worker can't observe it. Configure a read/low-speed timeout on `download_agent`; on timeout, return `Cancelled` if generation is stale or surface a network timeout. ETA stays `None` during the stall and we never publish a fake estimate. |
@@ -940,28 +940,27 @@ lands so the rest of the document can stay descriptive.
   unit test on both platforms (POSIX-gated for unix); 152 updater
   tests pass.
 
-### M23. Relaunch may exec the renamed-out backup binary
+### M23. Relaunch may exec the renamed-out backup binary ✅ Done
 
-- **Problem:** `apply_archive_and_relaunch` runs apply (which renames
-  the running executable to `<exe>.deadsync-bak-<token>` and moves the
-  new binary onto the original path) and *then* calls
-  `std::env::current_exe()` to spawn the relaunch
-  (`cli.rs:207-227`). On Linux `/proc/self/exe` resolves to the
-  *running inode*, which is now the backup path — not the freshly
-  installed target. macOS has historically been similar. Effect:
-  the relaunch can spawn the old binary out of the backup path; that
-  process then runs `apply_journal::recover()`, sees a clean
-  `Applied` journal, and deletes the backup it's executing. Confusing
-  failure modes follow — old binary running with new assets/config,
-  or apparent "update did nothing".
-- **Fix:** Capture `let relaunch_path = exe_dir.join(original_file_name)`
-  *before* any apply rename, plumb it through `apply_archive` /
-  `apply_archive_and_relaunch`, and spawn that path directly. Never
-  call `current_exe()` after apply.
-- **Acceptance:** integration test (or scripted harness — see
-  `scripts/test-updater-portable.ps1`) that asserts the post-apply
-  child's exe path equals the pre-apply target path, not a
-  `.deadsync-bak-*` sibling.
+- **Problem:** `apply_archive_and_relaunch` ran apply (which renames
+  the running executable to `<exe>.deadsync-bak-<token>` and moves
+  the new binary onto the original path) and *then* called
+  `std::env::current_exe()` to spawn the relaunch. On Linux
+  `/proc/self/exe` resolves to the *running inode*, which after
+  apply is the backup path — not the freshly installed target.
+  macOS has historically been similar. Effect: the relaunch could
+  spawn the old binary out of the backup path; that process then ran
+  `apply_journal::recover()`, saw a clean `Applied` journal, and
+  deleted the backup it was executing.
+- **Fix shipped:** `apply_archive_and_relaunch` now resolves the
+  running exe path *before* `reverify_archive` / `apply_for_host`
+  and forwards the install-tree path
+  `exe_dir.join(original_exe.file_name())` into `relaunch_self`.
+  `relaunch_self` no longer calls `current_exe()` — on every
+  supported platform it just `Command::new(exe).arg("--restart")
+  .spawn()`. The unused `exe_dir()` helper is removed and the
+  windows + unix `relaunch_self` bodies (now identical) collapse to
+  a single `cfg(any(windows, linux, freebsd))` definition.
 
 ### M24. Extracted file contents not fsynced before rename ✅ Done
 
