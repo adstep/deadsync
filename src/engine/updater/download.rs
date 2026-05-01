@@ -153,6 +153,84 @@ pub fn parse_checksum_sidecar(
     )))
 }
 
+/// Parse GitHub's release-asset `digest` field, which has the form
+/// `"<algo>:<hex>"` (e.g. `"sha256:abcdef..."`).  Returns the raw 32-byte
+/// SHA-256 digest, or:
+///
+/// * `Ok(None)` if the algorithm prefix is recognised but isn't sha256
+///   (we have no way to verify it, so callers should skip the API
+///   cross-check rather than fail closed); and
+/// * `Err(ChecksumSidecarMalformed)` if the value is otherwise unparseable
+///   (missing colon, bad hex, wrong digest length, etc.).
+///
+/// Used by the apply pipeline to cross-check that GitHub's API agrees
+/// with the `.sha256` sidecar before we trust either.
+pub fn parse_api_digest(value: &str) -> Result<Option<[u8; 32]>, UpdaterError> {
+    let trimmed = value.trim();
+    let (algo, hex) = trimmed.split_once(':').ok_or_else(|| {
+        UpdaterError::ChecksumSidecarMalformed(format!(
+            "api digest '{trimmed}' missing algorithm prefix"
+        ))
+    })?;
+    if !algo.eq_ignore_ascii_case("sha256") {
+        return Ok(None);
+    }
+    parse_hex32(hex.trim())
+        .map(Some)
+        .ok_or_else(|| {
+            UpdaterError::ChecksumSidecarMalformed(format!(
+                "api digest '{trimmed}' is not a valid sha256 hex value"
+            ))
+        })
+}
+
+/// Cross-check GitHub's `assets[].digest` field against the parsed `.sha256`
+/// sidecar digest before we trust either as the verification target.
+///
+/// * `Ok(())` — either the API didn't surface a digest, the algorithm is
+///   one we can't verify (skipped), or the API digest matched the sidecar.
+/// * `Err(ChecksumMismatch)` — the API digest is sha256 and disagrees
+///   with the sidecar; this almost certainly indicates a tampered sidecar
+///   or a broken release publish, and we must fail closed.
+/// * `Err(ChecksumSidecarMalformed)` — the API digest exists but is
+///   syntactically broken (missing prefix / bad hex).
+///
+/// Returns the cross-check outcome via [`ApiDigestCheck`] so callers
+/// can log the "skipped" case differently from the "matched" case
+/// without re-parsing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ApiDigestCheck {
+    /// No `digest` field on the asset.
+    Absent,
+    /// API digest used a non-sha256 algorithm we can't verify.
+    UnsupportedAlgorithm,
+    /// API digest matched the sidecar — proceed.
+    Matched,
+}
+
+pub fn cross_check_api_digest(
+    api_digest: Option<&str>,
+    sidecar_digest: &[u8; 32],
+) -> Result<ApiDigestCheck, UpdaterError> {
+    let raw = match api_digest {
+        Some(s) => s,
+        None => return Ok(ApiDigestCheck::Absent),
+    };
+    match parse_api_digest(raw)? {
+        None => Ok(ApiDigestCheck::UnsupportedAlgorithm),
+        Some(api_bytes) => {
+            if &api_bytes == sidecar_digest {
+                Ok(ApiDigestCheck::Matched)
+            } else {
+                Err(UpdaterError::ChecksumMismatch {
+                    expected: format!("api={}", sha256_hex(&api_bytes)),
+                    actual: format!("sidecar={}", sha256_hex(sidecar_digest)),
+                })
+            }
+        }
+    }
+}
+
 /// Build the canonical sidecar URL for a release asset.
 ///
 /// CI publishes `<archive>.sha256` alongside the archive at the same
@@ -369,6 +447,95 @@ mod tests {
     #[test]
     fn parse_sidecar_errors_on_empty_filename() {
         let err = parse_checksum_sidecar("anything", "").unwrap_err();
+        assert!(matches!(err, UpdaterError::ChecksumSidecarMalformed(_)));
+    }
+
+    #[test]
+    fn parse_api_digest_accepts_sha256_lowercase() {
+        let value = format!("sha256:{ZERO_DIGEST_HEX}");
+        let parsed = parse_api_digest(&value).unwrap().unwrap();
+        assert_eq!(sha256_hex(&parsed), ZERO_DIGEST_HEX);
+    }
+
+    #[test]
+    fn parse_api_digest_accepts_uppercase_algo_and_hex() {
+        let upper = ZERO_DIGEST_HEX.to_uppercase();
+        let value = format!("SHA256:{upper}");
+        let parsed = parse_api_digest(&value).unwrap().unwrap();
+        assert_eq!(sha256_hex(&parsed), ZERO_DIGEST_HEX);
+    }
+
+    #[test]
+    fn parse_api_digest_unknown_algorithm_returns_none() {
+        // sha512 / blake3 / etc. — we have no plumbing to verify those,
+        // so callers should skip the API cross-check rather than fail.
+        let parsed = parse_api_digest(&format!("sha512:{}", "a".repeat(128))).unwrap();
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn parse_api_digest_missing_prefix_errors() {
+        let err = parse_api_digest(ZERO_DIGEST_HEX).unwrap_err();
+        assert!(matches!(err, UpdaterError::ChecksumSidecarMalformed(_)));
+    }
+
+    #[test]
+    fn parse_api_digest_bad_hex_errors() {
+        let err = parse_api_digest("sha256:not-a-real-hex-value").unwrap_err();
+        assert!(matches!(err, UpdaterError::ChecksumSidecarMalformed(_)));
+    }
+
+    #[test]
+    fn parse_api_digest_wrong_length_errors() {
+        let err = parse_api_digest(&format!("sha256:{}", "a".repeat(63))).unwrap_err();
+        assert!(matches!(err, UpdaterError::ChecksumSidecarMalformed(_)));
+    }
+
+    #[test]
+    fn cross_check_api_digest_returns_absent_when_field_missing() {
+        let sidecar = sha256_of(b"payload");
+        assert_eq!(
+            cross_check_api_digest(None, &sidecar).unwrap(),
+            ApiDigestCheck::Absent
+        );
+    }
+
+    #[test]
+    fn cross_check_api_digest_returns_matched_when_equal() {
+        let sidecar = sha256_of(b"payload");
+        let api = format!("sha256:{}", sha256_hex(&sidecar));
+        assert_eq!(
+            cross_check_api_digest(Some(&api), &sidecar).unwrap(),
+            ApiDigestCheck::Matched
+        );
+    }
+
+    #[test]
+    fn cross_check_api_digest_skips_unsupported_algorithm() {
+        let sidecar = sha256_of(b"payload");
+        // sha512 — present but unverifiable by this client.
+        let api = format!("sha512:{}", "a".repeat(128));
+        assert_eq!(
+            cross_check_api_digest(Some(&api), &sidecar).unwrap(),
+            ApiDigestCheck::UnsupportedAlgorithm
+        );
+    }
+
+    #[test]
+    fn cross_check_api_digest_fails_closed_on_mismatch() {
+        // Detects a swapped/tampered sidecar: GitHub's API digest is the
+        // ground truth, the .sha256 file is mirrored alongside the asset.
+        let sidecar = sha256_of(b"payload");
+        let bogus = sha256_of(b"different bytes");
+        let api = format!("sha256:{}", sha256_hex(&bogus));
+        let err = cross_check_api_digest(Some(&api), &sidecar).unwrap_err();
+        assert!(matches!(err, UpdaterError::ChecksumMismatch { .. }));
+    }
+
+    #[test]
+    fn cross_check_api_digest_propagates_parse_errors() {
+        let sidecar = sha256_of(b"payload");
+        let err = cross_check_api_digest(Some("garbage"), &sidecar).unwrap_err();
         assert!(matches!(err, UpdaterError::ChecksumSidecarMalformed(_)));
     }
 

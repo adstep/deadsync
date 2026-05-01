@@ -25,7 +25,8 @@ use std::sync::{LazyLock, Mutex, RwLock};
 use std::thread;
 
 use super::download::{
-    download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
+    cross_check_api_digest, download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
+    ApiDigestCheck,
 };
 use super::{
     apply_supported_for_host, classify, expected_asset_name, fetch_latest_release, host_target,
@@ -314,6 +315,28 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
             return;
         }
     };
+    if let Some(api_digest) = asset.digest.as_deref() {
+        match cross_check_api_digest(Some(api_digest), &expected) {
+            Ok(ApiDigestCheck::Matched) => {}
+            Ok(ApiDigestCheck::UnsupportedAlgorithm) => {
+                log::info!(
+                    "Skipping API digest cross-check for {}: unsupported algorithm in '{}'",
+                    asset.name,
+                    api_digest
+                );
+            }
+            Ok(ApiDigestCheck::Absent) => unreachable!("guarded by Some(_)"),
+            Err(err) => {
+                log::warn!(
+                    "GitHub API digest cross-check failed for {} (api='{}'): {err}",
+                    asset.name,
+                    api_digest
+                );
+                set_phase(classify_error(&err));
+                return;
+            }
+        }
+    }
     let dest = downloads_dir().join(&asset.name);
 
     let info_for_progress = info.clone();

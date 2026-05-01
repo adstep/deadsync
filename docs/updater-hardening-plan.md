@@ -56,7 +56,7 @@ lands so the rest of the document can stay descriptive.
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
 | N1  | ETag bookkeeping                                              | 🟡       | ✅ Done        | `apply_fresh_to_cache` lifted out of `run_check_once` and now overwrites `etag` unconditionally so a Fresh-without-ETag drops the previous value instead of carrying it into the next `If-None-Match`. Channel-scoping deferred: M5 removed `UpdateChannel`, so there's only one release URL today. |
-| N2  | Verify GitHub's API `digest` field too                        | 🟡       | ⏳ Not started |                                                                                   |
+| N2  | Verify GitHub's API `digest` field too                        | 🟡       | ✅ Done        | New `cross_check_api_digest` helper compares `assets[].digest` (e.g. `sha256:…`) against the parsed `.sha256` sidecar before downloading; mismatch fails closed via `ChecksumMismatch`, unsupported algorithms log-and-skip, missing field is no-op. Wired into `action::run_download`. |
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ⏳ Not started |                                                                                   |
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ⏳ Not started |                                                                                   |
 | N5  | Audit unused i18n keys                                        | 🟡       | ⏳ Not started |                                                                                   |
@@ -327,11 +327,30 @@ lands so the rest of the document can stay descriptive.
 
 ### N2. Verify GitHub's API `digest` field too
 
-- `ReleaseAsset.digest` is captured (`src/engine/updater/mod.rs:60-69`)
-  and shown in the UI
+- **Problem:** `ReleaseAsset.digest` is captured
+  (`src/engine/updater/mod.rs:60-69`) and shown in the UI
   (`src/screens/components/shared/update_overlay.rs:302-307`) but is
   not used for verification. If present, fail closed on any mismatch
   between API digest, sidecar, and downloaded bytes.
+- **Resolution:** added two pure helpers in
+  `src/engine/updater/download.rs`:
+  - `parse_api_digest(value)` parses GitHub's `"<algo>:<hex>"` form;
+    returns `Some([u8; 32])` for sha256, `None` for any other
+    algorithm we can't verify, and `Err(ChecksumSidecarMalformed)`
+    on bad syntax.
+  - `cross_check_api_digest(api, sidecar) -> ApiDigestCheck` compares
+    the parsed API digest to the sidecar digest, returning `Absent`
+    / `UnsupportedAlgorithm` / `Matched`, or `Err(ChecksumMismatch)`
+    when the API digest is sha256 and disagrees with the sidecar.
+  Wired into `action::run_download` between sidecar parsing and the
+  streaming download — a mismatch now flips the UI to the same error
+  phase as a downloaded-bytes mismatch, before any payload bytes
+  cross the wire.
+- **Tests:** seven new unit tests in `download::tests` covering the
+  algo-prefix parser (lower/upper case, unknown algo, missing prefix,
+  bad hex, wrong length) plus the four cross-check branches
+  (Absent / Matched / UnsupportedAlgorithm / mismatch fails closed /
+  parse error propagated).
 
 ### N3. Add cancellation during long checks/downloads
 
