@@ -24,6 +24,9 @@ pub mod state;
 pub mod apply_windows;
 
 #[cfg(feature = "self-update")]
+pub mod apply_journal;
+
+#[cfg(feature = "self-update")]
 pub mod apply_unix;
 
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures
