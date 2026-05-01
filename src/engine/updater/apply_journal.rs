@@ -628,9 +628,8 @@ mod tests {
 
     #[test]
     fn recover_does_not_touch_user_old_files() {
-        // Regression for C3 in docs/updater-hardening-plan.md: a file
-        // ending in `.old` under the install root must survive
-        // recovery completely untouched.
+        // Regression test: a file ending in `.old` under the install
+        // root must survive recovery completely untouched.
         let dir = tempdir("user-old-safe");
         fs::create_dir_all(dir.join("songs")).unwrap();
         let user_file = dir.join("songs/foo.old");

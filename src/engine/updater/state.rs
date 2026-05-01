@@ -120,10 +120,9 @@ impl CachedRelease {
 #[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdaterCache {
     /// Tag string of the last release we successfully classified.
-    /// Currently informational; kept persisted so future "remember
-    /// dismissals" work can suppress re-popping the overlay for a
-    /// tag the user has already acknowledged without changing the
-    /// on-disk cache schema.
+    /// Informational; persisted alongside the ETag so the cache file
+    /// records both the conditional-request key and the release it
+    /// applied to.
     #[serde(default)]
     pub last_seen_tag: Option<String>,
     #[serde(default)]
@@ -261,12 +260,12 @@ fn env_opt_out() -> bool {
 /// * The ETag is overwritten **unconditionally**, even when the server
 ///   omits it.  Holding on to a stale ETag from a previous response
 ///   would let the next `If-None-Match` header match an unrelated
-///   payload and trigger a spurious 304 (N1).
+///   payload and trigger a spurious 304.
 /// * `cached_release` is set on `Available`, cleared on `UpToDate`, and
 ///   left untouched on `UnknownLatest`: clearing on UpToDate keeps an
 ///   out-of-date snapshot from re-appearing after the user updates;
 ///   leaving it on UnknownLatest is a no-op because we never wrote one
-///   in that case (M3).
+///   in that case.
 pub fn apply_fresh_to_cache(
     mut prev: UpdaterCache,
     state: &UpdateState,
@@ -409,8 +408,8 @@ mod tests {
 
     #[test]
     fn legacy_cache_without_cached_release_loads_with_none() {
-        // Files written by older builds (pre-M3) lack the cached_release
-        // key entirely; serde must not reject them.
+        // Files written by older builds (before cached_release was
+        // added) lack the key entirely; serde must not reject them.
         let dir = tempdir_for("updater-cache-legacy");
         let path = dir.join(CACHE_FILENAME);
         std::fs::create_dir_all(&dir).unwrap();
@@ -444,7 +443,7 @@ mod tests {
 
     #[test]
     fn apply_fresh_clears_etag_when_response_has_none() {
-        // N1: GitHub almost always returns an ETag, but if a response
+        // GitHub almost always returns an ETag, but if a response
         // ever omits it we must drop the previous one rather than carry
         // a stale value into the next If-None-Match (which could match
         // an unrelated payload and trigger a spurious 304).

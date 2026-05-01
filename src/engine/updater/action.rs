@@ -74,7 +74,7 @@ pub enum ActionPhase {
     /// The download finished and the file passed checksum verification.
     /// `path` is the absolute on-disk path to the verified archive.
     /// `sha256` is persisted with the snapshot so the apply step can
-    /// re-verify the file immediately before extraction (M2): a long
+    /// re-verify the file immediately before extraction: a long
     /// gap between download and apply, on-disk corruption, or tampering
     /// would otherwise install a different archive than the one we
     /// verified at download time.

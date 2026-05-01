@@ -135,7 +135,7 @@ pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
 /// Lower-level apply: caller has already chosen the archive (e.g. via
 /// the [`super::action::ActionPhase::Ready`] snapshot) and is responsible
 /// for any phase bookkeeping.  Re-hashes the staged file and verifies
-/// against `expected_sha256` before extraction (M2) so that any
+/// against `expected_sha256` before extraction so that any
 /// modification, corruption, or mid-flight tampering between download
 /// and apply surfaces as [`super::UpdaterError::ChecksumMismatch`]
 /// rather than installing a different archive than the one the user
@@ -345,7 +345,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("archive.bin");
-        let payload = b"deadsync-test-payload-m2";
+        let payload = b"deadsync-test-payload";
         std::fs::write(&path, payload).unwrap();
         let expected = super::super::download::sha256_of(payload);
 
