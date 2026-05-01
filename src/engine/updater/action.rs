@@ -599,10 +599,10 @@ pub fn request_apply() {
     set_phase(ActionPhase::Applying { info: info.clone() });
     let _ = thread::Builder::new()
         .name("deadsync-updater-apply".to_owned())
-        .spawn(move || run_apply(path, sha256));
+        .spawn(move || run_apply(info, path, sha256));
 }
 
-fn run_apply(archive_path: PathBuf, expected_sha256: [u8; 32]) {
+fn run_apply(info: super::ReleaseInfo, archive_path: PathBuf, expected_sha256: [u8; 32]) {
     match super::cli::apply_archive_and_relaunch(&archive_path, &expected_sha256) {
         Ok(super::cli::ApplyOutcome::Relaunched) => {
             log::info!("Self-update applied; exiting to let new process take over");
@@ -615,24 +615,14 @@ fn run_apply(archive_path: PathBuf, expected_sha256: [u8; 32]) {
             // tree is risky, but auto-exiting would also be hostile
             // (the user may not realise what happened).  Surface a
             // dedicated phase so the overlay can ask for a manual
-            // restart, and log loudly for triage.
+            // restart, and log loudly for triage.  We use the `info`
+            // captured at spawn time -- not `current()` -- so a
+            // dismissal or error transition that races with the apply
+            // worker can't strand the user on the old binary without
+            // a restart prompt.
             log::warn!(
                 "Self-update applied but relaunch failed: {detail}; manual restart required",
             );
-            let info = match current() {
-                ActionPhase::Applying { info } => info,
-                other => {
-                    // Worker raced with a cancel/dismiss; fall back
-                    // to the most informative phase we can produce
-                    // from what's still in scope.  This is defensive
-                    // -- request_apply only spawns from Ready, which
-                    // transitions through Applying.
-                    log::warn!(
-                        "apply worker observed unexpected phase {other:?} on relaunch failure",
-                    );
-                    return;
-                }
-            };
             set_phase(ActionPhase::AppliedRestartRequired { info, detail });
         }
         Err(err) => {

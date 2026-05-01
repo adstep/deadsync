@@ -87,7 +87,7 @@ lands so the rest of the document can stay descriptive.
 | M29 | Future-version journal recovery is silent                     | 🟡       | ✅ Done | When `Journal::load` parses a journal whose state is unknown (e.g. a downgraded/old binary picking up a newer-format journal), `recover()` leaves it untouched and returns a no-op `RecoveryReport` with no warning log (`apply_journal.rs:210-216, 449-458`). Add a `log::warn!` so the stuck state is visible in support reports. |
 | M30 | Progress publication is per-chunk and clones release metadata | 🟡       | ✅ Done | `download_to_file`'s progress closure fires every 64 KiB and clones `ReleaseInfo` + `ReleaseAsset` into a fresh `Downloading` phase under the `PHASE` write lock (`action.rs:454-489`). On a fast connection or large future archive that's a lot of allocator/lock churn for no UI benefit. Throttle to ~5–10 Hz plus a final update, or only publish when `(percent, eta_bucket)` actually changes. |
 | M31 | Redirect host pinning isn't explicit                          | 🟡       | ⏳ Not started | M18 sanitizes cached URLs and N2 cross-checks the API digest, but live asset/sidecar requests follow whatever redirect chain GitHub returns without an explicit allowlist (`download.rs:241-256, 324-329`). GitHub release downloads do legitimately redirect to GitHub-owned object/CDN hosts, so the policy needs to be written down (and ideally enforced) rather than implicit. Becomes much less load-bearing once C1 (signature verification) ships, since CDN host trust would no longer be the security boundary. |
-| C10 | Apply-ok-relaunch-fail dropped when overlay dismissed mid-apply | 🔴      | ⏳ Not started | `run_apply` reads `current()` to recover the `info` for `AppliedRestartRequired` (`action.rs:622-634`). If the user dismissed the overlay during `Applying`, the phase is `Idle`, the worker logs the race and returns without publishing anything. The install tree is on the new version with an `Applied` journal, but the user is never told to restart and keeps running the old binary against the new tree. Construct a fallback `info` from the journal / `Ready` snapshot / persisted cache and publish `AppliedRestartRequired` unconditionally on `AppliedNoRelaunch`. |
+| C10 | Apply-ok-relaunch-fail dropped when overlay dismissed mid-apply | 🔴      | ✅ Done        | `request_apply` now passes the captured `ReleaseInfo` into `run_apply` (`action.rs:590-636`); the `AppliedNoRelaunch` arm publishes `AppliedRestartRequired { info, detail }` directly using the move-captured `info` instead of re-reading `current()`. A dismissal that races with the apply worker can no longer strand the user on the old binary without a restart prompt — the install committed, the journal is `Applied`, and the overlay is guaranteed to surface the restart-required phase. |
 | C11 | Windows live rollback can't replace stale `target` after mid-rename crash | 🔴 | ⏳ Not started | `apply_windows::rollback` calls `fs::rename(&op.backup, &op.target)` (`apply_windows.rs:363-379`) without first removing `op.target`. On Windows `fs::rename` refuses to overwrite, so a crash in the narrow window between `rename(target → backup)` and `rename(staged → target)` leaves a stale `target` that wedges the live rollback with `AlreadyExists`. The journal recovery path already handles this (`apply_journal.rs:515-525`); mirror the same pre-`remove_file` step in the live rollback. |
 | C12 | Windows release sidecar may carry a UTF-8 BOM                 | 🔴       | ❎ Won't fix    | Investigated and dismissed: `shell: pwsh` runs PowerShell 7+ on .NET 5+, where `[System.IO.File]::WriteAllText(path, contents)` defaults to `UTF8NoBOM` (verified locally on pwsh 7.6.1; first bytes were `61 62 63`). The actual v0.3.876 Windows sidecar published from this workflow starts with `66 33 61 61` (= "f3aa…"), pure hex, no BOM. The original review finding assumed .NET Framework semantics. |
 | M32 | `run_check_once` reads cache twice without holding the lock   | 🟠       | ⏳ Not started | `state.rs:330` reads `cache().etag.clone()` and later passes a fresh `cache()` snapshot to `apply_fresh_to_cache` (`state.rs:367`). The two reads aren't atomic with respect to `write_cache`. Single-threaded today (only the startup worker calls it), but fragile against any future second caller. Capture once: `let prev = cache(); let prev_etag = prev.etag.clone(); …; let next = apply_fresh_to_cache(prev, …);`. |
@@ -1260,32 +1260,28 @@ Harness suggestion: use the existing portable test script
 
 
 
-### C10. Apply-ok-relaunch-fail dropped when overlay dismissed mid-apply
+### C10. Apply-ok-relaunch-fail dropped when overlay dismissed mid-apply ✅ Done
 
-- **Problem:** `run_apply` (`action.rs:611-636`) handles
+- **Problem:** `run_apply` (`action.rs:611-636`) handled
   `ApplyOutcome::AppliedNoRelaunch { detail }` by reading
-  `current()` to recover the `ReleaseInfo` it needs to publish
+  `current()` to recover the `ReleaseInfo` it needed to publish
   `ActionPhase::AppliedRestartRequired { info, detail }`. If the user
   dismissed the overlay between `set_phase(Applying)` and the worker
-  reaching this branch, the phase is `Idle` (or anything else),
-  `current()` returns no `Applying` payload, and the fallback at
-  line 633 silently returns. The install tree is now on the new
-  version, the journal is in `Applied` state (cleanup runs next
-  launch), but **the user is never told they need to restart**. They
-  keep running the old binary against the new install tree until
-  something incompatible breaks or they restart for unrelated reasons.
-- **Fix:** Always publish `AppliedRestartRequired` on
-  `AppliedNoRelaunch`. Capture the `ReleaseInfo` *before* spawning
-  `run_apply` (we already have it at the `request_apply` call
-  site) and pass it into the worker so the publish step doesn't depend
-  on a phase lookup that can race with dismissal. Alternatively
-  reconstruct `info` from the `Applied` journal entry or from
-  persisted cache (`state::cache().cached_release`).
-- **Acceptance:** unit test that drives `run_apply` with a stub
-  `apply_archive_and_relaunch` returning `AppliedNoRelaunch`,
-  toggles `current()` to `Idle` before the worker checks, and
-  asserts the published phase is `AppliedRestartRequired` with the
-  expected info and detail.
+  reaching this branch, the phase was `Idle` (or anything else),
+  `current()` returned no `Applying` payload, and the fallback
+  silently returned. The install tree was on the new version, the
+  journal was `Applied` (cleanup runs next launch), but **the user
+  was never told they needed to restart** -- they kept running the
+  old binary against the new install tree until something
+  incompatible broke or they restarted for unrelated reasons.
+- **Resolution:** `request_apply` now move-captures the
+  `ReleaseInfo` it already has from the `Ready` phase and passes it
+  into `run_apply(info, archive_path, expected_sha256)`. The
+  `AppliedNoRelaunch` arm publishes
+  `AppliedRestartRequired { info, detail }` directly from the
+  captured value with no `current()` lookup, so any racing dismissal
+  / error transition is harmlessly overwritten by the
+  install-already-committed state.
 
 ### C11. Windows live rollback can't replace stale `target` after mid-rename crash
 
