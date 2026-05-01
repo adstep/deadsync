@@ -338,7 +338,7 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
                 progress.or(Some(0.0)),
             )
         }
-        ActionPhase::Ready { info: _info, path: _path } => (
+        ActionPhase::Ready { info: _info, path: _path, .. } => (
             tr("Updater", "TitleReady").to_string(),
             vec![tr("Updater", "BodyReadyShort").to_string()],
             tr("Updater", "FooterInstall").to_string(),
@@ -618,6 +618,7 @@ mod tests {
         let phase = ActionPhase::Ready {
             info: r,
             path: PathBuf::from("/tmp/deadsync-v9.9.9-x86_64-linux.tar.gz"),
+            sha256: [0u8; 32],
         };
         let (_t, body, footer, _p) = phase_strings(&phase);
         assert_eq!(phase_version_tag(&phase).as_deref(), Some("v9.9.9"));

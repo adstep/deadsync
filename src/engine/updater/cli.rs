@@ -121,30 +121,54 @@ pub fn run_cleanup(exe_dir: &std::path::Path, staging_dir: &std::path::Path) -> 
 pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
     use super::action::{ActionPhase, current, dismiss};
     let phase = current();
-    let (archive_path, _info) = match phase {
-        ActionPhase::Ready { path, info } => (path, info),
+    let (archive_path, _info, sha256) = match phase {
+        ActionPhase::Ready { path, info, sha256 } => (path, info, sha256),
         _ => return Ok(false),
     };
     // Always clear the snapshot so the UI doesn't re-prompt if apply
     // bails out below.
     dismiss();
-    apply_archive_and_relaunch(&archive_path)?;
+    apply_archive_and_relaunch(&archive_path, &sha256)?;
     Ok(true)
 }
 
 /// Lower-level apply: caller has already chosen the archive (e.g. via
 /// the [`super::action::ActionPhase::Ready`] snapshot) and is responsible
-/// for any phase bookkeeping.  Performs the platform-specific extract +
-/// swap, then spawns the new process with the appropriate cleanup
-/// arguments.  Caller should `std::process::exit(0)` on success to
-/// release any binary locks (Windows in particular).
+/// for any phase bookkeeping.  Re-hashes the staged file and verifies
+/// against `expected_sha256` before extraction (M2) so that any
+/// modification, corruption, or mid-flight tampering between download
+/// and apply surfaces as [`super::UpdaterError::ChecksumMismatch`]
+/// rather than installing a different archive than the one the user
+/// approved.  Then performs the platform-specific extract + swap and
+/// spawns the new process with the appropriate cleanup arguments.
+/// Caller should `std::process::exit(0)` on success to release any
+/// binary locks (Windows in particular).
 #[allow(clippy::result_large_err)]
 pub fn apply_archive_and_relaunch(
     archive_path: &std::path::Path,
+    expected_sha256: &[u8; 32],
 ) -> Result<(), super::UpdaterError> {
     let exe_dir = exe_dir()?;
+    reverify_archive(archive_path, expected_sha256)?;
     apply_for_host(archive_path, &exe_dir)?;
     relaunch_self(&exe_dir)?;
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn reverify_archive(
+    archive_path: &std::path::Path,
+    expected_sha256: &[u8; 32],
+) -> Result<(), super::UpdaterError> {
+    let actual = super::download::sha256_of_file(archive_path)?;
+    if !super::download::verify_sha256(&actual, expected_sha256) {
+        // Drop the staged file so the next download cycle starts clean.
+        let _ = std::fs::remove_file(archive_path);
+        return Err(super::UpdaterError::ChecksumMismatch {
+            expected: super::download::sha256_hex(expected_sha256),
+            actual: super::download::sha256_hex(&actual),
+        });
+    }
     Ok(())
 }
 
@@ -307,5 +331,63 @@ mod tests {
         let (_n, staging_gone) = run_cleanup(&dir, &staging);
         assert!(!staging_gone);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reverify_archive_accepts_matching_digest() {
+        let dir = std::env::temp_dir().join(format!(
+            "deadsync-reverify-ok-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("archive.bin");
+        let payload = b"deadsync-test-payload-m2";
+        std::fs::write(&path, payload).unwrap();
+        let expected = super::super::download::sha256_of(payload);
+
+        assert!(reverify_archive(&path, &expected).is_ok());
+        // Archive must survive a successful re-verify so apply can read it.
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reverify_archive_rejects_modified_file_and_removes_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "deadsync-reverify-bad-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("archive.bin");
+        std::fs::write(&path, b"original-bytes").unwrap();
+        let expected = super::super::download::sha256_of(b"original-bytes");
+        // Simulate corruption / tampering between download and apply.
+        std::fs::write(&path, b"tampered-bytes").unwrap();
+
+        let err = reverify_archive(&path, &expected).expect_err("must reject mismatch");
+        assert!(matches!(
+            err,
+            super::super::UpdaterError::ChecksumMismatch { .. }
+        ));
+        // Mismatch must drop the staged archive so the next download starts clean.
+        assert!(!path.exists(), "tampered archive should be removed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reverify_archive_surfaces_io_error_for_missing_file() {
+        let path = std::env::temp_dir()
+            .join(format!("deadsync-reverify-missing-{}.bin", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let err = reverify_archive(&path, &[0u8; 32]).expect_err("must fail for missing file");
+        assert!(matches!(err, super::super::UpdaterError::Io(_)));
     }
 }

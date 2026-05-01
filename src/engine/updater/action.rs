@@ -65,7 +65,16 @@ pub enum ActionPhase {
     },
     /// The download finished and the file passed checksum verification.
     /// `path` is the absolute on-disk path to the verified archive.
-    Ready { info: ReleaseInfo, path: PathBuf },
+    /// `sha256` is persisted with the snapshot so the apply step can
+    /// re-verify the file immediately before extraction (M2): a long
+    /// gap between download and apply, on-disk corruption, or tampering
+    /// would otherwise install a different archive than the one we
+    /// verified at download time.
+    Ready {
+        info: ReleaseInfo,
+        path: PathBuf,
+        sha256: [u8; 32],
+    },
     /// The user confirmed apply; the worker is extracting + swapping
     /// files in place.  The overlay shows a spinner.  On success the
     /// worker spawns the new process and `std::process::exit`s, so this
@@ -286,7 +295,11 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
     match download_to_file(&super::download_agent(), &asset, &expected, &dest, progress) {
         Ok(()) => {
             log::info!("Update {} downloaded to {}", info.tag, dest.display());
-            set_phase(ActionPhase::Ready { info, path: dest });
+            set_phase(ActionPhase::Ready {
+                info,
+                path: dest,
+                sha256: expected,
+            });
         }
         Err(err) => {
             log::warn!("Update download failed: {err}");
@@ -366,7 +379,12 @@ fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::
         thread::sleep(std::time::Duration::from_millis(tick_ms));
     }
     log::info!("Fake update {} staged at {}", info.tag, dest.display());
-    set_phase(ActionPhase::Ready { info, path: dest });
+    let sha256 = super::download::sha256_of(&bytes);
+    set_phase(ActionPhase::Ready {
+        info,
+        path: dest,
+        sha256,
+    });
 }
 
 /// Absolute path of the directory archives are downloaded into.
@@ -384,18 +402,18 @@ pub fn request_apply() {
         Ok(g) => g,
         Err(_) => return,
     };
-    let (info, path) = match current() {
-        ActionPhase::Ready { info, path } => (info, path),
+    let (info, path, sha256) = match current() {
+        ActionPhase::Ready { info, path, sha256 } => (info, path, sha256),
         _ => return,
     };
     set_phase(ActionPhase::Applying { info: info.clone() });
     let _ = thread::Builder::new()
         .name("deadsync-updater-apply".to_owned())
-        .spawn(move || run_apply(path));
+        .spawn(move || run_apply(path, sha256));
 }
 
-fn run_apply(archive_path: PathBuf) {
-    match super::cli::apply_archive_and_relaunch(&archive_path) {
+fn run_apply(archive_path: PathBuf, expected_sha256: [u8; 32]) {
+    match super::cli::apply_archive_and_relaunch(&archive_path, &expected_sha256) {
         Ok(()) => {
             log::info!("Self-update applied; exiting to let new process take over");
             std::process::exit(0);

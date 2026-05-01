@@ -90,6 +90,26 @@ pub fn sha256_of(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Stream-hash the file at `path` with SHA-256.  Used by the apply path
+/// to re-verify the staged archive immediately before extraction so that
+/// any tampering or bit-rot between download and apply surfaces as
+/// [`UpdaterError::ChecksumMismatch`] rather than a corrupt install.
+pub fn sha256_of_file(path: &Path) -> Result<[u8; 32], UpdaterError> {
+    let mut file = File::open(path).map_err(|err| UpdaterError::Io(err.to_string()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; COPY_CHUNK_BYTES];
+    loop {
+        let read = file
+            .read(&mut buf)
+            .map_err(|err| UpdaterError::Io(err.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buf[..read]);
+    }
+    Ok(hasher.finalize().into())
+}
+
 /// Parse a `sha256sum`-style sidecar.  The sidecar may contain multiple
 /// entries (one per line); we return the digest matching `expected_filename`.
 ///

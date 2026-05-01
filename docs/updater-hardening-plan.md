@@ -45,7 +45,7 @@ lands so the rest of the document can stay descriptive.
 | C2  | Gate `DEADSYNC_UPDATER_FAKE_DOWNLOAD` to dev/test builds      | 🔴       | ⏳ Not started |                                                                                   |
 | C3  | Stop deleting arbitrary `*.old` files under the install root  | 🔴       | ✅ Done        | Backups now use per-apply token suffix; recursive `*.old` cleanup pass removed (`apply_journal`). |
 | M1  | Make `apply` transactional / rollback-capable                 | 🟠       | ✅ Done        | Durable JSON journal + per-op backup-then-install + crash recovery on next launch (`apply_journal`). |
-| M2  | Re-verify the staged archive immediately before extraction    | 🟠       | ⏳ Not started |                                                                                   |
+| M2  | Re-verify the staged archive immediately before extraction    | 🟠       | ✅ Done        | `Ready` snapshot now carries the expected SHA-256; `apply_archive_and_relaunch` re-hashes the file via `download::sha256_of_file` and rejects mismatches as `ChecksumMismatch`, dropping the staged archive. |
 | M3  | Persist enough release metadata to reconstruct `Available` after a 304 | 🟠 | ⏳ Not started |                                                                                   |
 | M4  | Use `last_checked_at` to throttle startup checks              | 🟠       | ⏳ Not started | `UpdateCheckMode` setting removed; always-on-startup is the only mode now, but no throttle yet. |
 | M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ⏳ Not started |                                                                                   |
