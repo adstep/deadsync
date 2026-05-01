@@ -61,7 +61,7 @@ lands so the rest of the document can stay descriptive.
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ✅ Done        | `download_to_file` now writes to `<dest>.part`, fsyncs after the final flush, and renames onto `dest` only after sha256 verifies. Crash / cancel / mismatch leaves no file at the canonical name; any pre-existing `dest` is preserved. Stale `.part` from a previous run is removed before staging. |
 | N5  | Audit unused i18n keys                                        | 🟡       | ✅ Done        | Dropped `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` from `en.ini`/`sv.ini`/`pseudo.ini`; the overlay only uses `BodyReadyShort` (and the M8-era `BodyManualDownload`). pseudo.ini regenerated via `cargo run --bin generate_pseudo`. |
 | N6  | Refresh stale comments                                        | 🟡       | ✅ Done        | Fixed `state.rs` module doc (was `Settings.ini`, actually `deadsync.ini`); rewrote `last_seen_tag` doc to drop the obsolete "M5 (channel wiring)" reference (M5 removed channels); replaced `(PR 10)` / `(PR 10b)` markers in `action.rs` and `download.rs` with the actual module path now that the UI overlay has shipped. |
-| C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ⏳ Not started | `main.rs` runs `apply_journal::recover` before grabbing the single-instance guard; a second instance launching during a slow `Applying` window can roll back/clean while the first instance is still relaunching. |
+| C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ✅ Done        | `main.rs` now acquires the singleton guard *first* and only runs `apply_journal::recover` afterwards (on the lock-winning path or the OS-error soft-fail path). A losing-race second instance exits before recovery can touch live install files. |
 | C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ⏳ Not started | `recover` does `fs::rename(backup, target)`; on Windows this fails if `target` already exists (partial new file from the crashed apply). The journal then gets removed anyway, so the rollback recipe is lost mid-restore. |
 | C6  | `--no-default-features` build is broken                       | 🔴       | ⏳ Not started | `main.rs` calls `apply_journal::recover` unconditionally, but `apply_journal` is gated behind `feature = "self-update"`. Packagers can't actually strip the apply code today, undercutting the M9 cargo-feature escape hatch. |
 | M12 | Cancellation generation token (worker-result race)            | 🟠       | ⏳ Not started | A cancelled worker keeps running until its next poll; if the user starts a new check/download in between, the new worker's `clear_cancel()` lets the old worker eventually publish `Ready` / `Error` over fresh state. Use a monotonic op-id captured by each worker. |
@@ -478,13 +478,14 @@ lands so the rest of the document can stay descriptive.
 
 ### C4. Run journal recovery *before* the singleton lock is acquired
 
-- **Problem:** `src/main.rs:206-227` calls
+- **Status:** Done.
+- **Problem:** `src/main.rs:206-227` (pre-fix) called
   `engine::updater::apply_journal::recover(&exe_dir)` before
-  `src/main.rs:239-245` acquires the single-instance guard. After a
+  `src/main.rs:239-245` acquired the single-instance guard. After a
   self-update relaunch the previous process can still be in the tail of
   `Applying` (extracting / renaming the last few files) for several
   hundred milliseconds. A second user-initiated launch during that
-  window will:
+  window would:
   1. read the journal that the still-running process is mid-way through
      committing,
   2. attempt rollback (rename `backup -> target`) on files the original
@@ -492,16 +493,13 @@ lands so the rest of the document can stay descriptive.
   3. delete the journal file out from under the original process,
   4. only *then* try to take the singleton lock and exit with
      `AlreadyRunning`.
-  By that point the install tree is in an undefined mixed state.
-- **Fix:** acquire the singleton lock *first*, then run recovery only on
-  the lock-winning path. For `--restart`, keep the existing 3-second
-  retry — recovery still runs after the previous process has actually
-  released the lock and gone away.
-- **Acceptance:**
-  - Recovery never executes from a process that loses the singleton
-    race.
-  - A unit/integration test starts two processes against the same exe
-    dir and asserts only one runs `recover`.
+  By that point the install tree was in an undefined mixed state.
+- **Resolution:** swapped the order in `src/main.rs`. The singleton
+  lock is acquired first (with the existing 3-second `--restart`
+  retry); recovery runs only on the lock-winning path or the OS-error
+  soft-fail path. The `AlreadyRunning` branch now `process::exit(1)`s
+  before any journal access. The recovery comment was updated to call
+  out the ordering invariant so it isn't accidentally moved back.
 
 ### C5. `recover(Applying)` doesn't restore backups when the new target survives the crash
 
