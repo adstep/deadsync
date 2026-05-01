@@ -12,8 +12,7 @@
 //! * `--restart` — informational marker logged at startup; the menu
 //!   uses it to display "Updated to vX.Y.Z" once.
 //!
-//! * `--no-update-check` — skips the startup network check regardless
-//!   of [`Config::update_check_mode`](crate::config::Config).
+//! * `--no-update-check` — skips the startup network check.
 //!
 //! Unknown flags are passed through unchanged; we don't want to
 //! conflict with any future windowing-system or test runner argv.

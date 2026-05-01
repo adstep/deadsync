@@ -496,10 +496,6 @@ fn load_runtime_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
 }
 
 fn load_updater_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
-    cfg.update_check_mode = conf
-        .get("Options", "UpdateCheckMode")
-        .and_then(|v| UpdateCheckMode::from_str(&v).ok())
-        .unwrap_or(default.update_check_mode);
     cfg.update_channel = conf
         .get("Options", "UpdateChannel")
         .and_then(|v| UpdateChannel::from_str(&v).ok())

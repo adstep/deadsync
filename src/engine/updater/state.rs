@@ -21,14 +21,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::{FetchOutcome, UpdateState, UpdaterError, classify, fetch_latest_release};
-use crate::config::{self, UpdateCheckMode};
+use crate::config;
 use crate::engine::network;
 
 /// Filename inside `cache_dir` that persists the updater cache.
 pub const CACHE_FILENAME: &str = "updater_state.json";
-
-/// Daily-mode cooldown.
-const DAILY_COOLDOWN_SECONDS: i64 = 24 * 60 * 60;
 
 /// Environment variable that disables the startup check regardless of
 /// config (intended for `--no-update-check` and CI use).
@@ -117,31 +114,16 @@ pub enum Decision {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
-    Disabled,
     EnvOptOut,
-    DailyCooldown,
 }
 
 /// Decide whether a check should run.  Pure so it can be exhaustively
 /// unit-tested without IO.
-pub fn decide(
-    mode: UpdateCheckMode,
-    cache: &UpdaterCache,
-    now_unix: i64,
-    env_opt_out: bool,
-) -> Decision {
+pub fn decide(env_opt_out: bool) -> Decision {
     if env_opt_out {
-        return Decision::Skip(SkipReason::EnvOptOut);
-    }
-    match mode {
-        UpdateCheckMode::Disabled => Decision::Skip(SkipReason::Disabled),
-        UpdateCheckMode::OnStartup => Decision::Check,
-        UpdateCheckMode::Daily => match cache.last_checked_at {
-            Some(prev) if now_unix.saturating_sub(prev) < DAILY_COOLDOWN_SECONDS => {
-                Decision::Skip(SkipReason::DailyCooldown)
-            }
-            _ => Decision::Check,
-        },
+        Decision::Skip(SkipReason::EnvOptOut)
+    } else {
+        Decision::Check
     }
 }
 
@@ -227,9 +209,7 @@ pub fn run_check_once() {
 /// current configuration says to.  Returns `Decision::Skip(...)` if no
 /// thread was spawned, otherwise [`Decision::Check`].
 pub fn spawn_startup_check() -> Decision {
-    let cfg = config::get();
-    let cache_now = cache();
-    let decision = decide(cfg.update_check_mode, &cache_now, now_unix(), env_opt_out());
+    let decision = decide(env_opt_out());
     match decision {
         Decision::Skip(reason) => {
             log::debug!("Update check skipped: {reason:?}");
@@ -252,67 +232,14 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn cache_with_last_checked(prev: i64) -> UpdaterCache {
-        UpdaterCache { last_checked_at: Some(prev), ..UpdaterCache::default() }
+    #[test]
+    fn env_opt_out_skips_check() {
+        assert_eq!(decide(true), Decision::Skip(SkipReason::EnvOptOut));
     }
 
     #[test]
-    fn disabled_mode_always_skips() {
-        let c = UpdaterCache::default();
-        assert_eq!(
-            decide(UpdateCheckMode::Disabled, &c, 1_700_000_000, false),
-            Decision::Skip(SkipReason::Disabled)
-        );
-    }
-
-    #[test]
-    fn env_opt_out_overrides_every_mode() {
-        let c = UpdaterCache::default();
-        for mode in [UpdateCheckMode::Disabled, UpdateCheckMode::OnStartup, UpdateCheckMode::Daily] {
-            assert_eq!(
-                decide(mode, &c, 1_700_000_000, true),
-                Decision::Skip(SkipReason::EnvOptOut),
-                "mode {mode:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn on_startup_always_checks_when_not_opted_out() {
-        let c = cache_with_last_checked(1_699_999_990);
-        assert_eq!(
-            decide(UpdateCheckMode::OnStartup, &c, 1_700_000_000, false),
-            Decision::Check
-        );
-    }
-
-    #[test]
-    fn daily_skips_within_24h_window() {
-        let now = 1_700_000_000;
-        let c = cache_with_last_checked(now - DAILY_COOLDOWN_SECONDS + 1);
-        assert_eq!(
-            decide(UpdateCheckMode::Daily, &c, now, false),
-            Decision::Skip(SkipReason::DailyCooldown)
-        );
-    }
-
-    #[test]
-    fn daily_runs_after_24h_window() {
-        let now = 1_700_000_000;
-        let c = cache_with_last_checked(now - DAILY_COOLDOWN_SECONDS);
-        assert_eq!(
-            decide(UpdateCheckMode::Daily, &c, now, false),
-            Decision::Check
-        );
-    }
-
-    #[test]
-    fn daily_runs_when_no_prior_check() {
-        let c = UpdaterCache::default();
-        assert_eq!(
-            decide(UpdateCheckMode::Daily, &c, 1_700_000_000, false),
-            Decision::Check
-        );
+    fn no_env_opt_out_runs_check() {
+        assert_eq!(decide(false), Decision::Check);
     }
 
     #[test]

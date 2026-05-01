@@ -241,7 +241,6 @@ pub enum ItemId {
     SysLogLevel,
     SysLogFile,
     SysDefaultNoteSkin,
-    SysUpdateCheckMode,
 
     // Graphics Options submenu
     GfxVideoRenderer,
@@ -862,7 +861,6 @@ pub enum SubRowId {
     LogLevel,
     LogFile,
     DefaultNoteSkin,
-    UpdateCheckMode,
     // Graphics Options
     VideoRenderer,
     SoftwareRendererThreads,
@@ -1195,16 +1193,6 @@ pub const SYSTEM_OPTIONS_ROWS: &[SubRow] = &[
         choices: &[literal_choice(profile::NoteSkin::DEFAULT_NAME)],
         inline: false,
     },
-    SubRow {
-        id: SubRowId::UpdateCheckMode,
-        label: lookup_key("OptionsSystem", "UpdateCheckMode"),
-        choices: &[
-            localized_choice("OptionsSystem", "UpdateCheckModeDisabled"),
-            localized_choice("OptionsSystem", "UpdateCheckModeOnStartup"),
-            localized_choice("OptionsSystem", "UpdateCheckModeDaily"),
-        ],
-        inline: false,
-    },
 ];
 
 pub const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
@@ -1254,14 +1242,6 @@ pub const SYSTEM_OPTIONS_ITEMS: &[Item] = &[
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSystemHelp",
             "DefaultNoteSkinHelp",
-        ))],
-    },
-    Item {
-        id: ItemId::SysUpdateCheckMode,
-        name: lookup_key("OptionsSystem", "UpdateCheckMode"),
-        help: &[HelpEntry::Paragraph(lookup_key(
-            "OptionsSystemHelp",
-            "UpdateCheckModeHelp",
         ))],
     },
     Item {
@@ -5922,22 +5902,6 @@ const fn machine_font_from_choice(idx: usize) -> MachineFont {
     }
 }
 
-const fn update_check_mode_choice_index(mode: config::UpdateCheckMode) -> usize {
-    match mode {
-        config::UpdateCheckMode::Disabled => 0,
-        config::UpdateCheckMode::OnStartup => 1,
-        config::UpdateCheckMode::Daily => 2,
-    }
-}
-
-const fn update_check_mode_from_choice(idx: usize) -> config::UpdateCheckMode {
-    match idx {
-        0 => config::UpdateCheckMode::Disabled,
-        2 => config::UpdateCheckMode::Daily,
-        _ => config::UpdateCheckMode::OnStartup,
-    }
-}
-
 const fn menu_background_style_choice_index(style: MenuBackgroundStyle) -> usize {
     match style {
         MenuBackgroundStyle::Hearts => 0,
@@ -6295,12 +6259,6 @@ pub fn init() -> State {
         SYSTEM_OPTIONS_ROWS,
         SubRowId::LogFile,
         usize::from(cfg.log_to_file),
-    );
-    set_choice_by_id(
-        &mut state.sub_choice_indices_system,
-        SYSTEM_OPTIONS_ROWS,
-        SubRowId::UpdateCheckMode,
-        update_check_mode_choice_index(cfg.update_check_mode),
     );
     if let Some(noteskin_row_idx) = SYSTEM_OPTIONS_ROWS
         .iter()
@@ -8290,9 +8248,6 @@ fn apply_submenu_choice_delta(
             }
             SubRowId::LogLevel => config::update_log_level(log_level_from_choice(new_index)),
             SubRowId::LogFile => config::update_log_to_file(new_index == 1),
-            SubRowId::UpdateCheckMode => {
-                config::update_update_check_mode(update_check_mode_from_choice(new_index));
-            }
             SubRowId::DefaultNoteSkin => {
                 if let Some(skin_name) = selected_choice.as_deref() {
                     profile::update_machine_default_noteskin(profile::NoteSkin::new(skin_name));
