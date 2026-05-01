@@ -3,7 +3,7 @@
   Build & stage a single deadsync version for in-app updater testing.
 
 .DESCRIPTION
-  Builds *one* release-mode binary at -Version, lays it out as a portable
+  Builds *one* debug-mode binary at -Version, lays it out as a portable
   install, and packages a matching .zip into the staging dir so it can be
   used as either the install target or the source for the
   DEADSYNC_UPDATER_FAKE_DOWNLOAD shortcut.
@@ -40,6 +40,15 @@ try {
   $originalToml = Get-Content $cargoToml -Raw
 
   Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
+  if (Test-Path $Stage) {
+    # Likely a file inside is locked (game still running, Explorer window
+    # open, antivirus scanning).  Try once more after a short pause.
+    Start-Sleep -Milliseconds 500
+    Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
+    if (Test-Path $Stage) {
+      throw "could not wipe $Stage — close the game / Explorer windows holding it open and re-run."
+    }
+  }
   New-Item -ItemType Directory -Path $Stage | Out-Null
 
   $installDir  = Join-Path $Stage 'install'
@@ -47,24 +56,24 @@ try {
   $payloadDir  = Join-Path $archiveDir 'deadsync'
   New-Item -ItemType Directory -Path $installDir, $payloadDir | Out-Null
 
-  Write-Host "==> Building deadsync v$Version (release)" -ForegroundColor Cyan
+  Write-Host "==> Building deadsync v$Version (debug)" -ForegroundColor Cyan
   $patched = $originalToml -replace '(?m)^version\s*=\s*"[^"]*"', "version = `"$Version`""
   Set-Content -Path $cargoToml -Value $patched -NoNewline
   # Touch main.rs so cargo invalidates the binary even if only Cargo.toml
   # changed (incremental builds don't always rebuild on a bare version bump).
   (Get-Item 'src\main.rs').LastWriteTime = Get-Date
-  Remove-Item 'target\release\deadsync.exe' -ErrorAction SilentlyContinue
-  cargo build --release --quiet
-  if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed at version $Version" }
-  if (-not (Test-Path 'target\release\deadsync.exe')) {
-    throw "cargo build --release at version $Version did not produce target\release\deadsync.exe"
+  Remove-Item 'target\debug\deadsync.exe' -ErrorAction SilentlyContinue
+  cargo build --quiet
+  if ($LASTEXITCODE -ne 0) { throw "cargo build failed at version $Version" }
+  if (-not (Test-Path 'target\debug\deadsync.exe')) {
+    throw "cargo build at version $Version did not produce target\debug\deadsync.exe"
   }
   # Restore Cargo.toml immediately so the source tree is clean for editing.
   Set-Content -Path $cargoToml -Value $originalToml -NoNewline
 
   function Lay-Out-Portable {
     param([string] $Dir)
-    Copy-Item 'target\release\deadsync.exe' $Dir -Force
+    Copy-Item 'target\debug\deadsync.exe' $Dir -Force
     foreach ($d in 'assets','songs','courses') {
       if (Test-Path $d) { Copy-Item -Recurse -Force $d $Dir }
     }
@@ -104,5 +113,8 @@ finally {
   if ($null -ne $originalToml) {
     Set-Content -Path $cargoToml -Value $originalToml -NoNewline
   }
-  Pop-Location
+  # Pop-Location fails if the user invoked us from inside $Stage (which we
+  # just wiped).  Fall back to the user's home dir in that case.
+  try { Pop-Location -ErrorAction Stop }
+  catch { Set-Location $HOME }
 }
