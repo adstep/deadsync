@@ -153,9 +153,16 @@ struct ProgressThrottle {
 
 impl ProgressThrottle {
     /// Returns `true` if this tick should be published.  Always
-    /// publishes the first tick, the final byte, and any change in
-    /// integer percent or ETA bucket; otherwise rate-limits to one
-    /// publication per 100 ms.
+    /// publishes the first tick, the final byte (when `total` is
+    /// known), and any change in integer percent or ETA bucket;
+    /// otherwise rate-limits to one publication per 100 ms.
+    ///
+    /// For indeterminate streams (`total = None`) `pct` is always
+    /// `None`, so the change-detector never fires and the byte
+    /// counter advances on the 100 ms timer alone.  That's the
+    /// intended behaviour: the overlay shows a byte counter (not a
+    /// percent bar) for unknown-length downloads, and 10 Hz is
+    /// plenty for a numeric readout.
     fn should_publish(
         &mut self,
         now: Instant,
@@ -697,6 +704,32 @@ mod tests {
             "expected throttled count <=110, got {publishes}",
         );
         assert!(publishes >= 1);
+    }
+
+    #[test]
+    fn progress_throttle_advances_at_10hz_for_indeterminate_stream() {
+        // For total=None the change-detector can't fire (pct is
+        // always None and we pass eta=None), so publication is
+        // driven entirely by the 100 ms timer.  Assert the byte
+        // counter still advances roughly once per 100 ms over a
+        // simulated one-second stream and never goes silent.
+        let mut t = ProgressThrottle::default();
+        let mut now = Instant::now();
+        let mut publishes = 0usize;
+        let mut written = 0u64;
+        for _ in 0..1000 {
+            written += 64 * 1024;
+            now += Duration::from_millis(1);
+            if t.should_publish(now, written, None, None) {
+                publishes += 1;
+            }
+        }
+        // 1000 ms / 100 ms cadence -> roughly 10 publications, plus
+        // the initial first-tick.  Allow some scheduling slack.
+        assert!(
+            (8..=12).contains(&publishes),
+            "expected ~10 publications at the 100ms floor, got {publishes}",
+        );
     }
 
     fn release_with_tag(tag: &str, asset_name: &str) -> ReleaseInfo {
