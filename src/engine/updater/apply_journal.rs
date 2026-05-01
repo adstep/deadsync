@@ -468,9 +468,25 @@ pub fn recover(exe_dir: &Path) -> RecoveryReport {
     let journal = match Journal::load(exe_dir) {
         Ok(Some(j)) => j,
         Ok(None) => return report,
-        Err(_) => return report,
+        Err(e) => {
+            // Journal exists but cannot be parsed -- either a future
+            // schema we don't understand, or on-disk corruption.  Leave
+            // the file in place so a newer binary (or human triage) can
+            // act on it, but make the situation visible: silently
+            // ignoring it means a stuck install never produces any
+            // signal in deadsync.log.
+            log::warn!(
+                "updater: journal at '{}' could not be loaded ({e}); leaving in place",
+                journal_path(exe_dir).display(),
+            );
+            return report;
+        }
     };
-    if journal.validate(exe_dir).is_err() {
+    if let Err(e) = journal.validate(exe_dir) {
+        log::warn!(
+            "updater: journal at '{}' failed validation ({e}); leaving in place",
+            journal_path(exe_dir).display(),
+        );
         return report;
     }
     // Tracks whether the journal's recipe is fully resolved.  If any
@@ -898,6 +914,28 @@ mod tests {
         let r = recover(&dir);
         assert!(!r.journal_removed);
         assert!(journal_path(&dir).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recover_leaves_unknown_state_journal_in_place() {
+        // A future binary may write a `state` value this binary does
+        // not understand.  Make sure recover() neither parses through
+        // it nor deletes the file -- the next run of a newer binary
+        // (or human triage) needs it to stay put.
+        let dir = tempdir("unknown-state");
+        let path = journal_path(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            &path,
+            br#"{"version":1,"token":"00000000000000000000000000000000","state":"future_state","staging_dir":"/x","ops":[]}"#,
+        )
+        .unwrap();
+        let r = recover(&dir);
+        assert!(!r.journal_removed);
+        assert_eq!(r.backups_removed, 0);
+        assert_eq!(r.backups_restored, 0);
+        assert!(path.exists(), "journal must be preserved for newer binary");
         let _ = fs::remove_dir_all(&dir);
     }
 
