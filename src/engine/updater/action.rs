@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, RwLock};
 use std::thread;
+use std::time::Instant;
 
 use super::download::{
     cross_check_api_digest, download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
@@ -64,11 +65,15 @@ pub enum ActionPhase {
     /// The download is in flight.  `total` is `Some` when the server
     /// reported a Content-Length and otherwise falls back to the asset
     /// metadata; it is also `None` while we're still computing it.
+    /// `eta_secs` is the worker's best estimate of the remaining
+    /// download time in whole seconds, or `None` when not enough
+    /// samples have been collected yet (or the total size is unknown).
     Downloading {
         info: ReleaseInfo,
         asset: ReleaseAsset,
         written: u64,
         total: Option<u64>,
+        eta_secs: Option<u64>,
     },
     /// The download finished and the file passed checksum verification.
     /// `path` is the absolute on-disk path to the verified archive.
@@ -378,6 +383,7 @@ pub fn request_download() {
         asset: asset.clone(),
         written: 0,
         total: Some(asset.size).filter(|s| *s > 0),
+        eta_secs: None,
     });
     let _ = thread::Builder::new()
         .name("deadsync-updater-download".to_owned())
@@ -439,7 +445,35 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
 
     let info_for_progress = info.clone();
     let asset_for_progress = asset.clone();
+    // Track the first observed (instant, written) sample so we can
+    // estimate remaining time as a running average over the live
+    // download.  Anchoring at the first chunk (rather than the
+    // download start) discards TLS handshake / TTFB latency, which
+    // would otherwise drag the early estimate way too high.
+    let mut first_sample: Option<(Instant, u64)> = None;
     let progress = move |written: u64, total: Option<u64>| {
+        let now = Instant::now();
+        let (start_t, start_w) = *first_sample.get_or_insert((now, written));
+        let eta_secs = match total {
+            Some(t) if t > written => {
+                let elapsed = now.duration_since(start_t).as_secs_f64();
+                let bytes = written.saturating_sub(start_w) as f64;
+                // Wait until we have at least ~half a second of samples
+                // and a positive byte delta before publishing an ETA;
+                // otherwise the first few estimates are wildly wrong.
+                if elapsed >= 0.5 && bytes > 0.0 {
+                    let speed = bytes / elapsed;
+                    if speed > 0.0 {
+                        Some(((t - written) as f64 / speed).ceil() as u64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
         // Progress updates use the gen-aware setter so a superseded
         // download's residual progress ticks can't overwrite a fresh
         // ConfirmDownload / Idle phase.
@@ -450,6 +484,7 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
                 asset: asset_for_progress.clone(),
                 written,
                 total,
+                eta_secs,
             },
         );
     };
@@ -566,6 +601,10 @@ fn run_fake_download(
         }
         let frac = i as f64 / TICKS as f64;
         let written = ((total_bytes as f64) * frac).round() as u64;
+        let remaining_ticks = TICKS - i;
+        let eta_secs = (remaining_ticks > 0).then(|| {
+            ((remaining_ticks as f64 * tick_ms as f64) / 1000.0).ceil() as u64
+        });
         set_phase_if_current(
             generation,
             ActionPhase::Downloading {
@@ -573,6 +612,7 @@ fn run_fake_download(
                 asset: asset.clone(),
                 written,
                 total: Some(total_bytes),
+                eta_secs,
             },
         );
         thread::sleep(std::time::Duration::from_millis(tick_ms));
@@ -853,6 +893,7 @@ mod tests {
             asset,
             written: 0,
             total: None,
+            eta_secs: None,
         });
         request_cancel();
         assert_eq!(current(), ActionPhase::Idle);

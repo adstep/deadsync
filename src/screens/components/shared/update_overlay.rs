@@ -334,12 +334,19 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
             info: _info,
             written,
             total,
+            eta_secs,
             ..
         } => {
-            let body = match total {
+            let mut body = match total {
                 Some(t) if *t > 0 => vec![format!("{} / {}", format_size(*written), format_size(*t))],
                 _ => vec![format_size(*written)],
             };
+            if let Some(secs) = eta_secs {
+                body.push(
+                    tr("Updater", "BodyEtaShort")
+                        .replace("{time}", &format_eta(*secs)),
+                );
+            }
             let progress = total.and_then(|t| (t > 0).then_some(*written as f32 / t as f32));
             (
                 tr("Updater", "TitleDownloading").to_string(),
@@ -462,6 +469,24 @@ pub fn format_size(bytes: u64) -> String {
         idx += 1;
     }
     format!("{value:.1} {}", UNITS[idx])
+}
+
+/// Render a download-time-remaining estimate.  Buckets:
+/// `<10s` for the noisy tail of large transfers, `M:SS` up to an
+/// hour, and `Hh MMm` past that.  The output is short enough to fit
+/// alongside the byte counter on a single overlay line.
+pub fn format_eta(secs: u64) -> String {
+    if secs < 10 {
+        return "<10s".to_owned();
+    }
+    if secs < 3600 {
+        let m = secs / 60;
+        let s = secs % 60;
+        return format!("{m}:{s:02}");
+    }
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    format!("{h}h {m:02}m")
 }
 
 fn progress_label(progress: f32) -> String {
@@ -614,6 +639,7 @@ mod tests {
             asset,
             written: 6 * 1024 * 1024,
             total: Some(12 * 1024 * 1024),
+            eta_secs: None,
         };
         let (_t, _b, _f, p) = phase_strings(&phase);
         assert!(p.unwrap() > 0.49 && p.unwrap() < 0.51);
@@ -628,10 +654,27 @@ mod tests {
             asset,
             written: 1024,
             total: None,
+            eta_secs: None,
         };
         let (_t, _b, _f, p) = phase_strings(&phase);
         // Always Some so the bar is visible; falls back to 0 when unknown.
         assert_eq!(p, Some(0.0));
+    }
+
+    #[test]
+    fn phase_strings_downloading_appends_eta_line_when_known() {
+        let r = sample_release();
+        let asset = r.assets[0].clone();
+        let phase = ActionPhase::Downloading {
+            info: r,
+            asset,
+            written: 6 * 1024 * 1024,
+            total: Some(12 * 1024 * 1024),
+            eta_secs: Some(75),
+        };
+        let (_t, body, _f, _p) = phase_strings(&phase);
+        assert_eq!(body.len(), 2);
+        assert!(body[1].contains("1:15"), "expected eta line, got {body:?}");
     }
 
     #[test]
@@ -693,6 +736,7 @@ mod tests {
                 asset: sample_release().assets[0].clone(),
                 written: 0,
                 total: Some(100),
+                eta_secs: None,
             },
         ];
         for phase in phases {
@@ -720,6 +764,17 @@ mod tests {
         let s = format_size(12 * 1024 * 1024 + 512 * 1024);
         assert!(s.starts_with("12.5"), "got {s}");
         assert!(s.ends_with("MiB"));
+    }
+
+    #[test]
+    fn format_eta_buckets_short_medium_and_long_durations() {
+        assert_eq!(format_eta(0), "<10s");
+        assert_eq!(format_eta(9), "<10s");
+        assert_eq!(format_eta(10), "0:10");
+        assert_eq!(format_eta(65), "1:05");
+        assert_eq!(format_eta(599), "9:59");
+        assert_eq!(format_eta(3600), "1h 00m");
+        assert_eq!(format_eta(3600 + 125), "1h 02m");
     }
 
     #[test]
