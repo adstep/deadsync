@@ -263,6 +263,19 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
         }
         executed.push(op);
     }
+    // POSIX: each rename above mutated a directory entry; fsync each
+    // unique parent so the install survives a power loss. Best-effort —
+    // a failure here doesn't roll back the (already-fsynced) file
+    // contents and would only mean the directory entry isn't durable.
+    let mut synced: Vec<&Path> = Vec::new();
+    for op in &journal.ops {
+        if let Some(parent) = op.target.parent() {
+            if !synced.iter().any(|p| *p == parent) {
+                let _ = super::sync_dir(parent);
+                synced.push(parent);
+            }
+        }
+    }
     Ok(())
 }
 

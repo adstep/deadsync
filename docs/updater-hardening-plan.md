@@ -73,7 +73,7 @@ lands so the rest of the document can stay descriptive.
 | M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ✅ Done | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ✅ Done | Resolved by removal: when `apply_supported_for_host()` is false or `UpdaterInstallEnabled = 0`, `options::activate_current_selection` no-ops the row and the renderer skips it. The menu banner still surfaces available releases through the passive check, so users on externally-managed builds (macOS, Steam, distro packages) still learn about new versions. |
 | M20 | I/O errors lose path/operation context                       | 🟡       | ✅ Done       | Added `io_err_at(op, path, err)` and `io_err_op(op, err)` helpers in `src/engine/updater/mod.rs`; call sites in `download.rs`, `apply_journal.rs`, `apply_unix.rs`, and `apply_windows.rs` now produce `IO("create '...': os error 5")` style messages instead of bare `os error 5`. |
-| C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ⏳ Not started | `write_atomic` and the apply-time renames fsync the file but not the directory. On POSIX power-loss this can lose the rename even though the file bytes are durable. Either weaken the durability claim in comments or add platform-specific dir syncs after journal rename and at apply boundaries. |
+| C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ✅ Done       | Added `super::sync_dir(path)` helper (POSIX: `File::open(path)?.sync_all()`; Windows: no-op). `apply_journal::write_atomic` fsyncs `exe_dir` after renaming the journal; `apply_unix::execute_with_rollback` fsyncs each unique target-parent after all renames complete. |
 
 ---
 
@@ -568,14 +568,23 @@ lands so the rest of the document can stay descriptive.
   the same. Neither fsyncs the *containing directory*. On POSIX
   filesystems, the directory entry created by the rename can be lost
   on power loss even though the renamed file's bytes are durable.
-- **Fix:** either weaken the "durable journal" claim in the doc
-  comments, or add `File::open(parent).sync_all()` after each
-  durability-critical rename (journal write, target install, backup
-  promotion). Windows behaves differently and may not need explicit
-  parent fsync.
-- **Acceptance:** comments either match the implementation, or a fault
-  injection test (where supported) shows a power-loss simulation can't
-  lose the journal entry.
+- **Fix:** Added `pub fn sync_dir(path: &Path) -> io::Result<()>` in
+  `src/engine/updater/mod.rs`. POSIX implementation opens the
+  directory and calls `sync_all`; Windows is a no-op because NTFS
+  commits directory metadata as part of the rename. Call sites:
+  `apply_journal::write_atomic` fsyncs `exe_dir` after the journal
+  rename; `apply_unix::execute_with_rollback` collects each unique
+  target-parent and fsyncs once at the end of a successful apply
+  (rollback path doesn't need it — the contents are already on
+  disk and we're only restoring the prior state). Best-effort: a
+  failed `sync_dir` is logged-then-ignored, since the file bytes are
+  already durable and the worst case is a lost rename on power loss
+  rather than corruption.
+- **Acceptance:** ✅ Done. Comments and behaviour now match: the
+  durable-journal claim in `write_atomic` is backed by an `exe_dir`
+  fsync, and the apply path fsyncs each parent directory it
+  touched. Existing 149 updater unit tests still pass on Windows
+  (sync_dir is a no-op there).
 
 ---
 

@@ -201,6 +201,20 @@ pub fn io_err_op(op: &str, err: impl Display) -> UpdaterError {
     UpdaterError::Io(format!("{op}: {err}"))
 }
 
+/// fsyncs a directory so that newly-created or renamed entries inside
+/// it are durable across power loss. POSIX requires this in addition
+/// to fsync on the file itself; Windows commits directory metadata as
+/// part of the rename, so this is a no-op there.
+#[cfg(unix)]
+pub fn sync_dir(path: &std::path::Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+#[cfg(not(unix))]
+pub fn sync_dir(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /* ---------- raw JSON shape ---------- */
 
 #[derive(Deserialize)]

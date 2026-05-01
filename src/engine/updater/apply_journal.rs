@@ -178,6 +178,11 @@ impl Journal {
                 path.display(),
             ))
         })?;
+        // POSIX: the rename above only mutates `exe_dir`'s directory
+        // entries; without an fsync of the directory itself the entry
+        // can be lost on power loss even though the file bytes are
+        // durable. Windows commits this as part of the rename.
+        let _ = super::sync_dir(exe_dir);
         Ok(())
     }
 
