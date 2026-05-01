@@ -416,6 +416,5 @@ fn push_saved_theme(content: &mut String, cfg: &Config) {
     push_line(content, "SimplyLoveColor", cfg.simply_love_color);
     push_bool(content, "ZmodRatingBoxText", cfg.zmod_rating_box_text);
     push_bool(content, "ShowBpmDecimal", cfg.show_bpm_decimal);
-    push_line(content, "UpdateChannel", cfg.update_channel.as_str());
     content.push('\n');
 }

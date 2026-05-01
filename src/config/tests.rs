@@ -433,19 +433,3 @@ fn round_trip_gamepad_code() {
         );
     }
 }
-
-#[test]
-fn update_channel_round_trips_via_str() {
-    for ch in [UpdateChannel::Stable, UpdateChannel::Prerelease] {
-        let s = ch.as_str();
-        assert_eq!(UpdateChannel::from_str(s), Ok(ch), "round-trip {s}");
-    }
-    assert_eq!(UpdateChannel::from_str("beta"), Ok(UpdateChannel::Prerelease));
-    assert!(UpdateChannel::from_str("nightly").is_err());
-}
-
-#[test]
-fn update_prefs_default_to_stable() {
-    let cfg = Config::default();
-    assert_eq!(cfg.update_channel, UpdateChannel::Stable);
-}

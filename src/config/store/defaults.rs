@@ -415,6 +415,5 @@ fn push_default_theme(content: &mut String, default: &Config) {
         "NullOrDieFullSpectrogram",
         default.null_or_die_full_spectrogram,
     );
-    push_line(content, "UpdateChannel", default.update_channel.as_str());
     content.push('\n');
 }

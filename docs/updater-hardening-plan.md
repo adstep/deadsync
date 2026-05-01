@@ -48,7 +48,7 @@ lands so the rest of the document can stay descriptive.
 | M2  | Re-verify the staged archive immediately before extraction    | 🟠       | ✅ Done        | `Ready` snapshot now carries the expected SHA-256; `apply_archive_and_relaunch` re-hashes the file via `download::sha256_of_file` and rejects mismatches as `ChecksumMismatch`, dropping the staged archive. |
 | M3  | Persist enough release metadata to reconstruct `Available` after a 304 | 🟠 | ✅ Done | `UpdaterCache.cached_release` now holds tag/url/body/assets; `load_persisted_cache` reclassifies it on startup so the banner survives a 304 / offline launch and degrades to UpToDate once installed. |
 | M4  | Use `last_checked_at` to throttle startup checks              | 🟠       | ❎ Won't fix   | Reviewed and closed: ETag-conditional polls keep startup checks ~free (304 with empty body), and the existing `RateLimited` path handles the corner case gracefully. `last_checked_at` was dropped from `UpdaterCache`; misleading "Daily mode" comments were removed. Manual checks were never throttled in the first place. |
-| M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ⏳ Not started |                                                                                   |
+| M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ✅ Done        | Removed: `UpdateChannel` enum, `Config::update_channel`, the `update_update_channel` setter, the `UpdateChannel` ini key (load/save/defaults), and the two related tests. The updater always polls `/releases/latest`. |
 | M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
 | M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
 | M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ⏳ Not started |                                                                                   |
@@ -184,14 +184,17 @@ lands so the rest of the document can stay descriptive.
 
 ### M5. Wire up `UpdateChannel::Prerelease` or remove the choice
 
-- **Problem:** `UpdateChannel` exposes `Stable` and `Prerelease`
-  (`src/config/updater.rs:6-10`) and is loaded from config
-  (`src/config/load/options.rs:498-503`), but release fetching always
-  hits `/releases/latest`
-  (`src/engine/updater/mod.rs:33-35, 293-299`).
-- **Fix:** either remove the prerelease setting until implemented, or
-  switch to the releases list endpoint with explicit prerelease
-  filtering when the user opts in.
+- **Status:** Done — chose to remove the choice.
+- **Problem (original):** `UpdateChannel` exposed `Stable` and
+  `Prerelease` and was loaded from config, but release fetching
+  always hit `/releases/latest`, so the setting did nothing.
+- **Resolution:** Deleted the `UpdateChannel` enum, the
+  `Config::update_channel` field, the `update_update_channel` setter,
+  the `UpdateChannel` ini key in load / save / defaults, and the two
+  associated tests. The updater always polls `/releases/latest`. If
+  prerelease support is needed later, the right move is to switch to
+  the releases-list endpoint with explicit filtering rather than
+  resurrecting a no-op setting.
 
 ### M6. Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds
 

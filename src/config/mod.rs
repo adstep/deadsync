@@ -11,7 +11,6 @@ mod store;
 mod tests;
 mod theme;
 mod update;
-mod updater;
 
 pub use self::audio::{AudioMixLevels, AudioOutputMode, LinuxAudioBackend};
 pub use self::ini::SimpleIni;
@@ -37,7 +36,6 @@ pub use self::theme::{
     auto_screenshot_mask_from_str, auto_screenshot_mask_to_str,
 };
 pub use self::update::*;
-pub use self::updater::UpdateChannel;
 
 use self::keybinds::{
     ALL_VIRTUAL_ACTIONS, action_to_ini_key, binding_to_token, load_keymap_from_ini_local,
@@ -268,10 +266,6 @@ pub struct Config {
     /// When true, gameplay arrow buttons (p*_up/down/left/right) are excluded from
     /// menu navigation. Only explicitly-bound menu buttons (p*_menu_*) work in menus.
     pub only_dedicated_menu_buttons: bool,
-    /// Which release channel to watch (stable or prerelease). Only Stable
-    /// is wired up today; the field exists so adding Prerelease later
-    /// doesn't require a config migration.
-    pub update_channel: UpdateChannel,
 }
 
 impl Default for Config {
@@ -393,7 +387,6 @@ impl Default for Config {
             three_key_navigation: false,
             use_fsrs: false,
             only_dedicated_menu_buttons: false,
-            update_channel: UpdateChannel::default(),
         }
     }
 }
