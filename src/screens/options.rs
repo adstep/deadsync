@@ -34,7 +34,7 @@ use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
 use crate::engine::present::font;
 use crate::screens::components::shared::screen_bar::{ScreenBarPosition, ScreenBarTitlePlacement};
-use crate::screens::components::shared::{heart_bg, screen_bar, transitions};
+use crate::screens::components::shared::{heart_bg, screen_bar, transitions, update_overlay};
 use null_or_die::{BiasKernel, KernelTarget};
 
 /* ---------------------------- transitions ---------------------------- */
@@ -231,6 +231,7 @@ pub enum ItemId {
     OnlineScoreServices,
     NullOrDieOptions,
     ReloadSongsCourses,
+    CheckForUpdates,
     Credits,
     Exit,
 
@@ -610,6 +611,14 @@ pub const ITEMS: &[Item] = &[
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsHelp",
             "ReloadSongsCoursesHelp",
+        ))],
+    },
+    Item {
+        id: ItemId::CheckForUpdates,
+        name: lookup_key("Options", "CheckForUpdates"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsHelp",
+            "CheckForUpdatesHelp",
         ))],
     },
     Item {
@@ -8712,6 +8721,10 @@ fn activate_current_selection(state: &mut State, asset_manager: &AssetManager) -
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::NavigateNoFade(Screen::Credits);
                 }
+                ItemId::CheckForUpdates => {
+                    audio::play_sfx("assets/sounds/start.ogg");
+                    crate::engine::updater::action::request_check_now();
+                }
                 ItemId::Exit => {
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::Navigate(Screen::Menu);
@@ -8927,6 +8940,13 @@ pub fn handle_input(
     asset_manager: &AssetManager,
     ev: &InputEvent,
 ) -> ScreenAction {
+    let overlay_phase = crate::engine::updater::action::current();
+    if !matches!(overlay_phase, crate::engine::updater::action::ActionPhase::Idle)
+        && update_overlay::handle_input(&overlay_phase, ev)
+            == update_overlay::InputOutcome::Consumed
+    {
+        return ScreenAction::None;
+    }
     if state.reload_ui.is_some() {
         return ScreenAction::None;
     }
@@ -10936,6 +10956,10 @@ pub fn get_actors(
         actor.mul_alpha(combined_alpha);
     }
     actors.extend(ui_actors);
+
+    actors.extend(update_overlay::build(
+        &crate::engine::updater::action::current(),
+    ));
 
     actors
 }
