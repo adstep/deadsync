@@ -379,20 +379,9 @@ pub fn download_to_file(
 }
 
 /// Atomically (or as-close-to as the platform allows) move `staging`
-/// onto `dest`, replacing any existing file at `dest`.
-///
-/// On POSIX this is just `rename`, which atomically replaces.  On
-/// Windows `std::fs::rename` calls `MoveFileExW` with
-/// `MOVEFILE_REPLACE_EXISTING`, but historically that has surprised
-/// callers — older Rust versions didn't pass the flag, and even with
-/// the flag set the call can fail with `AlreadyExists` /
-/// `AccessDenied` on filesystems that don't honour replace semantics
-/// (some network shares, some AV-instrumented paths).  Pre-deleting
-/// `dest` first turns those failures into a `NotFound` we can ignore,
-/// at the cost of a tiny non-atomic gap.  The gap is safe in our
-/// download flow: `dest` lives in the per-user cache dir with no
-/// concurrent reader, and a crash mid-gap just produces a missing
-/// `dest` that the next attempt re-downloads.
+/// onto `dest`, replacing any existing file at `dest`.  On Windows we
+/// pre-delete `dest` to sidestep AV / network-share paths that don't
+/// honour `MOVEFILE_REPLACE_EXISTING`.
 fn replace_file(staging: &Path, dest: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
