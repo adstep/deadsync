@@ -327,7 +327,12 @@ pub fn apply_fresh_to_cache(
 /// caller (a fire-and-forget thread) can stay simple.
 pub fn run_check_once() {
     let agent = super::check_agent();
-    let prev_etag = cache().etag.clone();
+    // Capture the cache once.  We use this both to derive the
+    // `If-None-Match` ETag for the request and as the baseline for
+    // `apply_fresh_to_cache`; reading `cache()` twice would let a
+    // racing `write_cache` swap the baseline out from under us.
+    let prev_cache = cache();
+    let prev_etag = prev_cache.etag.clone();
 
     let outcome = match fetch_latest_release(&agent, prev_etag.as_deref()) {
         Ok(o) => o,
@@ -364,7 +369,7 @@ pub fn run_check_once() {
             let tag = info.tag.clone();
             let state = classify(info);
             replace_snapshot(state.clone());
-            let next = apply_fresh_to_cache(cache(), &state, &tag, etag);
+            let next = apply_fresh_to_cache(prev_cache, &state, &tag, etag);
             write_cache(next);
             match state {
                 UpdateState::UpToDate => log::info!("Update check: up to date"),
