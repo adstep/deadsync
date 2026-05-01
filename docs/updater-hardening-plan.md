@@ -69,7 +69,7 @@ lands so the rest of the document can stay descriptive.
 | M14 | Windows download rename fails when `dest` already exists      | 🟠       | ✅ Done        | New `replace_file(staging, dest)` helper does an explicit `remove_file(dest)` (NotFound-tolerant) before `rename` on Windows; POSIX keeps the plain atomic `rename`. The pre-delete sidesteps `MoveFileExW` edge cases on AV-instrumented / network paths. Tests `replace_file_moves_staging_onto_missing_dest` and `replace_file_overwrites_pre_existing_dest` cover both branches. |
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏭️ Deferred    | Scope is large (Op-kind enum, manifest format, planner rewrite, release tooling) and there is no concrete release-removal pending. Revisit when the first DLL/asset actually needs deleting. Recommended path: ship a small cumulative `removed.txt` per release rather than a full file manifest. |
 | M16 | Case-insensitive collisions in apply plan                     | 🟠       | ✅ Done       | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
-| M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ⏳ Not started | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
+| M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ✅ Done       | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
 | M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ⏳ Not started | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ⏳ Not started | Overlay shows a 80-char-truncated URL with Dismiss only — controller-only users can't open or copy it. Either expose an "open in browser" affordance where supported or surface the full URL via logs + an explicit "see deadsync.log" hint. |
 | M20 | I/O errors lose path/operation context                       | 🟡       | ⏳ Not started | Many call sites do `UpdaterError::Io(err.to_string())` without including which file/step failed. Real-world bug reports (UAC, AV locks, UNC, Program Files) will be much easier to triage with `op + path + os_error` context. |
@@ -710,13 +710,20 @@ lands so the rest of the document can stay descriptive.
   case-collision per M16), there's no journal so `recover` never
   cleans up the staging dir, and the next apply attempt creates yet
   another timestamped sibling.
-- **Fix:** wrap the pre-journal block in a guard that
-  `remove_dir_all(&staging_dir)` on the error path. Once the journal
-  is durable, hand ownership over to the recovery code (which already
-  cleans staging in both `Applied` and `Applying` branches).
-- **Acceptance:** test injects an extraction failure (e.g. corrupt
-  ZIP) and asserts no `.deadsync-update-staging-*` directory survives
-  next to the install root.
+- **Resolution:** `apply_journal::StagingGuard` wraps the pre-journal
+  block in both `apply_zip` and `apply_tar_gz`. The guard is
+  constructed before `extract_archive` / `extract_tar_gz` and disarmed
+  immediately after `journal.write_atomic(exe_dir)?` succeeds. Any
+  early return (extract error, plan_ops collision, journal write
+  failure) drops the guard and `remove_dir_all`s staging on the way
+  out. Once the journal is durable, recovery owns staging cleanup in
+  both `Applied` and `Applying` branches.
+- **Tests:** `apply_journal::tests::staging_guard_*` cover armed
+  drop, disarm, and missing-dir tolerance for the guard itself.
+  `apply_windows::tests::apply_zip_cleans_staging_when_extract_fails`
+  and `apply_unix::tests::apply_tar_gz_cleans_staging_when_extract_fails`
+  feed in a garbage archive and assert no `STAGING_PREFIX` directory
+  survives next to the install root and no journal was written.
 
 ### M18. Cached release URLs from a prior override survive into release builds
 

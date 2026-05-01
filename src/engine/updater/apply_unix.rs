@@ -290,10 +290,13 @@ pub fn apply_tar_gz(archive_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome,
     if journal.staging_dir.exists() {
         let _ = fs::remove_dir_all(&journal.staging_dir);
     }
+    let staging_guard =
+        apply_journal::StagingGuard::new(journal.staging_dir.clone());
     let bytes = fs::read(archive_path).map_err(io_err)?;
     let installed_file_count = extract_tar_gz(&bytes, &journal.staging_dir)?;
     journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
     journal.write_atomic(exe_dir)?;
+    staging_guard.disarm();
     if let Err(e) = execute_with_rollback(&journal) {
         let _ = fs::remove_file(apply_journal::journal_path(exe_dir));
         let _ = fs::remove_dir_all(&journal.staging_dir);
@@ -420,6 +423,32 @@ mod tests {
 
         let _ = fs::remove_dir_all(&staging);
         let _ = fs::remove_dir_all(&target);
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn apply_tar_gz_cleans_staging_when_extract_fails() {
+        let exe_dir = tempdir("apply-tgz-extract-fail");
+        let archive = exe_dir.join("garbage.tar.gz");
+        fs::write(&archive, b"this is not a gzip stream").unwrap();
+
+        let _ = apply_tar_gz(&archive, &exe_dir).unwrap_err();
+
+        let mut leaked_staging = false;
+        for entry in fs::read_dir(&exe_dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(apply_journal::STAGING_PREFIX) {
+                leaked_staging = true;
+            }
+        }
+        assert!(
+            !leaked_staging,
+            "staging dir leaked under {}",
+            exe_dir.display()
+        );
+        assert!(!apply_journal::journal_path(&exe_dir).exists());
+
+        let _ = fs::remove_dir_all(&exe_dir);
     }
 
     #[test]

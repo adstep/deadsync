@@ -320,10 +320,13 @@ pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, Update
     if journal.staging_dir.exists() {
         let _ = fs::remove_dir_all(&journal.staging_dir);
     }
+    let staging_guard =
+        apply_journal::StagingGuard::new(journal.staging_dir.clone());
     let file = File::open(zip_path).map_err(io_err)?;
     let installed_file_count = extract_archive(file, &journal.staging_dir)?;
     journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
     journal.write_atomic(exe_dir)?;
+    staging_guard.disarm();
     if let Err(e) = execute_with_rollback(&journal) {
         // Rollback already restored the install tree; drop the
         // journal so a future startup doesn't try to recover from a
@@ -653,6 +656,32 @@ mod tests {
         // backup, not the legacy `.old` suffix.
         let backup = journal.backup_path_for(&exe_dir.join("deadsync.exe"));
         assert_eq!(fs::read(&backup).unwrap(), b"OLD");
+
+        let _ = fs::remove_dir_all(&exe_dir);
+    }
+
+    #[test]
+    fn apply_zip_cleans_staging_when_extract_fails() {
+        let exe_dir = tempdir("apply-zip-extract-fail");
+        let zip_path = exe_dir.join("garbage.zip");
+        fs::write(&zip_path, b"this is not a zip file").unwrap();
+
+        let _ = apply_zip(&zip_path, &exe_dir).unwrap_err();
+
+        let mut leaked_staging = false;
+        for entry in fs::read_dir(&exe_dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(apply_journal::STAGING_PREFIX) {
+                leaked_staging = true;
+            }
+        }
+        assert!(
+            !leaked_staging,
+            "staging dir leaked under {}",
+            exe_dir.display()
+        );
+        // No journal should have been written either.
+        assert!(!apply_journal::journal_path(&exe_dir).exists());
 
         let _ = fs::remove_dir_all(&exe_dir);
     }

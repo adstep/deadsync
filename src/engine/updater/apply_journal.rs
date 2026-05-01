@@ -294,6 +294,34 @@ pub fn check_no_case_collisions(ops: &[Op]) -> Result<(), UpdaterError> {
     Ok(())
 }
 
+/// Removes its `path` on drop unless [`Self::disarm`] was called.
+/// Wraps the pre-journal extract+plan window so a partial staging
+/// tree never leaks when extraction or planning fails: once the
+/// journal is durable on disk, recovery owns staging cleanup and the
+/// guard can be disarmed.
+pub struct StagingGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl StagingGuard {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    pub fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 fn with_tmp_suffix(path: &Path) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(".tmp");
@@ -580,6 +608,35 @@ mod tests {
             op_at(target_b, backup_b, false),
         ];
         check_no_case_collisions(&ops).unwrap_err();
+    }
+
+    #[test]
+    fn staging_guard_armed_removes_dir_on_drop() {
+        let dir = tempdir("guard-armed");
+        assert!(dir.exists());
+        {
+            let _g = StagingGuard::new(dir.clone());
+        }
+        assert!(!dir.exists(), "armed guard should remove dir on drop");
+    }
+
+    #[test]
+    fn staging_guard_disarmed_keeps_dir() {
+        let dir = tempdir("guard-disarmed");
+        {
+            let g = StagingGuard::new(dir.clone());
+            g.disarm();
+        }
+        assert!(dir.exists(), "disarmed guard must not remove dir");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn staging_guard_drop_tolerates_missing_dir() {
+        let dir = tempdir("guard-missing");
+        fs::remove_dir_all(&dir).unwrap();
+        // Must not panic even though the path no longer exists.
+        let _g = StagingGuard::new(dir);
     }
 
     #[test]
