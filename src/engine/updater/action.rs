@@ -151,7 +151,18 @@ fn set_phase(next: ActionPhase) {
 
 /// Pure transition: "check completed, here is the result, what should
 /// the overlay show?".  Lifted out of the worker so we can unit-test it.
+///
+/// Reads `[Options] UpdaterInstallEnabled` from the live config; for
+/// pure unit tests, prefer [`classify_check_result_with`] to inject the
+/// flag directly without touching global state.
 pub fn classify_check_result(state: UpdateState) -> ActionPhase {
+    classify_check_result_with(state, config::get().updater_install_enabled)
+}
+
+/// Same as [`classify_check_result`] but takes the install-enabled flag
+/// explicitly so tests can exercise both branches without mutating the
+/// global config.
+pub fn classify_check_result_with(state: UpdateState, install_enabled: bool) -> ActionPhase {
     match state {
         UpdateState::UpToDate => ActionPhase::UpToDate {
             tag: crate::engine::version::current_tag(),
@@ -167,10 +178,13 @@ pub fn classify_check_result(state: UpdateState) -> ActionPhase {
             },
             Some(target) => match pick_asset_for_host(&info.assets, &info.tag, target) {
                 Some(asset) => {
-                    if !apply_supported_for_host() {
-                        // We ship a download for this host but can't run
-                        // the apply step in-place (notably macOS).  Show
-                        // the release info without a Download button.
+                    if !apply_supported_for_host() || !install_enabled {
+                        // We ship a download for this host but either
+                        // can't run the apply step in-place (notably
+                        // macOS) or the operator has opted out via
+                        // `[Options] UpdaterInstallEnabled = 0` (Steam
+                        // / package-manager builds).  Show the release
+                        // info without a Download button.
                         ActionPhase::AvailableNoInstall { info }
                     } else {
                         let asset = asset.clone();
@@ -259,6 +273,14 @@ pub fn request_download() {
         ActionPhase::ConfirmDownload { info, asset } => (info, asset),
         _ => return,
     };
+    if !config::get().updater_install_enabled {
+        // Operator opted out via `[Options] UpdaterInstallEnabled = 0`
+        // after the ConfirmDownload phase was published.  Re-route to
+        // the no-install variant so the overlay drops the Download
+        // button on the next frame.
+        set_phase(ActionPhase::AvailableNoInstall { info });
+        return;
+    }
     set_phase(ActionPhase::Downloading {
         info: info.clone(),
         asset: asset.clone(),
@@ -530,6 +552,43 @@ mod tests {
             assert!(matches!(phase, ActionPhase::ConfirmDownload { .. }));
         } else {
             assert!(matches!(phase, ActionPhase::AvailableNoInstall { .. }));
+        }
+    }
+
+    #[test]
+    fn classify_check_result_with_install_disabled_skips_download() {
+        // Operator-driven equivalent of the unsupported-host branch:
+        // install_enabled=false should send Available -> AvailableNoInstall
+        // even on hosts where apply_supported_for_host() is true.
+        let target = match host_target() {
+            Some(t) => t,
+            None => return,
+        };
+        let bumped = format!(
+            "v{}.{}.{}",
+            version::current().major,
+            version::current().minor,
+            version::current().patch + 1,
+        );
+        let name = expected_asset_name(&bumped, target);
+        let info = release_with_tag(&bumped, &name);
+
+        let disabled = classify_check_result_with(
+            UpdateState::Available(info.clone()),
+            false,
+        );
+        match disabled {
+            ActionPhase::AvailableNoInstall { info: got } => assert_eq!(got.tag, bumped),
+            other => panic!("expected AvailableNoInstall when install disabled, got {other:?}"),
+        }
+
+        // Confirm the enabled branch still works on supported hosts so a
+        // future regression in the gate doesn't silently disable installs.
+        let enabled = classify_check_result_with(UpdateState::Available(info), true);
+        if apply_supported_for_host() {
+            assert!(matches!(enabled, ActionPhase::ConfirmDownload { .. }));
+        } else {
+            assert!(matches!(enabled, ActionPhase::AvailableNoInstall { .. }));
         }
     }
 

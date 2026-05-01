@@ -52,7 +52,7 @@ lands so the rest of the document can stay descriptive.
 | M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
 | M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
 | M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ✅ Done        | `apply_supported_for_host()` mirrors the cli cfg gate; `classify_check_result` short-circuits Available → `AvailableNoInstall { info }` on macOS / non-`self-update` builds; overlay shows release tag + `html_url` with Dismiss only — no Download button. |
-| M9  | Make `self-update` opt-in per distribution                    | 🟠       | ⏳ Not started |                                                                                   |
+| M9  | Make in-app install opt-out for managed distributions         | 🟠       | ✅ Done        | New `[Options] UpdaterInstallEnabled` (default `1`); when `0`, `classify_check_result` routes Available → `AvailableNoInstall` and `request_download` refuses, so banner / Check For Updates still surface releases but the Download button never appears. Packagers (Steam / distro / MSIX) ship the ini with `0`. The `self-update` cargo feature remains for builds that want the apply code stripped entirely. |
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
 | N1  | ETag bookkeeping                                              | 🟡       | ⏳ Not started |                                                                                   |
@@ -240,16 +240,40 @@ lands so the rest of the document can stay descriptive.
     and a Dismiss-only footer. No browser-launching dependency was
     added; the URL is shown so the user can navigate to it manually.
 
-### M9. Make `self-update` opt-in per distribution
+### M9. Make in-app install opt-out for managed distributions
 
 - **Problem:** `self-update` is in default features
   (`Cargo.toml:36-43`). Risky for Steam/MSIX/distro/Flatpak/Snap builds
-  where the host owns updates.
-- **Fix:** introduce a build-time distribution mode, e.g. cargo
-  features `dist-portable`, `dist-installer`, `dist-store`,
-  `dist-managed`. Only `dist-portable` enables the apply path; managed
-  distributions disable checks/banners/apply and may show a
-  channel-specific message.
+  where the host owns updates. The cargo feature alone isn't enough:
+  even a `--no-default-features` build still runs the startup check,
+  shows the menu banner, and exposes the "Check for Updates" Options
+  row — managed builds hit a useless dead-end overlay (post-M8) when
+  the user clicks through.
+- **Resolution (runtime opt-out, not a build-time mode):** added
+  `[Options] UpdaterInstallEnabled` (default `1`). When set to `0`:
+  - `classify_check_result_with(state, install_enabled=false)` routes
+    every successful Available → `AvailableNoInstall { info }`, so the
+    overlay shows the release tag + GitHub URL with Dismiss only and
+    never reaches `ConfirmDownload`.
+  - `request_download` re-checks the gate and re-routes to
+    `AvailableNoInstall` if a stale `ConfirmDownload` phase is still
+    visible from before the operator flipped the flag — the worker is
+    never spawned.
+  - Banner, startup check, and the "Check for Updates" Options row are
+    intentionally **left enabled**: a managed build still tells the
+    user a new release exists, just doesn't try to install it.
+- **Why a config key, not a cargo feature:** one binary serves all
+  channels (Steam ships the same exe as the GitHub release), no CI
+  matrix doubling, and packagers just drop the value into the ini they
+  ship. The existing `self-update` feature is retained as a layered,
+  stricter knob for environments that need the apply code stripped
+  from the binary entirely (Microsoft Store review, etc.).
+- **Tests:**
+  - `classify_check_result_with_install_disabled_skips_download`
+    asserts the gate flips Available → `AvailableNoInstall` even on
+    hosts where apply is supported.
+  - The same test re-runs with `install_enabled = true` to guard
+    against future regressions silently disabling installs everywhere.
 
 ### M10. Add an inter-process updater lock
 
