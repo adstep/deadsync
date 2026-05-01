@@ -22,8 +22,8 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    FetchOutcome, ReleaseAsset, ReleaseInfo, UpdateState, UpdaterError, classify,
-    fetch_latest_release,
+    ENV_RELEASE_URL_OVERRIDE, FetchOutcome, ReleaseAsset, ReleaseInfo, UpdateState, UpdaterError,
+    classify, fetch_latest_release,
 };
 use crate::config;
 
@@ -194,7 +194,10 @@ fn save_cache_to(path: &Path, cache: &UpdaterCache) -> std::io::Result<()> {
 /// [`UpdateState::UpToDate`] once the user has installed the update.
 pub fn load_persisted_cache() {
     let path = config::dirs::app_dirs().cache_dir.join(CACHE_FILENAME);
-    let loaded = load_cache_from(&path).unwrap_or_default();
+    let raw = load_cache_from(&path).unwrap_or_default();
+    let override_active = std::env::var(ENV_RELEASE_URL_OVERRIDE).is_ok();
+    let loaded = sanitize_loaded_cache(&path, raw, override_active);
+
     let cached_release = loaded.cached_release.clone();
     if let Ok(mut guard) = CACHE.write() {
         *guard = loaded;
@@ -207,6 +210,77 @@ pub fn load_persisted_cache() {
             replace_snapshot(state);
         }
     }
+}
+
+/// Strips a `cached_release` whose asset URLs don't point at a
+/// canonical GitHub host, unless the operator currently has the
+/// release URL override active.  When stripping, also rewrites
+/// `path` so subsequent launches don't have to re-discover the
+/// taint.  Pure-ish (logs + a single fs::write on the rewrite path);
+/// extracted from `load_persisted_cache` so tests can drive it
+/// against a tempdir without touching the global cache directory.
+fn sanitize_loaded_cache(
+    path: &Path,
+    mut cache: UpdaterCache,
+    override_active: bool,
+) -> UpdaterCache {
+    if override_active {
+        return cache;
+    }
+    let needs_strip = cache
+        .cached_release
+        .as_ref()
+        .is_some_and(|r| !cached_release_is_canonical(r));
+    if !needs_strip {
+        return cache;
+    }
+    log::warn!(
+        "Discarding persisted updater cache: cached release asset URL host \
+         is not a canonical GitHub host (likely written while \
+         {ENV_RELEASE_URL_OVERRIDE} was set)."
+    );
+    cache.cached_release = None;
+    if let Err(err) = save_cache_to(path, &cache) {
+        log::warn!(
+            "Failed to rewrite cleansed updater cache to {}: {err}",
+            path.display(),
+        );
+    }
+    cache
+}
+
+/// Hosts an honest GitHub release asset URL is allowed to point at.
+/// `github.com` is what `browser_download_url` actually contains for
+/// release assets; `api.github.com` is the API base.  Anything else is
+/// treated as untrusted on cache load.
+const CANONICAL_RELEASE_HOSTS: &[&str] = &["github.com", "api.github.com"];
+
+/// True when every asset in `cached` advertises a download URL whose
+/// host is in [`CANONICAL_RELEASE_HOSTS`].  Empty asset lists are
+/// considered canonical (there's no URL to validate, and into_release_info
+/// will yield a release with nothing actionable to download).
+fn cached_release_is_canonical(cached: &CachedRelease) -> bool {
+    cached
+        .assets
+        .iter()
+        .all(|a| asset_url_host_is_canonical(&a.browser_download_url))
+}
+
+fn asset_url_host_is_canonical(url: &str) -> bool {
+    extract_host(url).is_some_and(|h| CANONICAL_RELEASE_HOSTS.contains(&h))
+}
+
+/// Extracts the host portion of an `https://` URL without pulling in
+/// a full URL parser.  Returns `None` for anything that isn't a plain
+/// `https://authority/...` shape (including `http://`), which biases
+/// the surrounding check toward "not canonical" -- the safer default
+/// for cache validation.
+fn extract_host(url: &str) -> Option<&str> {
+    let rest = url.strip_prefix("https://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let after_userinfo = authority.rsplit('@').next()?;
+    let host = after_userinfo.split(':').next()?;
+    if host.is_empty() { None } else { Some(host) }
 }
 
 fn load_cache_from(path: &Path) -> Option<UpdaterCache> {
@@ -554,6 +628,167 @@ mod tests {
         std::fs::write(&path, b"this is not json").unwrap();
         assert!(load_cache_from(&path).is_none());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn extract_host_parses_common_shapes() {
+        assert_eq!(extract_host("https://github.com/foo"), Some("github.com"));
+        assert_eq!(
+            extract_host("https://api.github.com:443/repos"),
+            Some("api.github.com")
+        );
+        assert_eq!(
+            extract_host("https://user:pw@example.com/x?y#z"),
+            Some("example.com")
+        );
+        assert_eq!(extract_host("ftp://example.com"), None);
+        assert_eq!(extract_host("http://github.com/x.zip"), None);
+        assert_eq!(extract_host("not a url"), None);
+        assert_eq!(extract_host("https://"), None);
+    }
+
+    #[test]
+    fn asset_url_host_canonical_recognises_github_hosts() {
+        assert!(asset_url_host_is_canonical(
+            "https://github.com/pnn64/deadsync/releases/download/v1.0.0/d.zip"
+        ));
+        assert!(asset_url_host_is_canonical(
+            "https://api.github.com/repos/pnn64/deadsync/releases/assets/1"
+        ));
+        assert!(!asset_url_host_is_canonical("http://localhost:8000/d.zip"));
+        assert!(!asset_url_host_is_canonical(
+            "https://attacker.example/d.zip"
+        ));
+        // Plain http is rejected even at github.com -- GitHub assets are
+        // only ever served over https, and an http URL in the cache is
+        // either a typo or a downgrade attempt.
+        assert!(!asset_url_host_is_canonical("http://github.com/x.zip"));
+    }
+
+    #[test]
+    fn cached_release_canonical_requires_every_asset_canonical() {
+        let mut release = CachedRelease {
+            tag: "v1.0.0".into(),
+            html_url: "https://github.com/pnn64/deadsync/releases/tag/v1.0.0".into(),
+            body: String::new(),
+            published_at: None,
+            assets: vec![
+                CachedAsset {
+                    name: "a.zip".into(),
+                    browser_download_url:
+                        "https://github.com/pnn64/deadsync/releases/download/v1.0.0/a.zip".into(),
+                    size: 0,
+                    digest: None,
+                },
+                CachedAsset {
+                    name: "b.zip".into(),
+                    browser_download_url:
+                        "https://github.com/pnn64/deadsync/releases/download/v1.0.0/b.zip".into(),
+                    size: 0,
+                    digest: None,
+                },
+            ],
+        };
+        assert!(cached_release_is_canonical(&release));
+
+        // Empty asset list is treated as canonical (vacuously true).
+        let empty = CachedRelease {
+            assets: vec![],
+            ..release.clone()
+        };
+        assert!(cached_release_is_canonical(&empty));
+
+        // One non-canonical entry taints the whole release.
+        release.assets[1].browser_download_url = "http://localhost:8000/b.zip".into();
+        assert!(!cached_release_is_canonical(&release));
+    }
+
+    #[test]
+    fn sanitize_strips_localhost_release_when_override_inactive() {
+        let dir = tempdir_for("updater-cache-sanitize-strip");
+        let path = dir.join(CACHE_FILENAME);
+        let cache = UpdaterCache {
+            last_seen_tag: Some("v1.0.0".into()),
+            etag: Some("\"etag\"".into()),
+            cached_release: Some(CachedRelease {
+                tag: "v1.0.0".into(),
+                html_url: "http://localhost:8000/v1.0.0".into(),
+                body: String::new(),
+                published_at: None,
+                assets: vec![CachedAsset {
+                    name: "deadsync-v1.0.0-x86_64-linux.tar.gz".into(),
+                    browser_download_url: "http://localhost:8000/d.tar.gz".into(),
+                    size: 0,
+                    digest: None,
+                }],
+            }),
+        };
+        save_cache_to(&path, &cache).unwrap();
+
+        let cleansed = sanitize_loaded_cache(&path, cache.clone(), false);
+        assert!(cleansed.cached_release.is_none());
+        // ETag and last_seen_tag survive — only the dangerous bit is dropped.
+        assert_eq!(cleansed.etag.as_deref(), Some("\"etag\""));
+        assert_eq!(cleansed.last_seen_tag.as_deref(), Some("v1.0.0"));
+        // The on-disk file should now match the cleansed shape.
+        let on_disk = load_cache_from(&path).expect("loads");
+        assert!(on_disk.cached_release.is_none());
+        assert_eq!(on_disk.etag.as_deref(), Some("\"etag\""));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sanitize_keeps_localhost_release_when_override_active() {
+        let dir = tempdir_for("updater-cache-sanitize-keep");
+        let path = dir.join(CACHE_FILENAME);
+        let cache = UpdaterCache {
+            last_seen_tag: None,
+            etag: None,
+            cached_release: Some(CachedRelease {
+                tag: "v1.0.0".into(),
+                html_url: "http://localhost:8000/v1.0.0".into(),
+                body: String::new(),
+                published_at: None,
+                assets: vec![CachedAsset {
+                    name: "d.tar.gz".into(),
+                    browser_download_url: "http://localhost:8000/d.tar.gz".into(),
+                    size: 0,
+                    digest: None,
+                }],
+            }),
+        };
+        let kept = sanitize_loaded_cache(&path, cache.clone(), true);
+        assert_eq!(kept, cache);
+        // Should not have rewritten anything either; path didn't exist.
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn sanitize_keeps_canonical_release() {
+        let dir = tempdir_for("updater-cache-sanitize-canonical");
+        let path = dir.join(CACHE_FILENAME);
+        let cache = UpdaterCache {
+            last_seen_tag: Some("v1.0.0".into()),
+            etag: None,
+            cached_release: Some(CachedRelease {
+                tag: "v1.0.0".into(),
+                html_url: "https://github.com/pnn64/deadsync/releases/tag/v1.0.0".into(),
+                body: String::new(),
+                published_at: None,
+                assets: vec![CachedAsset {
+                    name: "d.tar.gz".into(),
+                    browser_download_url:
+                        "https://github.com/pnn64/deadsync/releases/download/v1.0.0/d.tar.gz"
+                            .into(),
+                    size: 0,
+                    digest: None,
+                }],
+            }),
+        };
+        let kept = sanitize_loaded_cache(&path, cache.clone(), false);
+        assert_eq!(kept, cache);
+        assert!(!path.exists());
     }
 
     fn tempdir_for(stem: &str) -> PathBuf {

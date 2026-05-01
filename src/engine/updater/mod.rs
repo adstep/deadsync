@@ -35,13 +35,17 @@ pub const RELEASES_REPO: &str = "pnn64/deadsync";
 pub const LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/pnn64/deadsync/releases/latest";
 
+/// Environment variable that, when set, replaces [`LATEST_RELEASE_URL`]
+/// for the duration of the process.  Intended for local end-to-end
+/// tests served by `python -m http.server` against a fixture
+/// directory; never set this in production.
+pub const ENV_RELEASE_URL_OVERRIDE: &str = "DEADSYNC_UPDATER_RELEASE_URL";
+
 /// Resolves the URL the update check should hit.  By default this is
-/// [`LATEST_RELEASE_URL`], but the `DEADSYNC_UPDATER_RELEASE_URL`
-/// environment variable can override it for local end-to-end tests
-/// (typically pointing at `http://localhost:PORT/release.json`
-/// served by `python -m http.server` from a fixture directory).
+/// [`LATEST_RELEASE_URL`], but [`ENV_RELEASE_URL_OVERRIDE`] can
+/// override it for local end-to-end tests.
 pub fn release_url() -> String {
-    std::env::var("DEADSYNC_UPDATER_RELEASE_URL")
+    std::env::var(ENV_RELEASE_URL_OVERRIDE)
         .unwrap_or_else(|_| LATEST_RELEASE_URL.to_string())
 }
 

@@ -70,7 +70,7 @@ lands so the rest of the document can stay descriptive.
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏭️ Deferred    | Scope is large (Op-kind enum, manifest format, planner rewrite, release tooling) and there is no concrete release-removal pending. Revisit when the first DLL/asset actually needs deleting. Recommended path: ship a small cumulative `removed.txt` per release rather than a full file manifest. |
 | M16 | Case-insensitive collisions in apply plan                     | 🟠       | ✅ Done       | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
 | M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ✅ Done       | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
-| M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ⏳ Not started | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
+| M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ✅ Done | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ⏳ Not started | Overlay shows a 80-char-truncated URL with Dismiss only — controller-only users can't open or copy it. Either expose an "open in browser" affordance where supported or surface the full URL via logs + an explicit "see deadsync.log" hint. |
 | M20 | I/O errors lose path/operation context                       | 🟡       | ⏳ Not started | Many call sites do `UpdaterError::Io(err.to_string())` without including which file/step failed. Real-world bug reports (UAC, AV locks, UNC, Program Files) will be much easier to triage with `op + path + os_error` context. |
 | C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ⏳ Not started | `write_atomic` and the apply-time renames fsync the file but not the directory. On POSIX power-loss this can lose the rename even though the file bytes are durable. Either weaken the durability claim in comments or add platform-specific dir syncs after journal rename and at apply boundaries. |
@@ -735,15 +735,21 @@ lands so the rest of the document can stay descriptive.
   should ignore the env var) would happily reconstruct `Available`
   from that cache and try to download from the attacker-controlled
   host.
-- **Fix:** when loading the cache in a build that doesn't honor the
-  override (i.e. release builds after C2/M6), drop any
-  `cached_release` whose `browser_download_url` host doesn't match the
-  canonical GitHub asset host. Or: never persist a `cached_release`
-  that came from an overridden URL in the first place (taint-track the
-  flag through the cache write path).
-- **Acceptance:** test seeds a `cached_release` with a localhost URL,
-  loads under "release-build" semantics, asserts the cache reverts to
-  empty.
+- **Resolution:** `state::sanitize_loaded_cache` runs on every
+  `load_persisted_cache`. It drops `cached_release` when (a) no
+  `DEADSYNC_UPDATER_RELEASE_URL` override is currently in effect AND
+  (b) any asset's `browser_download_url` is not an `https://` URL on
+  `github.com` / `api.github.com`. The cleansed cache is rewritten to
+  disk so subsequent launches don't have to re-detect the taint.
+  `etag` and `last_seen_tag` are preserved (they leak no host info).
+- **Tests:** new in `state.rs`:
+  `extract_host_parses_common_shapes`,
+  `asset_url_host_canonical_recognises_github_hosts` (rejects
+  localhost, attacker hosts, and `http://github.com`),
+  `cached_release_canonical_requires_every_asset_canonical`,
+  `sanitize_strips_localhost_release_when_override_inactive` (round
+  trip on disk too), `sanitize_keeps_localhost_release_when_override_active`,
+  `sanitize_keeps_canonical_release`.
 
 ### M19. `AvailableNoInstall` UX is a dead end on console / no-keyboard input
 
