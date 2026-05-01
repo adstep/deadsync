@@ -262,6 +262,38 @@ pub fn journal_path(exe_dir: &Path) -> PathBuf {
     exe_dir.join(JOURNAL_FILENAME)
 }
 
+/// Rejects op lists where two paths fold to the same name on a
+/// case-insensitive filesystem (NTFS, default APFS, FAT, casefolded
+/// ext4).  A staging tree containing both `foo.dll` and `FOO.dll`
+/// would otherwise install one and silently shadow the other on
+/// Windows.  Also catches the (vanishingly unlikely) case where a
+/// target path collides with another op's backup path.
+pub fn check_no_case_collisions(ops: &[Op]) -> Result<(), UpdaterError> {
+    use std::collections::HashMap;
+    let mut seen: HashMap<String, PathBuf> = HashMap::with_capacity(ops.len() * 2);
+    for op in ops {
+        let key = op.target.to_string_lossy().to_lowercase();
+        if let Some(prev) = seen.insert(key, op.target.clone()) {
+            return Err(io_err_msg(format!(
+                "case-insensitive path collision in release archive: '{}' and '{}' resolve to the same target on this filesystem",
+                prev.display(),
+                op.target.display(),
+            )));
+        }
+        if op.target_existed {
+            let key = op.backup.to_string_lossy().to_lowercase();
+            if let Some(prev) = seen.insert(key, op.backup.clone()) {
+                return Err(io_err_msg(format!(
+                    "case-insensitive path collision between '{}' and backup path '{}'",
+                    prev.display(),
+                    op.backup.display(),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn with_tmp_suffix(path: &Path) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(".tmp");
@@ -488,6 +520,66 @@ mod tests {
         for _ in 0..1024 {
             assert!(seen.insert(generate_token()));
         }
+    }
+
+    fn op_at(target: PathBuf, backup: PathBuf, target_existed: bool) -> Op {
+        Op {
+            staged: PathBuf::from("/staging").join(target.file_name().unwrap()),
+            target,
+            backup,
+            target_existed,
+        }
+    }
+
+    #[test]
+    fn check_no_case_collisions_accepts_distinct_paths() {
+        let ops = vec![
+            op_at(
+                PathBuf::from("/install/foo.dll"),
+                PathBuf::from("/install/foo.dll.bak"),
+                true,
+            ),
+            op_at(
+                PathBuf::from("/install/bar.dll"),
+                PathBuf::from("/install/bar.dll.bak"),
+                false,
+            ),
+        ];
+        check_no_case_collisions(&ops).unwrap();
+    }
+
+    #[test]
+    fn check_no_case_collisions_rejects_case_only_target_dupes() {
+        let ops = vec![
+            op_at(
+                PathBuf::from("/install/foo.dll"),
+                PathBuf::from("/install/foo.dll.bak"),
+                false,
+            ),
+            op_at(
+                PathBuf::from("/install/FOO.dll"),
+                PathBuf::from("/install/FOO.dll.bak"),
+                false,
+            ),
+        ];
+        let err = check_no_case_collisions(&ops).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.to_lowercase().contains("collision"), "got: {msg}");
+    }
+
+    #[test]
+    fn check_no_case_collisions_rejects_target_vs_backup_overlap() {
+        let token_suffix = "deadsync-bak-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let target_a = PathBuf::from("/install/foo");
+        let backup_a = PathBuf::from(format!("/install/foo.{token_suffix}"));
+        // A second op whose target case-folds to the first op's backup.
+        let target_b = PathBuf::from(format!("/install/FOO.{token_suffix}"));
+        let backup_b = PathBuf::from(format!("/install/FOO.{token_suffix}.bak"));
+        let ops = vec![
+            op_at(target_a, backup_a, true),
+            op_at(target_b, backup_b, false),
+        ];
+        check_no_case_collisions(&ops).unwrap_err();
     }
 
     #[test]

@@ -215,6 +215,7 @@ fn plan_ops(
             target_existed,
         });
     }
+    apply_journal::check_no_case_collisions(&ops)?;
     Ok(ops)
 }
 
@@ -399,6 +400,26 @@ mod tests {
             tar.finish().unwrap();
         }
         buf
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn plan_ops_rejects_case_colliding_paths() {
+        let staging = tempdir("plan-collide-staging");
+        let target = tempdir("plan-collide-target");
+        fs::write(staging.join("foo.dll"), b"A").unwrap();
+        fs::write(staging.join("FOO.dll"), b"B").unwrap();
+
+        let journal = apply_journal::Journal::new(&target);
+        let err = plan_ops(&journal, &staging, &target).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.to_lowercase().contains("collision"),
+            "expected collision error, got: {msg}"
+        );
+
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&target);
     }
 
     #[test]

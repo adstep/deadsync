@@ -230,6 +230,7 @@ fn plan_ops(
             target_existed,
         });
     }
+    apply_journal::check_no_case_collisions(&ops)?;
     Ok(ops)
 }
 

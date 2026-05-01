@@ -68,7 +68,7 @@ lands so the rest of the document can stay descriptive.
 | M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ✅ Done        | `stream_to_file` now re-polls `should_cancel` after EOF/before fsync and again after the hash check; `download_to_file` re-polls after the rename succeeds and removes the renamed archive on a late cancel; `run_fake_download` does the same after its progress loop. Combined with M12's `set_phase_if_current` guard, a Back press anywhere in the post-stream tail leaves no `Ready` phase and no leftover archive. |
 | M14 | Windows download rename fails when `dest` already exists      | 🟠       | ✅ Done        | New `replace_file(staging, dest)` helper does an explicit `remove_file(dest)` (NotFound-tolerant) before `rename` on Windows; POSIX keeps the plain atomic `rename`. The pre-delete sidesteps `MoveFileExW` edge cases on AV-instrumented / network paths. Tests `replace_file_moves_staging_onto_missing_dest` and `replace_file_overwrites_pre_existing_dest` cover both branches. |
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏭️ Deferred    | Scope is large (Op-kind enum, manifest format, planner rewrite, release tooling) and there is no concrete release-removal pending. Revisit when the first DLL/asset actually needs deleting. Recommended path: ship a small cumulative `removed.txt` per release rather than a full file manifest. |
-| M16 | Case-insensitive collisions in apply plan                     | 🟠       | ⏳ Not started | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
+| M16 | Case-insensitive collisions in apply plan                     | 🟠       | ✅ Done       | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
 | M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ⏳ Not started | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
 | M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ⏳ Not started | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ⏳ Not started | Overlay shows a 80-char-truncated URL with Dismiss only — controller-only users can't open or copy it. Either expose an "open in browser" affordance where supported or surface the full URL via logs + an explicit "see deadsync.log" hint. |
@@ -686,12 +686,19 @@ lands so the rest of the document can stay descriptive.
   second op then backs up file A (calling it the backup of file B!) and
   overwrites it with B. Recovery rollback is now ambiguous and almost
   certainly wrong.
-- **Fix:** during planning, normalize target paths with the host's
-  case-folding semantics, detect duplicates, and abort the apply with a
-  clear error before writing the journal. Same treatment for backup
-  paths (collisions there too if two ops share a token suffix root).
-- **Acceptance:** unit test feeds a staging dir with case-colliding
-  paths and asserts the planner returns `Err`.
+- **Resolution:** `apply_journal::check_no_case_collisions` lowercases
+  every op's target (and backup, when `target_existed`) into a single
+  `HashMap`; the first repeat returns an `UpdaterError::Io` before the
+  journal is written. Both `plan_ops` implementations call the helper
+  unconditionally so a cross-platform archive with case-only-different
+  names is rejected even when the host filesystem happens to be
+  case-sensitive.
+- **Tests:** `apply_journal::tests::check_no_case_collisions_*` cover
+  the helper directly (accept distinct paths, reject case-only target
+  duplicates, reject target-vs-backup overlap).
+  `apply_unix::tests::plan_ops_rejects_case_colliding_paths` exercises
+  the planner end-to-end with a real staging dir on case-sensitive
+  hosts.
 
 ### M17. Pre-journal extraction failures leak staging directories
 
