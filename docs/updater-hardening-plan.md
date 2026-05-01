@@ -71,7 +71,7 @@ lands so the rest of the document can stay descriptive.
 | M16 | Case-insensitive collisions in apply plan                     | 🟠       | ✅ Done       | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
 | M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ✅ Done       | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
 | M18 | Cached release URLs from a prior override survive into release builds | 🟠 | ✅ Done | `state.rs` persists `cached_release` with full asset URLs. A dev/CI run that pointed `DEADSYNC_UPDATER_RELEASE_URL` at localhost can leave a cached release whose `browser_download_url` isn't on `github.com`. C2/M6 should also drop cached releases whose host isn't the canonical one. |
-| M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ⏳ Not started | Overlay shows a 80-char-truncated URL with Dismiss only — controller-only users can't open or copy it. Either expose an "open in browser" affordance where supported or surface the full URL via logs + an explicit "see deadsync.log" hint. |
+| M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ✅ Done | Resolved by removal: when `apply_supported_for_host()` is false or `UpdaterInstallEnabled = 0`, `options::activate_current_selection` no-ops the row and the renderer skips it. The menu banner still surfaces available releases through the passive check, so users on externally-managed builds (macOS, Steam, distro packages) still learn about new versions. |
 | M20 | I/O errors lose path/operation context                       | 🟡       | ⏳ Not started | Many call sites do `UpdaterError::Io(err.to_string())` without including which file/step failed. Real-world bug reports (UAC, AV locks, UNC, Program Files) will be much easier to triage with `op + path + os_error` context. |
 | C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ⏳ Not started | `write_atomic` and the apply-time renames fsync the file but not the directory. On POSIX power-loss this can lose the rename even though the file bytes are durable. Either weaken the durability claim in comments or add platform-specific dir syncs after journal rename and at apply boundaries. |
 
@@ -758,12 +758,17 @@ lands so the rest of the document can stay descriptive.
   (`update_overlay.rs:422-431`) is Dismiss. macOS users and managed
   distros (`UpdaterInstallEnabled = 0`) are left with a URL they
   cannot click, copy, or open from a controller-driven UI.
-- **Fix:** at minimum, log the full URL at INFO when entering
-  `AvailableNoInstall` and surface a "see logs" hint. Where platform
-  APIs allow, add an "Open in browser" affordance (Windows
-  `ShellExecuteW`, macOS `open`, Linux `xdg-open`).
-- **Acceptance:** users on macOS and on Steam (managed) builds can
-  reach the GitHub release page without alt-tabbing to find the URL.
+- **Resolution:** the in-app entry point ("Check for Updates") is now
+  hidden on hosts where install isn't supported and when the operator
+  disables installs. `options::activate_current_selection` no-ops the
+  row and the row is skipped at render time. The menu banner that
+  surfaces "update available v0.x.y" remains regardless, so users still
+  learn about new releases — they just go through whichever channel
+  ships their build (Steam page, distro repo, github.com) instead of an
+  in-app modal that can't be acted on.
+- **Acceptance:** users on macOS / on `UpdaterInstallEnabled = 0` builds
+  no longer encounter the AvailableNoInstall dead-end overlay from the
+  Options menu, while still seeing release availability on the menu.
 
 ### M20. I/O errors lose path/operation context
 

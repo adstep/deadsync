@@ -636,6 +636,25 @@ pub const ITEMS: &[Item] = &[
     },
 ];
 
+/// Returns the slice of `ITEMS` that should be shown given the current
+/// host + config state. Selection, navigation, and render all index into
+/// the visible list, so hidden rows don't leave gaps or trap the cursor.
+fn visible_items() -> Vec<&'static Item> {
+    ITEMS.iter().filter(|i| item_visible(i.id)).collect()
+}
+
+/// Per-row visibility predicate. Defaults to true; add a match arm to
+/// gate a row on host capabilities or config.
+fn item_visible(id: ItemId) -> bool {
+    match id {
+        ItemId::CheckForUpdates => {
+            crate::engine::updater::apply_supported_for_host()
+                && config::get().updater_install_enabled
+        }
+        _ => true,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NavDirection {
     Up,
@@ -7803,7 +7822,7 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
         {
             match state.view {
                 OptionsView::Main => {
-                    let total = ITEMS.len();
+                    let total = visible_items().len();
                     if total > 0 {
                         let last = total - 1;
                         match direction {
@@ -7880,7 +7899,7 @@ pub fn update(state: &mut State, dt: f32, asset_manager: &AssetManager) -> Optio
         OptionsView::Main => {
             update_row_tweens(
                 &mut state.row_tweens,
-                ITEMS.len(),
+                visible_items().len(),
                 state.selected,
                 s,
                 list_y,
@@ -8590,7 +8609,7 @@ fn undo_three_key_selection(state: &mut State, asset_manager: &AssetManager) {
     match state.menu_lr_undo {
         1 => match state.view {
             OptionsView::Main => {
-                let total = ITEMS.len();
+                let total = visible_items().len();
                 if total > 0 {
                     state.selected = (state.selected + 1) % total;
                 }
@@ -8607,7 +8626,7 @@ fn undo_three_key_selection(state: &mut State, asset_manager: &AssetManager) {
         },
         -1 => match state.view {
             OptionsView::Main => {
-                let total = ITEMS.len();
+                let total = visible_items().len();
                 if total > 0 {
                     state.selected = if state.selected == 0 {
                         total - 1
@@ -8633,12 +8652,13 @@ fn undo_three_key_selection(state: &mut State, asset_manager: &AssetManager) {
 fn activate_current_selection(state: &mut State, asset_manager: &AssetManager) -> ScreenAction {
     match state.view {
         OptionsView::Main => {
-            let total = ITEMS.len();
+            let items = visible_items();
+            let total = items.len();
             if total == 0 {
                 return ScreenAction::None;
             }
             let sel = state.selected.min(total - 1);
-            let item = &ITEMS[sel];
+            let item = items[sel];
             state.pending_submenu_parent_kind = None;
 
             match item.id {
@@ -9162,7 +9182,7 @@ pub fn handle_input(
             screen_input::ThreeKeyMenuAction::Prev => {
                 match state.view {
                     OptionsView::Main => {
-                        let total = ITEMS.len();
+                        let total = visible_items().len();
                         if total > 0 {
                             state.selected = if state.selected == 0 {
                                 total - 1
@@ -9188,7 +9208,7 @@ pub fn handle_input(
             screen_input::ThreeKeyMenuAction::Next => {
                 match state.view {
                     OptionsView::Main => {
-                        let total = ITEMS.len();
+                        let total = visible_items().len();
                         if total > 0 {
                             state.selected = (state.selected + 1) % total;
                         }
@@ -9232,7 +9252,7 @@ pub fn handle_input(
             if ev.pressed {
                 match state.view {
                     OptionsView::Main => {
-                        let total = ITEMS.len();
+                        let total = visible_items().len();
                         if total > 0 {
                             state.selected = if state.selected == 0 {
                                 total - 1
@@ -9263,7 +9283,7 @@ pub fn handle_input(
             if ev.pressed {
                 match state.view {
                     OptionsView::Main => {
-                        let total = ITEMS.len();
+                        let total = visible_items().len();
                         if total > 0 {
                             state.selected = (state.selected + 1) % total;
                         }
@@ -10240,9 +10260,10 @@ pub fn get_actors(
             let col_active_text =
                 color::simply_love_rgba(state.active_color_index + state.selected as i32);
 
-            let total_items = ITEMS.len();
+            let items = visible_items();
+            let total_items = items.len();
             let row_h = ROW_H * s;
-            for (item_idx, _) in ITEMS.iter().enumerate() {
+            for (item_idx, item) in items.iter().enumerate() {
                 let (row_mid_y, row_alpha) = state
                     .row_tweens
                     .get(item_idx)
@@ -10293,7 +10314,7 @@ pub fn get_actors(
                 }
 
                 let text_x = if is_exit { heart_x } else { text_x_base };
-                let label = ITEMS[item_idx].name.get();
+                let label = item.name.get();
                 let mut color_t = if is_exit {
                     if is_active { col_black } else { col_white }
                 } else if is_active {
@@ -10313,8 +10334,8 @@ pub fn get_actors(
                 ));
             }
 
-            let sel = state.selected.min(ITEMS.len() - 1);
-            selected_item = Some((DescriptionCacheKey::Main(sel), &ITEMS[sel]));
+            let sel = state.selected.min(items.len() - 1);
+            selected_item = Some((DescriptionCacheKey::Main(sel), items[sel]));
         }
         OptionsView::Submenu(kind) => {
             let rows = submenu_rows(kind);

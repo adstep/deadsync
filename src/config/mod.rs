@@ -243,11 +243,10 @@ pub struct Config {
     pub auto_download_unlocks: bool,
     pub auto_populate_gs_scores: bool,
     /// Allows the in-app updater to download and install updates.
-    /// When `false`, the menu banner and "Check for Updates" still
-    /// surface that a release is available, but the overlay routes to
-    /// `AvailableNoInstall` (release page URL only) instead of offering
-    /// a Download button. Intended for builds shipped through channels
-    /// that own updates themselves (Steam, MSIX, distro packages).
+    /// When `false`, the in-app install path is hidden ("Check for Updates"
+    /// row is omitted from the Options menu) but the menu banner still
+    /// surfaces that a release is available so users can update through
+    /// whichever channel ships their build (Steam, MSIX, distro packages).
     pub updater_install_enabled: bool,
     pub rate_mod_preserves_pitch: bool,
     pub enable_arrowcloud: bool,
