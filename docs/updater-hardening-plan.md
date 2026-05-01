@@ -59,7 +59,7 @@ lands so the rest of the document can stay descriptive.
 | N2  | Verify GitHub's API `digest` field too                        | 🟡       | ✅ Done        | New `cross_check_api_digest` helper compares `assets[].digest` (e.g. `sha256:…`) against the parsed `.sha256` sidecar before downloading; mismatch fails closed via `ChecksumMismatch`, unsupported algorithms log-and-skip, missing field is no-op. Wired into `action::run_download`. |
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ✅ Done        | New `action::request_cancel()` + `cancel_requested()` flag, polled by check / sidecar / download / fake-download workers; `download_to_file` takes a `should_cancel` callback that fires before/between chunks and returns `UpdaterError::Cancelled` (partial file is removed). Overlay binds Back during Checking/Downloading to cancel; Applying remains uncancellable. |
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ✅ Done        | `download_to_file` now writes to `<dest>.part`, fsyncs after the final flush, and renames onto `dest` only after sha256 verifies. Crash / cancel / mismatch leaves no file at the canonical name; any pre-existing `dest` is preserved. Stale `.part` from a previous run is removed before staging. |
-| N5  | Audit unused i18n keys                                        | 🟡       | ⏳ Not started |                                                                                   |
+| N5  | Audit unused i18n keys                                        | 🟡       | ✅ Done        | Dropped `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` from `en.ini`/`sv.ini`/`pseudo.ini`; the overlay only uses `BodyReadyShort` (and the M8-era `BodyManualDownload`). pseudo.ini regenerated via `cargo run --bin generate_pseudo`. |
 | N6  | Refresh stale comments                                        | 🟡       | ⏳ Not started |                                                                                   |
 
 ---
@@ -411,8 +411,15 @@ lands so the rest of the document can stay descriptive.
 
 ### N5. Audit unused i18n keys
 
-- `BodyAvailable`, `BodyDownloading`, `BodyReady`, `BodyApplyHint` look
-  unused in the current overlay. Either wire them in or drop them.
+- **Problem:** `BodyAvailable`, `BodyDownloading`, `BodyReady`,
+  `BodyApplyHint` looked unused in the current overlay.  Either wire
+  them in or drop them.
+- **Resolution:** confirmed via repo-wide grep that none of the four
+  keys are referenced from any source file (only `BodyReadyShort` is
+  used, by the Ready-phase footer in `update_overlay.rs`).  Dropped
+  the four dead keys from `assets/languages/en.ini` and `sv.ini` and
+  regenerated `pseudo.ini` via `cargo run --bin generate_pseudo` so
+  the pseudo-locale stays in sync with `en.ini`.
 
 ### N6. Refresh stale comments
 
