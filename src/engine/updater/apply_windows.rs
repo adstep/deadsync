@@ -199,6 +199,13 @@ pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, 
             .map_err(|e| super::io_err_at("create", &out_path, e))?;
         io::copy(&mut entry, &mut out)
             .map_err(|e| super::io_err_at("write", &out_path, e))?;
+        // M24: flush the staged file's contents to disk before any
+        // rename can promote it into the install tree. Without this,
+        // a power loss after the rename but before the OS commits the
+        // file body can resurrect a directory entry that points at
+        // zero or partial bytes — defeating the C7 parent-dir fsync.
+        out.sync_all()
+            .map_err(|e| super::io_err_at("sync_all", &out_path, e))?;
         written += 1;
     }
     Ok(written)

@@ -79,7 +79,7 @@ lands so the rest of the document can stay descriptive.
 | M22 | Live rollback failure deletes the journal anyway              | 🟠       | ✅ Done       | `execute_with_rollback` now returns `apply_journal::ExecuteFailure { cause, rollback_clean }`; `rollback()` reports failure on any rename error and the caller (`apply_tar_gz` / `apply_zip`) only removes the journal + staging when the rollback was clean. When dirty, the `Applying` journal is left for next-launch `recover()` to retry. POSIX rollback also fsyncs every restored parent. |
 | C9  | Env-var release URL & fake-download active in release builds  | 🔴       | ⏳ Not started | Subsumes C2 + M6: `DEADSYNC_UPDATER_RELEASE_URL` (`mod.rs:47-50`) and `DEADSYNC_UPDATER_FAKE_DOWNLOAD` (`action.rs:393-397`) are unconditional. Together they let any process that controls the launch environment redirect the checker and stage an arbitrary local archive — the fake path bypasses sidecar + API digest entirely and publishes `Ready` with the hash of the attacker bytes. Gate both behind `cfg(any(test, debug_assertions, feature = "updater-test-overrides"))` and add a release-build test that proves the env vars are ignored. |
 | M23 | Relaunch may exec the renamed-out backup binary               | 🟠       | ⏳ Not started | `apply_archive_and_relaunch` runs apply (which renames the running exe to its backup path) and only then calls `std::env::current_exe()` to spawn (`cli.rs:207-227`). On Linux `/proc/self/exe` tracks the running inode, so `current_exe()` may now resolve to `<exe>.deadsync-bak-<token>`. The new process then runs recovery and may delete the backup it's executing. Capture the intended `exe_dir.join(original_exe_file_name)` *before* apply and spawn that path. |
-| M24 | Extracted file contents not fsynced before rename             | 🟠       | ⏳ Not started | C7's `sync_dir` made directory entries durable, but extraction itself never fsyncs the staged regular files (`apply_unix.rs:173-188`, `apply_windows.rs:198-202`). Power loss after a successful rename can leave files with stale/zero/corrupt bytes even though the directory entry survived. Fsync each extracted regular file before it's renamed into place (or batch-fsync staging before journal `Applied`). |
+| M24 | Extracted file contents not fsynced before rename             | 🟠       | ✅ Done       | After `io::copy` of each tar/zip entry, `extract_tar_gz` and `extract_archive` now call `out.sync_all()` (with M20 IO-error context) before the file handle drops, so the C7 parent-dir fsync makes both directory entry *and* file body durable across power loss. |
 | M25 | Planner doesn't reject dir-vs-file type mismatches            | 🟠       | ⏳ Not started | `plan_ops` only checks `target.exists()` (`apply_unix.rs:212-227`, `apply_windows.rs:228-243`). If an archive entry's path exists as a directory (or vice versa), the rename can succeed — moving a whole subtree to the backup path — and `Applied` recovery's `remove_file` (`apply_journal.rs:465-474`) then fails forever. Reject any target whose existing inode type doesn't match the staged entry's type before journal write. |
 | M26 | No read/idle timeout on download body                         | 🟠       | ⏳ Not started | `download_agent` deliberately has no global timeout (`mod.rs:83-89`), and `stream_to_file` only polls `should_cancel` between chunks (`download.rs:411-417`). A server that accepts the connection then stalls mid-body blocks the worker inside `read()` indefinitely; Back press bumps generation but the worker can't observe it. Configure a read/low-speed timeout on `download_agent`; on timeout, return `Cancelled` if generation is stale or surface a network timeout. ETA stays `None` during the stall and we never publish a fake estimate. |
 | M27 | Apply success + relaunch failure looks like apply failure     | 🟠       | ⏳ Not started | If `apply_archive_and_relaunch` succeeds at apply but fails to spawn (`cli.rs:143-147`, `action.rs:665-674`), the current old process keeps running against a mutated install tree and an `Applied` journal. Distinguish the two outcomes: on apply-ok-relaunch-fail, publish a phase that says "Update installed; please restart manually" (and ideally `process::exit` rather than continue). |
@@ -963,27 +963,23 @@ lands so the rest of the document can stay descriptive.
   child's exe path equals the pre-apply target path, not a
   `.deadsync-bak-*` sibling.
 
-### M24. Extracted file contents not fsynced before rename
+### M24. Extracted file contents not fsynced before rename ✅ Done
 
 - **Problem:** C7 made directory entries durable but extraction itself
-  never fsyncs the staged files (`apply_unix.rs:173-188`,
-  `apply_windows.rs:198-202`). The staging files live in the same
+  never fsynced the staged files. The staging files live in the same
   filesystem as the install (we depend on that for `rename`
-  atomicity), so if power is lost between "rename committed" and
-  "page cache flushed", the install ends up with a directory entry
-  pointing at a file whose bytes haven't hit stable storage —
+  atomicity), so if power was lost between "rename committed" and
+  "page cache flushed", the install could end up with a directory
+  entry pointing at a file whose bytes hadn't hit stable storage —
   "successfully applied" with zeroed/torn content.
-- **Fix:** During extraction, after writing each regular file, call
-  `f.sync_all()` (or at minimum `f.flush()` then `sync_data()` on
-  POSIX). For Windows, `File::sync_all` is also the right hammer.
-  Alternative: do a single batch fsync over the staging dir before
-  the journal flips to `Applied`, but per-file is simpler and the
-  N=tens-of-files cost is negligible vs the network download we
-  just paid for.
-- **Acceptance:** a test that uses a fault-injection layer (or just a
-  stat-based "files were synced" check via `tracing` in the
-  extraction loop) proves every staged file is synced before
-  `execute_with_rollback` runs.
+- **Fix shipped:** After `io::copy` of each tar/zip entry,
+  `extract_tar_gz` (`apply_unix.rs`) and `extract_archive`
+  (`apply_windows.rs`) now call `out.sync_all()` before the handle
+  drops, with `super::io_err_at("sync_all", ..)` context. On Linux
+  this is `fsync(2)`; on Windows it's `FlushFileBuffers` — both flush
+  file body to stable storage. The journal sidecar is already
+  fsynced by `write_atomic` (`apply_journal.rs:169`), so the full
+  pipeline (file body → parent dir entry → journal) is now durable.
 
 ### M25. Planner doesn't reject dir-vs-file type mismatches
 

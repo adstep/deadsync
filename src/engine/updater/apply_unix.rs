@@ -174,6 +174,13 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
             .map_err(|e| super::io_err_at("create", &out_path, e))?;
         io::copy(&mut entry, &mut out)
             .map_err(|e| super::io_err_at("write", &out_path, e))?;
+        // M24: fsync the staged file's contents before it can be
+        // rename()'d into place. The C7 parent-dir fsync only makes
+        // the directory entry durable; without this, a power loss
+        // between rename and the next boot can resurrect a directory
+        // entry that points at zero/partial bytes.
+        out.sync_all()
+            .map_err(|e| super::io_err_at("sync_all", &out_path, e))?;
         // Preserve the executable bit on Unix; on Windows this is a
         // no-op, but the call still typechecks.
         #[cfg(unix)]
