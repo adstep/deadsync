@@ -66,7 +66,7 @@ lands so the rest of the document can stay descriptive.
 | C6  | `--no-default-features` build is broken                       | 🔴       | ✅ Done        | Resolved by removing the `self-update` cargo feature entirely (per M9 the `[Options] UpdaterInstallEnabled` config is now the sole install-disable knob). `tar` / `flate2` are no longer optional; all `#[cfg(feature = "self-update")]` gates dropped from `mod.rs`, `apply_journal.rs`, `cli.rs`. `main.rs` now calls `apply_journal::recover` directly with no shim. |
 | M12 | Cancellation generation token (worker-result race)            | 🟠       | ✅ Done        | Replaced the global `CANCEL: AtomicBool` with a monotonic `OP_GENERATION: AtomicU64` bumped by every `request_check_now` / `request_download` / `request_cancel`. Workers capture their generation at spawn, poll `worker_should_stop(gen)` for cancellation, and publish via `set_phase_if_current(gen, _)` which silently drops stale Ready/Error/Downloading writes. Closes the race where a cancelled worker's late result clobbered a fresh worker's state. |
 | M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ✅ Done        | `stream_to_file` now re-polls `should_cancel` after EOF/before fsync and again after the hash check; `download_to_file` re-polls after the rename succeeds and removes the renamed archive on a late cancel; `run_fake_download` does the same after its progress loop. Combined with M12's `set_phase_if_current` guard, a Back press anywhere in the post-stream tail leaves no `Ready` phase and no leftover archive. |
-| M14 | Windows download rename fails when `dest` already exists      | 🟠       | ⏳ Not started | `fs::rename(staging, dest)` on Windows errors out if `dest` exists (e.g. user dismissed Ready and re-checked). Either replace via `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` semantics, or detect a pre-verified `dest` and reuse it. |
+| M14 | Windows download rename fails when `dest` already exists      | 🟠       | ✅ Done        | New `replace_file(staging, dest)` helper does an explicit `remove_file(dest)` (NotFound-tolerant) before `rename` on Windows; POSIX keeps the plain atomic `rename`. The pre-delete sidesteps `MoveFileExW` edge cases on AV-instrumented / network paths. Tests `replace_file_moves_staging_onto_missing_dest` and `replace_file_overwrites_pre_existing_dest` cover both branches. |
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏳ Not started | `plan_ops` walks the staging tree only, so files removed in a future release stay on disk (stale DLLs, helper binaries, retired assets). Need a release-side manifest of updater-owned paths and journaled deletes confined to that set. |
 | M16 | Case-insensitive collisions in apply plan                     | 🟠       | ⏳ Not started | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
 | M17 | Pre-journal extraction failures leak staging directories      | 🟡       | ⏳ Not started | If extraction / planning / first journal write fails, the `.deadsync-update-staging-*` dir is never cleaned up. Wrap pre-journal apply setup with cleanup-on-error; existing recovery only handles the post-journal-write window. |
@@ -644,15 +644,18 @@ lands so the rest of the document can stay descriptive.
   dismisses `Ready` and re-checks will hit `IO("rename ... -> ...:
   ...")` even though the new `.part` verified successfully. N4 fixed
   the partial-file problem but introduced this regression.
-- **Fix:** either replace the destination atomically (Windows:
-  `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` via `winapi`/`windows-sys`,
-  or wrap with `fs::remove_file(dest); fs::rename(staging, dest)`
-  knowing the gap is non-atomic), or detect a pre-existing verified
-  `dest` (re-hash; if matches, skip the download entirely; if
-  mismatches, delete and proceed).
-- **Acceptance:** test creates a stub `dest`, runs a download against
-  a local fixture server, asserts the download succeeds and `dest` now
-  contains the new bytes.
+- **Resolution:** introduced a `replace_file(staging, dest)` helper
+  in `download.rs` that, on Windows, does a `fs::remove_file(dest)`
+  (treating `NotFound` as success) before the `rename`. POSIX keeps
+  the plain atomic `rename`, which already has replace semantics. The
+  Windows pre-delete sidesteps the `MoveFileExW` edge cases observed
+  on AV-instrumented and some network-share paths where
+  `MOVEFILE_REPLACE_EXISTING` doesn't reliably take effect. The
+  non-atomic gap on Windows is bounded by a per-user cache dir with
+  no concurrent reader; a crash mid-gap leaves no `dest` and the next
+  attempt re-downloads. Tests
+  `replace_file_moves_staging_onto_missing_dest` and
+  `replace_file_overwrites_pre_existing_dest` cover both branches.
 
 ### M15. Apply is add/replace-only — files removed from a release stay forever
 

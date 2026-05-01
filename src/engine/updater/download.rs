@@ -24,7 +24,7 @@
 use super::{user_agent, ReleaseAsset, UpdaterError};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Length of an upload `.sha256` sidecar in bytes is bounded; we refuse
@@ -349,7 +349,7 @@ pub fn download_to_file(
     );
     match result {
         Ok(()) => {
-            fs::rename(&staging, dest).map_err(|err| {
+            replace_file(&staging, dest).map_err(|err| {
                 // Rename failed — drop the staged bytes so we don't
                 // leave them masquerading as the next run's "leftover".
                 let _ = fs::remove_file(&staging);
@@ -376,6 +376,33 @@ pub fn download_to_file(
             Err(err)
         }
     }
+}
+
+/// Atomically (or as-close-to as the platform allows) move `staging`
+/// onto `dest`, replacing any existing file at `dest`.
+///
+/// On POSIX this is just `rename`, which atomically replaces.  On
+/// Windows `std::fs::rename` calls `MoveFileExW` with
+/// `MOVEFILE_REPLACE_EXISTING`, but historically that has surprised
+/// callers — older Rust versions didn't pass the flag, and even with
+/// the flag set the call can fail with `AlreadyExists` /
+/// `AccessDenied` on filesystems that don't honour replace semantics
+/// (some network shares, some AV-instrumented paths).  Pre-deleting
+/// `dest` first turns those failures into a `NotFound` we can ignore,
+/// at the cost of a tiny non-atomic gap.  The gap is safe in our
+/// download flow: `dest` lives in the per-user cache dir with no
+/// concurrent reader, and a crash mid-gap just produces a missing
+/// `dest` that the next attempt re-downloads.
+fn replace_file(staging: &Path, dest: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        match fs::remove_file(dest) {
+            Ok(()) => {}
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+    }
+    fs::rename(staging, dest)
 }
 
 fn stream_to_file<R: Read>(
@@ -795,6 +822,34 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, UpdaterError::Cancelled));
         let _ = std::fs::remove_file(&staging);
+    }
+
+    #[test]
+    fn replace_file_moves_staging_onto_missing_dest() {
+        let dir = tempdir();
+        let staging = dir.join("payload.bin.part");
+        let dest = dir.join("payload.bin");
+        std::fs::write(&staging, b"new bytes").unwrap();
+        assert!(!dest.exists());
+        replace_file(&staging, &dest).expect("replace into missing dest");
+        assert!(!staging.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new bytes");
+    }
+
+    #[test]
+    fn replace_file_overwrites_pre_existing_dest() {
+        // The user-visible bug this guards: dismiss Ready, re-check,
+        // re-download, and the second rename trips over the leftover
+        // Ready-phase archive.  `replace_file` must succeed and the
+        // new bytes must win.
+        let dir = tempdir();
+        let staging = dir.join("payload.bin.part");
+        let dest = dir.join("payload.bin");
+        std::fs::write(&dest, b"OLD-archive-contents").unwrap();
+        std::fs::write(&staging, b"new-archive-contents").unwrap();
+        replace_file(&staging, &dest).expect("replace over existing dest");
+        assert!(!staging.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new-archive-contents");
     }
 
     #[test]
