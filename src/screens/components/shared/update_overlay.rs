@@ -461,8 +461,12 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
             _ => InputOutcome::Consumed,
         },
         // Applying: cannot safely abort a partial extract / swap, so
-        // every input is swallowed.
-        _ => InputOutcome::Consumed,
+        // every input is swallowed.  Listed explicitly (rather than
+        // falling through to a `_` arm) so adding a new `ActionPhase`
+        // variant in the future is a compile error here instead of
+        // silently inheriting the swallow-all behaviour.
+        ActionPhase::Applying { .. } => InputOutcome::Consumed,
+        ActionPhase::Idle => InputOutcome::Passthrough,
     }
 }
 
