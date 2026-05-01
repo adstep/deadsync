@@ -261,6 +261,7 @@ fn phase_version_tag(phase: &ActionPhase) -> Option<String> {
         ActionPhase::Downloading { info, .. }
         | ActionPhase::Ready { info, .. }
         | ActionPhase::Applying { info }
+        | ActionPhase::AppliedRestartRequired { info, .. }
         | ActionPhase::AvailableNoInstall { info } => Some(info.tag.clone()),
         ActionPhase::UpToDate { tag } => Some(tag.clone()),
         _ => None,
@@ -369,6 +370,15 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
             tr("Updater", "FooterPleaseWait").to_string(),
             None,
         ),
+        ActionPhase::AppliedRestartRequired { info: _info, detail } => (
+            tr("Updater", "TitleAppliedRestartRequired").to_string(),
+            vec![
+                tr("Updater", "BodyAppliedRestartRequired").to_string(),
+                truncate(detail, 80),
+            ],
+            tr("Updater", "FooterDismiss").to_string(),
+            None,
+        ),
         ActionPhase::Error { kind, detail } => (
             tr("Updater", "TitleError").to_string(),
             vec![
@@ -428,6 +438,7 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
         },
         ActionPhase::UpToDate { .. }
         | ActionPhase::AvailableNoInstall { .. }
+        | ActionPhase::AppliedRestartRequired { .. }
         | ActionPhase::Error { .. } => match ev.action {
             VirtualAction::p1_start
             | VirtualAction::p2_start
@@ -707,6 +718,43 @@ mod tests {
         };
         let (_t, body, _f, _p) = phase_strings(&phase);
         assert!(body.iter().any(|l| l.contains("connection reset")));
+    }
+
+    #[test]
+    fn phase_strings_applied_restart_required_shows_restart_hint() {
+        let r = sample_release();
+        let phase = ActionPhase::AppliedRestartRequired {
+            info: r,
+            detail: "spawn new exe: permission denied".to_owned(),
+        };
+        let (title, body, footer, progress) = phase_strings(&phase);
+        assert_eq!(phase_version_tag(&phase).as_deref(), Some("v9.9.9"));
+        let joined = body.join("\n");
+        assert!(
+            title.to_lowercase().contains("install")
+                || title.to_lowercase().contains("update"),
+            "title was {title:?}",
+        );
+        assert!(
+            joined.to_lowercase().contains("restart"),
+            "body was {joined:?}",
+        );
+        assert!(
+            joined.contains("permission denied"),
+            "body should surface relaunch failure detail: {joined:?}",
+        );
+        assert!(footer.contains("OK"), "footer was {footer:?}");
+        assert!(progress.is_none());
+    }
+
+    #[test]
+    fn handle_input_dismisses_applied_restart_required() {
+        let phase = ActionPhase::AppliedRestartRequired {
+            info: sample_release(),
+            detail: String::new(),
+        };
+        let ev = press(VirtualAction::p1_start);
+        assert_eq!(handle_input(&phase, &ev), InputOutcome::Consumed);
     }
 
     #[test]

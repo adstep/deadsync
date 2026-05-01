@@ -124,6 +124,26 @@ pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
     Ok(true)
 }
 
+/// Outcome of [`apply_archive_and_relaunch`].
+///
+/// Distinguishes a true apply failure (install tree untouched or
+/// rolled back) from the case where the apply succeeded but spawning
+/// the new binary failed.  The caller treats these very differently:
+/// an apply failure surfaces a generic Error phase the user can
+/// dismiss, while an apply-ok / relaunch-fail leaves the install tree
+/// already on the new version and asks the user to restart manually.
+#[derive(Debug)]
+pub enum ApplyOutcome {
+    /// Apply succeeded and the new process was spawned.  Caller
+    /// should `process::exit(0)` to release any binary locks.
+    Relaunched,
+    /// Apply succeeded but spawning the new exe failed.  The install
+    /// tree is on the new version; the journal is `Applied` and will
+    /// be cleaned up by the next launch.  Detail is the underlying
+    /// spawn error for logs / overlay tooltips.
+    AppliedNoRelaunch { detail: String },
+}
+
 /// Lower-level apply: caller has already chosen the archive (e.g. via
 /// the [`super::action::ActionPhase::Ready`] snapshot) and is responsible
 /// for any phase bookkeeping.  Re-hashes the staged file and verifies
@@ -133,13 +153,22 @@ pub fn apply_pending_and_relaunch() -> Result<bool, super::UpdaterError> {
 /// rather than installing a different archive than the one the user
 /// approved.  Then performs the platform-specific extract + swap and
 /// spawns the new process with the appropriate cleanup arguments.
-/// Caller should `std::process::exit(0)` on success to release any
-/// binary locks (Windows in particular).
+///
+/// Returns:
+/// - `Ok(ApplyOutcome::Relaunched)` on full success — caller should
+///   `process::exit(0)`.
+/// - `Ok(ApplyOutcome::AppliedNoRelaunch { detail })` when extraction
+///   committed but the spawn failed.  Caller should publish a
+///   restart-required phase; it must NOT roll back, since the install
+///   tree is on the new version.
+/// - `Err(_)` when apply itself failed (rolled back or partially
+///   rolled back, with the journal preserved for next-launch
+///   recovery).
 #[allow(clippy::result_large_err)]
 pub fn apply_archive_and_relaunch(
     archive_path: &std::path::Path,
     expected_sha256: &[u8; 32],
-) -> Result<(), super::UpdaterError> {
+) -> Result<ApplyOutcome, super::UpdaterError> {
     // Capture the install-tree path of the currently-running binary
     // BEFORE any apply renames touch the filesystem.  On Linux (and
     // historically macOS) `std::env::current_exe()` resolves through
@@ -160,8 +189,16 @@ pub fn apply_archive_and_relaunch(
     };
     reverify_archive(archive_path, expected_sha256)?;
     apply_for_host(archive_path, &exe_dir)?;
-    relaunch_self(&relaunch_target)?;
-    Ok(())
+    // Apply already committed: the on-disk install is the new
+    // version.  A relaunch failure here is NOT an apply failure --
+    // surfacing it as Err would mislead the caller into rolling
+    // back something that has no rollback hook left.
+    match relaunch_self(&relaunch_target) {
+        Ok(()) => Ok(ApplyOutcome::Relaunched),
+        Err(e) => Ok(ApplyOutcome::AppliedNoRelaunch {
+            detail: format!("{e}"),
+        }),
+    }
 }
 
 #[allow(clippy::result_large_err)]

@@ -93,6 +93,14 @@ pub enum ActionPhase {
     /// phase is normally terminal-on-success; on failure the worker
     /// transitions to [`ActionPhase::Error`].
     Applying { info: ReleaseInfo },
+    /// The on-disk install was successfully replaced with the new
+    /// version, but the relaunch of the new binary failed (sandbox
+    /// refusal, missing perms, ENOENT, etc.).  The current still-old
+    /// process is now running against the new install tree, which is
+    /// risky to keep using; the overlay tells the user to restart
+    /// manually.  The journal is left in `Applied` so the next launch
+    /// completes cleanup (backup deletion).
+    AppliedRestartRequired { info: ReleaseInfo, detail: String },
     /// A failure surfaced by the worker.  `kind` lets the UI pick a
     /// localised summary; `detail` is a developer-facing string for logs
     /// and tooltips.
@@ -717,9 +725,36 @@ pub fn request_apply() {
 
 fn run_apply(archive_path: PathBuf, expected_sha256: [u8; 32]) {
     match super::cli::apply_archive_and_relaunch(&archive_path, &expected_sha256) {
-        Ok(()) => {
+        Ok(super::cli::ApplyOutcome::Relaunched) => {
             log::info!("Self-update applied; exiting to let new process take over");
             std::process::exit(0);
+        }
+        Ok(super::cli::ApplyOutcome::AppliedNoRelaunch { detail }) => {
+            // Apply committed but spawn failed.  The on-disk install
+            // is on the new version and the journal is `Applied`;
+            // staying in this old process against a mutated install
+            // tree is risky, but auto-exiting would also be hostile
+            // (the user may not realise what happened).  Surface a
+            // dedicated phase so the overlay can ask for a manual
+            // restart, and log loudly for triage.
+            log::warn!(
+                "Self-update applied but relaunch failed: {detail}; manual restart required",
+            );
+            let info = match current() {
+                ActionPhase::Applying { info } => info,
+                other => {
+                    // Worker raced with a cancel/dismiss; fall back
+                    // to the most informative phase we can produce
+                    // from what's still in scope.  This is defensive
+                    // -- request_apply only spawns from Ready, which
+                    // transitions through Applying.
+                    log::warn!(
+                        "apply worker observed unexpected phase {other:?} on relaunch failure",
+                    );
+                    return;
+                }
+            };
+            set_phase(ActionPhase::AppliedRestartRequired { info, detail });
         }
         Err(err) => {
             log::error!("Self-update apply failed: {err}");
