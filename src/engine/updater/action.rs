@@ -561,6 +561,7 @@ fn run_fake_download(
     for i in 1..=TICKS {
         if worker_should_stop(generation) {
             log::info!("Fake update download cancelled by user");
+            let _ = std::fs::remove_file(&dest);
             return;
         }
         let frac = i as f64 / TICKS as f64;
@@ -575,6 +576,14 @@ fn run_fake_download(
             },
         );
         thread::sleep(std::time::Duration::from_millis(tick_ms));
+    }
+    // Final cancel check between the last progress tick and Ready.
+    // Without this, a Back press during the very last sleep would
+    // still publish Ready and leave a stale archive on disk.
+    if worker_should_stop(generation) {
+        log::info!("Fake update download cancelled by user (post-write)");
+        let _ = std::fs::remove_file(&dest);
+        return;
     }
     log::info!("Fake update {} staged at {}", info.tag, dest.display());
     let sha256 = super::download::sha256_of(&bytes);

@@ -359,6 +359,15 @@ pub fn download_to_file(
                     dest.display(),
                 ))
             })?;
+            // Re-check cancellation after the rename: the user may
+            // have pressed Back during the rename itself (or any of
+            // the post-stream ureq teardown).  Drop the freshly-named
+            // archive so a future attempt starts clean rather than
+            // racing with a stale Ready-shaped artifact on disk.
+            if should_cancel() {
+                let _ = fs::remove_file(dest);
+                return Err(UpdaterError::Cancelled);
+            }
             Ok(())
         }
         Err(err) => {
@@ -399,6 +408,13 @@ fn stream_to_file<R: Read>(
         progress(written, total);
     }
     file.flush().map_err(|err| UpdaterError::Io(err.to_string()))?;
+    // Re-check cancellation between the last chunk and the
+    // multi-second flush/fsync tail.  Without this, a Back press
+    // during the final fsync would still let the worker proceed to
+    // the rename + publish Ready.
+    if should_cancel() {
+        return Err(UpdaterError::Cancelled);
+    }
     // fsync the staging file so its bytes are durable on disk before we
     // rename it onto `dest`.  Without this, a crash between the rename
     // and the next fsync could expose a zero-length file at the final
@@ -412,6 +428,11 @@ fn stream_to_file<R: Read>(
             expected: sha256_hex(expected_sha256),
             actual: sha256_hex(&actual),
         });
+    }
+    // Final pre-return cancel check so the caller never sees a
+    // successful stream result for a cancelled download.
+    if should_cancel() {
+        return Err(UpdaterError::Cancelled);
     }
     Ok(())
 }
@@ -700,6 +721,80 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, UpdaterError::Cancelled));
+    }
+
+    #[test]
+    fn stream_to_file_returns_cancelled_after_eof_before_fsync() {
+        // The cancel callback returns false while reading chunks but
+        // flips to true after EOF.  Without the post-EOF cancel check
+        // the streamer would still report Ok and let the caller
+        // proceed to rename + publish Ready.
+        let dir = tempdir();
+        let dest = dir.join("late-cancel.bin");
+        let staging = staging_path(&dest);
+        let payload = vec![0x55u8; 16 * 1024];
+        let expected = sha256_of(&payload);
+        let mut reader = std::io::Cursor::new(payload.clone());
+        let saw_eof = std::cell::Cell::new(false);
+        // The streamer polls `should_cancel` once per loop iteration:
+        // returns 0/1 = false (read chunk + EOF read), then we flip to
+        // true so the post-EOF check fires.
+        let polls = std::cell::Cell::new(0u32);
+        let err = stream_to_file(
+            &mut reader,
+            &staging,
+            &expected,
+            None,
+            &mut |written, _| {
+                if written as usize == payload.len() {
+                    saw_eof.set(true);
+                }
+            },
+            &|| {
+                let n = polls.get();
+                polls.set(n + 1);
+                // First poll = false (lets us read the only chunk),
+                // second poll = false (lets us see EOF),
+                // third+ = true (post-EOF check fires).
+                n >= 2
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::Cancelled));
+        assert!(saw_eof.get(), "test should have streamed the full payload first");
+        // download_to_file is responsible for staging cleanup on Err.
+        let _ = std::fs::remove_file(&staging);
+    }
+
+    #[test]
+    fn stream_to_file_returns_cancelled_after_hash_when_flag_flips_late() {
+        // Even after the hash check passes, a post-hash cancel must
+        // be honoured so the caller doesn't see a successful result
+        // for a download the user already abandoned.
+        let dir = tempdir();
+        let dest = dir.join("post-hash-cancel.bin");
+        let staging = staging_path(&dest);
+        let payload = vec![0x77u8; 8 * 1024];
+        let expected = sha256_of(&payload);
+        let mut reader = std::io::Cursor::new(payload);
+        let polls = std::cell::Cell::new(0u32);
+        let err = stream_to_file(
+            &mut reader,
+            &staging,
+            &expected,
+            None,
+            &mut |_, _| {},
+            &|| {
+                let n = polls.get();
+                polls.set(n + 1);
+                // Polls 0..=2 false (chunk, EOF, post-EOF check),
+                // poll 3+ true (post-hash check fires).
+                n >= 3
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, UpdaterError::Cancelled));
+        let _ = std::fs::remove_file(&staging);
     }
 
     #[test]

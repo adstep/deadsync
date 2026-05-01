@@ -65,7 +65,7 @@ lands so the rest of the document can stay descriptive.
 | C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ✅ Done        | `recover` now removes a partially-written `target` before renaming `backup -> target`, and only deletes the journal when every rollback step succeeded (locked / failed restores leave the journal in place for the next startup to retry). 3 new unit tests cover the partial-target rename, the journal-preservation-on-failure path, and the missing-backup idempotence case. |
 | C6  | `--no-default-features` build is broken                       | 🔴       | ✅ Done        | Resolved by removing the `self-update` cargo feature entirely (per M9 the `[Options] UpdaterInstallEnabled` config is now the sole install-disable knob). `tar` / `flate2` are no longer optional; all `#[cfg(feature = "self-update")]` gates dropped from `mod.rs`, `apply_journal.rs`, `cli.rs`. `main.rs` now calls `apply_journal::recover` directly with no shim. |
 | M12 | Cancellation generation token (worker-result race)            | 🟠       | ✅ Done        | Replaced the global `CANCEL: AtomicBool` with a monotonic `OP_GENERATION: AtomicU64` bumped by every `request_check_now` / `request_download` / `request_cancel`. Workers capture their generation at spawn, poll `worker_should_stop(gen)` for cancellation, and publish via `set_phase_if_current(gen, _)` which silently drops stale Ready/Error/Downloading writes. Closes the race where a cancelled worker's late result clobbered a fresh worker's state. |
-| M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ⏳ Not started | `stream_to_file` polls between chunks but not after EOF; `download_to_file` then flushes/fsyncs/hashes/renames with no cancel check, so a Back press during the final tail still surfaces `Ready`. |
+| M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ✅ Done        | `stream_to_file` now re-polls `should_cancel` after EOF/before fsync and again after the hash check; `download_to_file` re-polls after the rename succeeds and removes the renamed archive on a late cancel; `run_fake_download` does the same after its progress loop. Combined with M12's `set_phase_if_current` guard, a Back press anywhere in the post-stream tail leaves no `Ready` phase and no leftover archive. |
 | M14 | Windows download rename fails when `dest` already exists      | 🟠       | ⏳ Not started | `fs::rename(staging, dest)` on Windows errors out if `dest` exists (e.g. user dismissed Ready and re-checked). Either replace via `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` semantics, or detect a pre-verified `dest` and reuse it. |
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏳ Not started | `plan_ops` walks the staging tree only, so files removed in a future release stay on disk (stale DLLs, helper binaries, retired assets). Need a release-side manifest of updater-owned paths and journaled deletes confined to that set. |
 | M16 | Case-insensitive collisions in apply plan                     | 🟠       | ⏳ Not started | A staging tree containing `foo.dll` + `FOO.dll` produces two ops mapping to the same NTFS target; the second backs up what the first just installed. Detect collisions during `plan_ops` and fail before journal write. |
@@ -615,13 +615,26 @@ lands so the rest of the document can stay descriptive.
   bug. A Back press during the multi-second tail of a large archive
   flips the phase to `Idle` but the worker still publishes `Ready`
   immediately afterwards.
-- **Fix:** check the cancel flag (or M12 generation token) after the
-  rename succeeds and before publishing `Ready`. If cancelled, delete
-  the staged archive (or leave it for the next attempt and route to
-  `Idle`).
-- **Acceptance:** test that injects a "cancel after rename, before
-  set_phase" pause and asserts the published phase is `Idle`, not
-  `Ready`.
+- **Resolution:** added three additional cancel-poll points so the
+  whole post-final-chunk window is covered:
+  - `stream_to_file` polls between EOF and the flush+fsync, and again
+    after the hash matches (so a checksum-success result is still
+    suppressed if the user has cancelled).
+  - `download_to_file` polls after the `rename(staging, dest)`
+    succeeds; on cancel it removes the renamed archive and returns
+    `UpdaterError::Cancelled`, so a future attempt starts clean
+    instead of racing with a Ready-shaped artifact on disk.
+  - `run_fake_download` polls after its progress loop (matching the
+    real-download cleanup) and removes the staged file on cancel.
+
+  Combined with M12's `set_phase_if_current` guard, a Back press
+  anywhere in the post-stream tail leaves no `Ready` phase and no
+  leftover archive. New unit tests
+  `stream_to_file_returns_cancelled_after_eof_before_fsync` and
+  `stream_to_file_returns_cancelled_after_hash_when_flag_flips_late`
+  exercise the two new check points; the post-rename cleanup in
+  `download_to_file` is covered by the existing integration testing
+  plan (no in-process HTTP fake currently).
 
 ### M14. Windows download rename fails when `dest` already exists
 
