@@ -6,6 +6,7 @@ pub mod input;
 pub mod logging;
 pub mod network;
 pub mod present;
+pub mod single_instance;
 pub mod space;
 pub mod updater;
 pub mod version;

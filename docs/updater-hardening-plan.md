@@ -198,14 +198,15 @@ Steam, Flatpak, Snap, etc.) can opt out without code changes.
 
 ### M10. Add an inter-process updater lock
 
-- **Problem:** the action state machine uses in-process locks only
-  (`src/engine/updater/action.rs:110-116`). Two running instances can
-  both download/apply, or one can apply while another holds files
-  open.
-- **Fix:** acquire a cross-process lock (lockfile or named mutex) in
-  `apply_archive_and_relaunch`, and refuse to start apply if another
-  instance is detected. Detect at check-now time and surface a clear
-  error.
+- **Status:** done — `src/engine/single_instance.rs` provides a
+  cross-platform process-wide lock (Windows named mutex, Unix
+  `flock`); `main.rs` acquires it on startup and exits with code 1
+  if another instance holds it. The `--restart` path retries for 3 s
+  to bridge the relaunch handover.
+- **Problem (historical):** the action state machine uses in-process
+  locks only (`src/engine/updater/action.rs:110-116`). Two running
+  instances can both download/apply, or one can apply while another
+  holds files open.
 
 ### M11. Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent
 

@@ -226,6 +226,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Acquire the singleton lock as early as possible so two
+    // instances don't fight over the GPU / audio device.  After a
+    // self-update relaunch the previous process may still be exiting,
+    // so retry briefly when --restart is set.
+    let cache_dir = config::dirs::app_dirs().cache_dir.clone();
+    let acquire_window = if cli.restart {
+        std::time::Duration::from_secs(3)
+    } else {
+        std::time::Duration::from_millis(0)
+    };
+    let _instance_guard: Option<engine::single_instance::InstanceGuard> =
+        match engine::single_instance::acquire_with_retry(&cache_dir, acquire_window) {
+            Ok(g) => Some(g),
+            Err(engine::single_instance::AcquireError::AlreadyRunning) => {
+                log::warn!("Another instance of deadsync is already running; exiting.");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                // Soft-fail on unexpected OS errors (e.g. read-only
+                // cache dir): log a warning and proceed without the
+                // guard.  Contention is the only thing we *must*
+                // enforce, and that path is handled above.
+                log::warn!("Single-instance lock unavailable ({e}); continuing without it.");
+                None
+            }
+        };
+
     // Load updater state cache and kick off the startup check (if enabled).
     // Network IO runs on a detached worker thread; failures are logged.
     engine::updater::state::load_persisted_cache();
