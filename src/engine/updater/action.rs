@@ -57,8 +57,7 @@ pub enum ActionPhase {
     /// overlay say "You're up to date" rather than vanishing silently.
     UpToDate { tag: String },
     /// A check completed and reported an update, but this build can't
-    /// install it in-place on the current host (e.g. macOS, or any
-    /// build compiled without the `self-update` feature).  We still
+    /// install it in-place on the current host (e.g. macOS).  We still
     /// surface the new version + the release-page URL so the user can
     /// download manually; the overlay never offers a Download button.
     AvailableNoInstall { info: ReleaseInfo },

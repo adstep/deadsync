@@ -89,19 +89,11 @@ pub fn run_cleanup(exe_dir: &std::path::Path, staging_dir: &std::path::Path) -> 
     // file at the install root is now the source of truth for both
     // the staging dir path and the per-op backup names.
     let _ = staging_dir;
-    #[cfg(feature = "self-update")]
-    {
-        let report = crate::engine::updater::apply_journal::recover(exe_dir);
-        let staging_removed = report.staging_removed;
-        let removed_count =
-            report.backups_removed + report.backups_restored + report.installed_removed;
-        return (removed_count, staging_removed);
-    }
-    #[cfg(not(feature = "self-update"))]
-    {
-        let _ = exe_dir;
-        (0, false)
-    }
+    let report = crate::engine::updater::apply_journal::recover(exe_dir);
+    let staging_removed = report.staging_removed;
+    let removed_count =
+        report.backups_removed + report.backups_restored + report.installed_removed;
+    (removed_count, staging_removed)
 }
 
 /// Try to apply the downloaded archive at [`Ready`] and re-launch.
@@ -172,7 +164,7 @@ fn reverify_archive(
     Ok(())
 }
 
-#[cfg(all(windows, feature = "self-update"))]
+#[cfg(windows)]
 fn apply_for_host(
     archive_path: &std::path::Path,
     exe_dir: &std::path::Path,
@@ -181,7 +173,7 @@ fn apply_for_host(
     Ok(())
 }
 
-#[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"))]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn apply_for_host(
     archive_path: &std::path::Path,
     exe_dir: &std::path::Path,
@@ -190,16 +182,13 @@ fn apply_for_host(
     Ok(())
 }
 
-#[cfg(not(any(
-    all(windows, feature = "self-update"),
-    all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"),
-)))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd")))]
 fn apply_for_host(
     _archive_path: &std::path::Path,
     _exe_dir: &std::path::Path,
 ) -> Result<(), super::UpdaterError> {
     Err(super::UpdaterError::Io(
-        "self-update apply is disabled in this build".to_string(),
+        "in-app update apply is not supported on this platform".to_string(),
     ))
 }
 
@@ -211,7 +200,7 @@ fn exe_dir() -> Result<PathBuf, super::UpdaterError> {
         .ok_or_else(|| super::UpdaterError::Io("exe has no parent dir".to_string()))
 }
 
-#[cfg(all(windows, feature = "self-update"))]
+#[cfg(windows)]
 fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
     let _ = exe_dir;
@@ -227,7 +216,7 @@ fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     Ok(())
 }
 
-#[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"))]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
     let exe = std::env::current_exe()
@@ -239,10 +228,7 @@ fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> 
     Ok(())
 }
 
-#[cfg(not(any(
-    all(windows, feature = "self-update"),
-    all(any(target_os = "linux", target_os = "freebsd"), feature = "self-update"),
-)))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "freebsd")))]
 fn relaunch_self(_exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     Ok(())
 }

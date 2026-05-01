@@ -240,12 +240,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|p| p.parent().map(std::path::PathBuf::from))
     {
-        // The journal at the install root is now the source of
-        // truth for both apply rollback (Applying state) and
-        // post-update cleanup (Applied state).  Run recovery on
-        // every startup; `--cleanup-old` is accepted for back-compat
-        // with old relaunch command lines but its argument is
-        // ignored.
+        // The journal at the install root is the source of truth for
+        // both apply rollback (Applying state) and post-update
+        // cleanup (Applied state).  `--cleanup-old` is accepted for
+        // back-compat with old relaunch command lines but its
+        // argument is ignored.
         let _ = cli.cleanup_old.as_deref();
         let report = engine::updater::apply_journal::recover(&exe_dir);
         if report.journal_removed {

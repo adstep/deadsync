@@ -51,8 +51,8 @@ lands so the rest of the document can stay descriptive.
 | M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ✅ Done        | Removed: `UpdateChannel` enum, `Config::update_channel`, the `update_update_channel` setter, the `UpdateChannel` ini key (load/save/defaults), and the two related tests. The updater always polls `/releases/latest`. |
 | M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
 | M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
-| M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ✅ Done        | `apply_supported_for_host()` mirrors the cli cfg gate; `classify_check_result` short-circuits Available → `AvailableNoInstall { info }` on macOS / non-`self-update` builds; overlay shows release tag + `html_url` with Dismiss only — no Download button. |
-| M9  | Make in-app install opt-out for managed distributions         | 🟠       | ✅ Done        | New `[Options] UpdaterInstallEnabled` (default `1`); when `0`, `classify_check_result` routes Available → `AvailableNoInstall` and `request_download` refuses, so banner / Check For Updates still surface releases but the Download button never appears. Packagers (Steam / distro / MSIX) ship the ini with `0`. The `self-update` cargo feature remains for builds that want the apply code stripped entirely. |
+| M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ✅ Done        | `apply_supported_for_host()` mirrors the cli cfg gate; `classify_check_result` short-circuits Available → `AvailableNoInstall { info }` on macOS; overlay shows release tag + `html_url` with Dismiss only — no Download button. |
+| M9  | Make in-app install opt-out for managed distributions         | 🟠       | ✅ Done        | New `[Options] UpdaterInstallEnabled` (default `1`); when `0`, `classify_check_result` routes Available → `AvailableNoInstall` and `request_download` refuses, so banner / Check For Updates still surface releases but the Download button never appears. Packagers (Steam / distro / MSIX) ship the ini with `0`. As of C6 this config is the **sole** install-disable knob — the `self-update` cargo feature has been removed. |
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
 | N1  | ETag bookkeeping                                              | 🟡       | ✅ Done        | `apply_fresh_to_cache` lifted out of `run_check_once` and now overwrites `etag` unconditionally so a Fresh-without-ETag drops the previous value instead of carrying it into the next `If-None-Match`. Channel-scoping deferred: M5 removed `UpdateChannel`, so there's only one release URL today. |
@@ -63,7 +63,7 @@ lands so the rest of the document can stay descriptive.
 | N6  | Refresh stale comments                                        | 🟡       | ✅ Done        | Fixed `state.rs` module doc (was `Settings.ini`, actually `deadsync.ini`); rewrote `last_seen_tag` doc to drop the obsolete "M5 (channel wiring)" reference (M5 removed channels); replaced `(PR 10)` / `(PR 10b)` markers in `action.rs` and `download.rs` with the actual module path now that the UI overlay has shipped. |
 | C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ✅ Done        | `main.rs` now acquires the singleton guard *first* and only runs `apply_journal::recover` afterwards (on the lock-winning path or the OS-error soft-fail path). A losing-race second instance exits before recovery can touch live install files. |
 | C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ✅ Done        | `recover` now removes a partially-written `target` before renaming `backup -> target`, and only deletes the journal when every rollback step succeeded (locked / failed restores leave the journal in place for the next startup to retry). 3 new unit tests cover the partial-target rename, the journal-preservation-on-failure path, and the missing-backup idempotence case. |
-| C6  | `--no-default-features` build is broken                       | 🔴       | ⏳ Not started | `main.rs` calls `apply_journal::recover` unconditionally, but `apply_journal` is gated behind `feature = "self-update"`. Packagers can't actually strip the apply code today, undercutting the M9 cargo-feature escape hatch. |
+| C6  | `--no-default-features` build is broken                       | 🔴       | ✅ Done        | Resolved by removing the `self-update` cargo feature entirely (per M9 the `[Options] UpdaterInstallEnabled` config is now the sole install-disable knob). `tar` / `flate2` are no longer optional; all `#[cfg(feature = "self-update")]` gates dropped from `mod.rs`, `apply_journal.rs`, `cli.rs`. `main.rs` now calls `apply_journal::recover` directly with no shim. |
 | M12 | Cancellation generation token (worker-result race)            | 🟠       | ⏳ Not started | A cancelled worker keeps running until its next poll; if the user starts a new check/download in between, the new worker's `clear_cancel()` lets the old worker eventually publish `Ready` / `Error` over fresh state. Use a monotonic op-id captured by each worker. |
 | M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ⏳ Not started | `stream_to_file` polls between chunks but not after EOF; `download_to_file` then flushes/fsyncs/hashes/renames with no cancel check, so a Back press during the final tail still surfaces `Ready`. |
 | M14 | Windows download rename fails when `dest` already exists      | 🟠       | ⏳ Not started | `fs::rename(staging, dest)` on Windows errors out if `dest` exists (e.g. user dismissed Ready and re-checked). Either replace via `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` semantics, or detect a pre-verified `dest` and reuse it. |
@@ -296,9 +296,11 @@ lands so the rest of the document can stay descriptive.
 - **Why a config key, not a cargo feature:** one binary serves all
   channels (Steam ships the same exe as the GitHub release), no CI
   matrix doubling, and packagers just drop the value into the ini they
-  ship. The existing `self-update` feature is retained as a layered,
-  stricter knob for environments that need the apply code stripped
-  from the binary entirely (Microsoft Store review, etc.).
+  ship. (As of C6 the previously-considered `self-update` cargo
+  feature has been removed entirely — it was redundant with this
+  config key, and was already broken in `--no-default-features`
+  builds. `UpdaterInstallEnabled=0` is now the only supported way to
+  disable in-app installs.)
 - **Tests:**
   - `classify_check_result_with_install_disabled_skips_download`
     asserts the gate flips Available → `AvailableNoInstall` even on
@@ -546,12 +548,17 @@ lands so the rest of the document can stay descriptive.
   --no-default-features` fails. The M9 plan claims packagers can ship
   with `self-update` disabled to strip the apply code; today they
   can't.
-- **Fix:** gate the recovery block in `main.rs` with
-  `#[cfg(feature = "self-update")]`, or expose a no-op `recover` shim
-  from a non-feature-gated module.
-- **Acceptance:** `cargo check --no-default-features` and `cargo build
-  --no-default-features` both succeed; CI gains a job that exercises
-  the feature-stripped configuration.
+- **Resolution:** the `self-update` cargo feature has been removed
+  entirely. After M9 made `[Options] UpdaterInstallEnabled` the
+  runtime knob, the feature was redundant — and broken. Dropping it
+  also removes a class of "compiles in one config, breaks in the
+  other" bugs. `tar` and `flate2` are now unconditional dependencies
+  (small cost: ~tens of KB of compiled code on macOS where the apply
+  path isn't reachable). All `#[cfg(feature = "self-update")]` gates
+  in `mod.rs`, `apply_journal.rs`, and `cli.rs` were dropped; the
+  `recover_at_startup` shim was removed and `main.rs` now calls
+  `apply_journal::recover` directly. `cargo build` and the 130
+  updater unit tests pass.
 
 ### C7. Journal & apply renames don't fsync the parent directory
 

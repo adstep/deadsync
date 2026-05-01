@@ -29,8 +29,6 @@
 //! pass calls the same [`recover`] which restores any backups and
 //! deletes any partially-installed staged files.
 
-#![cfg(feature = "self-update")]
-
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};

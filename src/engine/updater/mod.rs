@@ -20,13 +20,11 @@ pub mod cli;
 pub mod download;
 pub mod state;
 
-#[cfg(all(windows, feature = "self-update"))]
+#[cfg(windows)]
 pub mod apply_windows;
 
-#[cfg(feature = "self-update")]
 pub mod apply_journal;
 
-#[cfg(feature = "self-update")]
 pub mod apply_unix;
 
 /// Owner/repo of the upstream release feed.  Centralised so test fixtures
@@ -326,19 +324,14 @@ pub fn pick_asset_for_host<'a>(
 }
 
 /// Returns true when this build can perform the in-app extract + swap
-/// for the host it's running on.  Mirrors the cfg gate on
-/// `cli::apply_for_host`: today that's Windows and Linux/FreeBSD with
-/// the `self-update` feature enabled.  Notably **macOS is false**: we
-/// publish macOS download artifacts so users can install manually, but
-/// the apply path isn't implemented for `.app` bundle layout / code-
-/// signing concerns, so the in-app overlay must not pretend it can
-/// install.
+/// for the host it's running on: today that's Windows and Linux/FreeBSD.
+/// Notably **macOS is false**: we publish macOS download artifacts so
+/// users can install manually, but the apply path isn't implemented
+/// for `.app` bundle layout / code-signing concerns, so the in-app
+/// overlay must not pretend it can install.
 #[inline]
 pub const fn apply_supported_for_host() -> bool {
-    cfg!(all(
-        feature = "self-update",
-        any(target_os = "windows", target_os = "linux", target_os = "freebsd"),
-    ))
+    cfg!(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))
 }
 
 /// Fetch the latest release from GitHub.
@@ -438,9 +431,10 @@ mod tests {
         // Mirrors the cfg gate in cli::apply_for_host so the two stay in
         // sync.  Updating one without the other would let the overlay
         // walk users into a "disabled in this build" dead-end.
-        let expected = cfg!(all(
-            feature = "self-update",
-            any(target_os = "windows", target_os = "linux", target_os = "freebsd"),
+        let expected = cfg!(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd",
         ));
         assert_eq!(apply_supported_for_host(), expected);
     }
