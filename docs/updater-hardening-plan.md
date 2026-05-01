@@ -74,6 +74,19 @@ lands so the rest of the document can stay descriptive.
 | M19 | `AvailableNoInstall` UX is dead-end on console / no-keyboard input | 🟡  | ✅ Done | Resolved by removal: when `apply_supported_for_host()` is false or `UpdaterInstallEnabled = 0`, `options::activate_current_selection` no-ops the row and the renderer skips it. The menu banner still surfaces available releases through the passive check, so users on externally-managed builds (macOS, Steam, distro packages) still learn about new versions. |
 | M20 | I/O errors lose path/operation context                       | 🟡       | ✅ Done       | Added `io_err_at(op, path, err)` and `io_err_op(op, err)` helpers in `src/engine/updater/mod.rs`; call sites in `download.rs`, `apply_journal.rs`, `apply_unix.rs`, and `apply_windows.rs` now produce `IO("create '...': os error 5")` style messages instead of bare `os error 5`. |
 | C7  | Journal & apply renames don't fsync the parent directory     | 🟠       | ✅ Done       | Added `super::sync_dir(path)` helper (POSIX: `File::open(path)?.sync_all()`; Windows: no-op). `apply_journal::write_atomic` fsyncs `exe_dir` after renaming the journal; `apply_unix::execute_with_rollback` fsyncs each unique target-parent after all renames complete. |
+| M21 | Apply silently flips non-portable installs to portable mode   | 🟠       | ✅ Done       | Release archives ship `portable.txt` because that's how a freshly-extracted ZIP is meant to behave. Applying that over a non-portable install would create `portable.txt` next to the executable and hide the user's existing AppData/XDG config on next launch. New `apply_journal::is_portability_marker(rel)` predicate; both `plan_ops` impls skip `portable.txt`/`portable.ini` when the target file does not already exist. |
+| C8  | Apply has no allowlist — can overwrite user data/config files | 🔴       | ⏳ Not started | Planner accepts every staged regular file (`apply_unix.rs:202-230`, `apply_windows.rs:218-246`). In portable installs `data_dir == exe_dir`, so a packaging mistake / compromised release that ships `deadsync.ini`, `save/`, `songs/`, `courses/`, `cache/`, or `deadsync.log` would silently overwrite or hide user state. Add an explicit denylist (or, better, a release manifest of app-owned paths) and reject staged entries that target user-owned roots. |
+| M22 | Live rollback failure deletes the journal anyway              | 🟠       | ✅ Done       | `execute_with_rollback` now returns `apply_journal::ExecuteFailure { cause, rollback_clean }`; `rollback()` reports failure on any rename error and the caller (`apply_tar_gz` / `apply_zip`) only removes the journal + staging when the rollback was clean. When dirty, the `Applying` journal is left for next-launch `recover()` to retry. POSIX rollback also fsyncs every restored parent. |
+| C9  | Env-var release URL & fake-download active in release builds  | 🔴       | ⏳ Not started | Subsumes C2 + M6: `DEADSYNC_UPDATER_RELEASE_URL` (`mod.rs:47-50`) and `DEADSYNC_UPDATER_FAKE_DOWNLOAD` (`action.rs:393-397`) are unconditional. Together they let any process that controls the launch environment redirect the checker and stage an arbitrary local archive — the fake path bypasses sidecar + API digest entirely and publishes `Ready` with the hash of the attacker bytes. Gate both behind `cfg(any(test, debug_assertions, feature = "updater-test-overrides"))` and add a release-build test that proves the env vars are ignored. |
+| M23 | Relaunch may exec the renamed-out backup binary               | 🟠       | ⏳ Not started | `apply_archive_and_relaunch` runs apply (which renames the running exe to its backup path) and only then calls `std::env::current_exe()` to spawn (`cli.rs:207-227`). On Linux `/proc/self/exe` tracks the running inode, so `current_exe()` may now resolve to `<exe>.deadsync-bak-<token>`. The new process then runs recovery and may delete the backup it's executing. Capture the intended `exe_dir.join(original_exe_file_name)` *before* apply and spawn that path. |
+| M24 | Extracted file contents not fsynced before rename             | 🟠       | ⏳ Not started | C7's `sync_dir` made directory entries durable, but extraction itself never fsyncs the staged regular files (`apply_unix.rs:173-188`, `apply_windows.rs:198-202`). Power loss after a successful rename can leave files with stale/zero/corrupt bytes even though the directory entry survived. Fsync each extracted regular file before it's renamed into place (or batch-fsync staging before journal `Applied`). |
+| M25 | Planner doesn't reject dir-vs-file type mismatches            | 🟠       | ⏳ Not started | `plan_ops` only checks `target.exists()` (`apply_unix.rs:212-227`, `apply_windows.rs:228-243`). If an archive entry's path exists as a directory (or vice versa), the rename can succeed — moving a whole subtree to the backup path — and `Applied` recovery's `remove_file` (`apply_journal.rs:465-474`) then fails forever. Reject any target whose existing inode type doesn't match the staged entry's type before journal write. |
+| M26 | No read/idle timeout on download body                         | 🟠       | ⏳ Not started | `download_agent` deliberately has no global timeout (`mod.rs:83-89`), and `stream_to_file` only polls `should_cancel` between chunks (`download.rs:411-417`). A server that accepts the connection then stalls mid-body blocks the worker inside `read()` indefinitely; Back press bumps generation but the worker can't observe it. Configure a read/low-speed timeout on `download_agent`; on timeout, return `Cancelled` if generation is stale or surface a network timeout. ETA stays `None` during the stall and we never publish a fake estimate. |
+| M27 | Apply success + relaunch failure looks like apply failure     | 🟠       | ⏳ Not started | If `apply_archive_and_relaunch` succeeds at apply but fails to spawn (`cli.rs:143-147`, `action.rs:665-674`), the current old process keeps running against a mutated install tree and an `Applied` journal. Distinguish the two outcomes: on apply-ok-relaunch-fail, publish a phase that says "Update installed; please restart manually" (and ideally `process::exit` rather than continue). |
+| M28 | Tar extractor silently skips symlinks/devices instead of rejecting | 🟡    | ⏳ Not started | `apply_unix::extract_tar_gz` skips non-file/non-dir entries (`apply_unix.rs:163-167`). If a future release artifact accidentally ships a symlink that runtime depends on, the apply succeeds with missing files. Fail closed: reject any non-regular, non-directory entry. |
+| M29 | Future-version journal recovery is silent                     | 🟡       | ⏳ Not started | When `Journal::load` parses a journal whose state is unknown (e.g. a downgraded/old binary picking up a newer-format journal), `recover()` leaves it untouched and returns a no-op `RecoveryReport` with no warning log (`apply_journal.rs:210-216, 449-458`). Add a `log::warn!` so the stuck state is visible in support reports. |
+| M30 | Progress publication is per-chunk and clones release metadata | 🟡       | ⏳ Not started | `download_to_file`'s progress closure fires every 64 KiB and clones `ReleaseInfo` + `ReleaseAsset` into a fresh `Downloading` phase under the `PHASE` write lock (`action.rs:454-489`). On a fast connection or large future archive that's a lot of allocator/lock churn for no UI benefit. Throttle to ~5–10 Hz plus a final update, or only publish when `(percent, eta_bucket)` actually changes. |
+| M31 | Redirect host pinning isn't explicit                          | 🟡       | ⏳ Not started | M18 sanitizes cached URLs and N2 cross-checks the API digest, but live asset/sidecar requests follow whatever redirect chain GitHub returns without an explicit allowlist (`download.rs:241-256, 324-329`). GitHub release downloads do legitimately redirect to GitHub-owned object/CDN hosts, so the policy needs to be written down (and ideally enforced) rather than implicit. Becomes much less load-bearing once C1 (signature verification) ships, since CDN host trust would no longer be the security boundary. |
 
 ---
 
@@ -802,6 +815,316 @@ lands so the rest of the document can stay descriptive.
   carries a verb (`open`/`read`/`write`/`create`/`create_dir_all`/
   `flush`/`fsync`/`rename`) and, where applicable, the offending path.
 - **Resolution:** ✅ Done.
+
+
+
+---
+
+## 🟠 Major (added during portable-marker fix landing)
+
+### M21. Apply silently flips non-portable installs to portable mode
+
+- **Problem:** The release packaging scripts
+  (`scripts/package-windows-release.ps1:57`, `package-linux-release.sh:64`,
+  `package-macos-release.sh:59`, `package-freebsd-release.sh:60`) all
+  drop an empty `portable.txt` next to the executable so a freshly
+  unzipped release behaves portably by default. `plan_ops` accepts
+  every staged regular file, so applying that archive over a
+  *non-portable* install would create `portable.txt` next to the
+  executable, and `crate::config::dirs` (line 166) would silently flip
+  the next launch into portable mode — hiding the user's existing
+  AppData/XDG config. The reverse (portable user updating) was already
+  fine: `target_existed` is true and we just overwrite empty with
+  empty.
+- **Fix:** Added `apply_journal::is_portability_marker(rel)` matching a
+  top-level `portable.txt` or `portable.ini`. Both `plan_ops`
+  implementations (`apply_unix.rs`, `apply_windows.rs`) skip the Op
+  when the marker is present in staging *and* the corresponding
+  target file does not already exist. Existing markers are still
+  overwritten (empty → empty), so portable installs stay portable.
+- **Acceptance:** ✅ Done. New unit tests
+  `plan_ops_skips_portability_marker_when_target_missing` and
+  `plan_ops_replaces_portability_marker_when_target_exists` cover
+  both directions on Windows and (cfg-gated) Linux/FreeBSD.
+
+---
+
+## 🔴 Critical (added by 2026-04-30 rubber-duck pass)
+
+### C8. Apply has no allowlist — can overwrite user data/config files
+
+- **Problem:** The planner accepts every staged regular file
+  (`apply_unix.rs:202-230`, `apply_windows.rs:218-246`). In portable
+  installs `data_dir == exe_dir`
+  (`src/config/dirs.rs:197-203`), so the install root *also* contains
+  `deadsync.ini`, `save/`, `songs/`, `courses/`, `cache/`,
+  `deadsync.log`, the updater's own state cache, and any user-added
+  noteskins/assets. A packaging mistake — or a compromised release
+  asset — that ships any of those paths would silently overwrite or
+  hide user state, with the same shape as the `portable.txt` bug but
+  potentially data-loss-grade.
+- **Fix:** Add an explicit denylist (and ideally a release manifest of
+  app-owned paths) checked in `plan_ops`. At minimum reject any
+  staged entry whose relative path is, or is under, any of:
+  `deadsync.ini`, `deadsync.log`, `save/`, `songs/`, `courses/`,
+  `cache/`, plus the updater's own runtime state files. Prefer a
+  release-time `manifest.json` listing every app-owned file, and
+  reject anything not on that list, so the policy doesn't drift as
+  user-state directory names change.
+- **Acceptance:** an archive containing `deadsync.ini` + `save/...`
+  alongside the executable applies successfully and leaves the
+  pre-existing user files untouched. New unit tests exercise the
+  denylist for both POSIX and Windows planners. The release
+  packaging scripts get a CI check that verifies they never include
+  any denylisted path.
+
+### C9. Env-var release URL & fake-download active in release builds
+
+- **Problem:** `DEADSYNC_UPDATER_RELEASE_URL` (`mod.rs:47-50`) and
+  `DEADSYNC_UPDATER_FAKE_DOWNLOAD` (`action.rs:393-397`) are read
+  unconditionally. Combined, they let any process that controls the
+  launch environment (a malicious launcher script, a compromised
+  shortcut, a sibling user account on shared boxes) point the
+  checker at arbitrary release JSON and then stage an arbitrary local
+  archive. The fake path computes the SHA over the attacker's bytes
+  and publishes `Ready` directly — bypassing both the `.sha256`
+  sidecar and the GitHub API `digest` cross-check (N2). This is
+  materially worse than weak host pinning because the live override
+  bypasses GitHub entirely. Subsumes C2 + M6.
+- **Fix:** Gate both reads behind
+  `cfg(any(test, debug_assertions, feature = "updater-test-overrides"))`.
+  Add a release-build integration test that sets both env vars,
+  invokes the check + download paths, and asserts they're ignored
+  (i.e. the production github.com URL is contacted, or the request is
+  refused). Also drop any cached release whose URL host doesn't match
+  the canonical one — already partially covered by M18 but worth
+  reasserting now that the override is gated out.
+- **Acceptance:** in a `cargo build --release` binary, `set
+  DEADSYNC_UPDATER_RELEASE_URL=http://attacker/` followed by a manual
+  check still hits `api.github.com`. `DEADSYNC_UPDATER_FAKE_DOWNLOAD`
+  is a no-op.
+
+---
+
+## 🟠 Major (added by 2026-04-30 rubber-duck pass)
+
+### M22. Live rollback failure deletes the journal anyway ✅ Done
+
+- **Problem:** When a per-op rename failed inside
+  `execute_with_rollback`, the function called `rollback()` and then
+  returned `Err`. `rollback()` was best-effort and ignored every
+  inner error; the caller (`apply_tar_gz` / `apply_zip`) then
+  unconditionally removed the journal and staging on any execute
+  error. If AV, ransomware-protection, a file lock, or a transient
+  FS failure prevented the rollback rename(s), the install was left
+  in a mixed old/new state *and* the recovery instructions were
+  deleted. This undermined the durable-journal property C5 was built
+  on.
+- **Fix shipped:**
+  - Added `apply_journal::ExecuteFailure { cause, rollback_clean }`.
+  - Refactored `execute_with_rollback` on both platforms to return
+    `Err(ExecuteFailure)` and propagate `rollback_clean` from the
+    new `rollback() -> bool` signature.
+  - `rollback()` now logs every restore failure at `warn!` and sets
+    the return flag to `false` if any rename failed.
+  - On POSIX, after a clean rollback the function fsyncs each unique
+    restored parent so the restored entries are durable across power
+    loss.
+  - The callers preserve the `Applying` journal + staging when
+    `rollback_clean == false` and emit a `warn!` pointing at the
+    journal path so next-launch `recover()` can retry. The existing
+    `recover()` `Applying` arm is already idempotent (presence
+    checks for backup/target before each rename), so partial
+    rollbacks compose with it without changes.
+- **Tests:** added `rollback_reports_dirty_when_restore_rename_fails`
+  unit test on both platforms (POSIX-gated for unix); 152 updater
+  tests pass.
+
+### M23. Relaunch may exec the renamed-out backup binary
+
+- **Problem:** `apply_archive_and_relaunch` runs apply (which renames
+  the running executable to `<exe>.deadsync-bak-<token>` and moves the
+  new binary onto the original path) and *then* calls
+  `std::env::current_exe()` to spawn the relaunch
+  (`cli.rs:207-227`). On Linux `/proc/self/exe` resolves to the
+  *running inode*, which is now the backup path — not the freshly
+  installed target. macOS has historically been similar. Effect:
+  the relaunch can spawn the old binary out of the backup path; that
+  process then runs `apply_journal::recover()`, sees a clean
+  `Applied` journal, and deletes the backup it's executing. Confusing
+  failure modes follow — old binary running with new assets/config,
+  or apparent "update did nothing".
+- **Fix:** Capture `let relaunch_path = exe_dir.join(original_file_name)`
+  *before* any apply rename, plumb it through `apply_archive` /
+  `apply_archive_and_relaunch`, and spawn that path directly. Never
+  call `current_exe()` after apply.
+- **Acceptance:** integration test (or scripted harness — see
+  `scripts/test-updater-portable.ps1`) that asserts the post-apply
+  child's exe path equals the pre-apply target path, not a
+  `.deadsync-bak-*` sibling.
+
+### M24. Extracted file contents not fsynced before rename
+
+- **Problem:** C7 made directory entries durable but extraction itself
+  never fsyncs the staged files (`apply_unix.rs:173-188`,
+  `apply_windows.rs:198-202`). The staging files live in the same
+  filesystem as the install (we depend on that for `rename`
+  atomicity), so if power is lost between "rename committed" and
+  "page cache flushed", the install ends up with a directory entry
+  pointing at a file whose bytes haven't hit stable storage —
+  "successfully applied" with zeroed/torn content.
+- **Fix:** During extraction, after writing each regular file, call
+  `f.sync_all()` (or at minimum `f.flush()` then `sync_data()` on
+  POSIX). For Windows, `File::sync_all` is also the right hammer.
+  Alternative: do a single batch fsync over the staging dir before
+  the journal flips to `Applied`, but per-file is simpler and the
+  N=tens-of-files cost is negligible vs the network download we
+  just paid for.
+- **Acceptance:** a test that uses a fault-injection layer (or just a
+  stat-based "files were synced" check via `tracing` in the
+  extraction loop) proves every staged file is synced before
+  `execute_with_rollback` runs.
+
+### M25. Planner doesn't reject dir-vs-file type mismatches
+
+- **Problem:** `plan_ops` keys off `target.exists()` only
+  (`apply_unix.rs:212-227`, `apply_windows.rs:228-243`). If an
+  archive entry's target path currently exists as a *directory*
+  (e.g. a future release renames `noteskins/foo.png` to a directory
+  `noteskins/foo/`), the rename will move the whole subtree to the
+  backup path. `Applied` cleanup later calls `remove_file` on that
+  backup (`apply_journal.rs:465-474`) which fails on a directory,
+  leaving the journal stuck forever. The reverse (target is a file,
+  staged is a dir) similarly produces an unrecoverable mix.
+- **Fix:** During `plan_ops`, fetch `metadata(target)` when
+  `target_existed` is true and reject any entry whose existing inode
+  type doesn't match the staged entry's type. Surface as
+  `UpdaterError::Io("type mismatch …")` before journal write so we
+  never enter the durable phase. Optionally also tighten C8's
+  denylist to forbid *directories* under `save/` etc. as a defense
+  in depth.
+- **Acceptance:** a unit test stages `foo` as a regular file with
+  `target/foo/` already existing as a directory, asserts `plan_ops`
+  errors before any rename happens.
+
+### M26. No read/idle timeout on download body
+
+- **Problem:** `download_agent` deliberately drops the global timeout
+  so multi-hundred-MB downloads don't get cut off (`mod.rs:83-89`),
+  and `stream_to_file` only polls `should_cancel` between chunks
+  (`download.rs:411-417`). A server that accepts the connection and
+  then stalls mid-body keeps the worker blocked inside `read()`
+  indefinitely; pressing Back bumps the generation but the worker
+  never wakes up. Visible symptoms: the overlay disappears (overlay
+  state advances on the new generation), but a thread + socket
+  leak quietly until process exit. ETA also stays frozen for the
+  entire stall, which is a user-facing wart on top of the resource
+  leak.
+- **Fix:** Configure a per-read or low-speed timeout on
+  `download_agent` (e.g. `read_timeout(60s)` or a `<512 B/s` for
+  `>30s` low-speed cutoff if the http client supports it). On
+  timeout, check the worker's generation: if stale, return
+  `UpdaterError::Cancelled` and clean up the `.part` file; otherwise
+  surface as a network error and let the user retry. If `ureq`'s
+  knobs aren't granular enough, wrap the body reader in a
+  timeout-aware adapter.
+- **Acceptance:** integration test points the download path at a
+  test server that sends headers + 1 KiB then sleeps; the worker
+  exits cleanly within the configured timeout, no leaked thread,
+  no leftover `.part`.
+
+### M27. Apply success + relaunch failure looks like apply failure
+
+- **Problem:** `apply_archive_and_relaunch` applies first, spawns
+  second (`cli.rs:143-147`, `action.rs:665-674`). If apply succeeds
+  but spawn fails (sandbox refusal, missing perms, ENOENT on a
+  renamed exe path — see M23), the current old process keeps
+  running and the worker publishes a generic `Error` phase. The
+  user thinks the update failed; in reality the install tree is
+  already on the new version, only the running process isn't.
+- **Fix:** Distinguish the two outcomes in `apply_archive_and_relaunch`:
+  - On apply-fail: keep the existing rollback-capable `Error`.
+  - On apply-ok-but-spawn-fail: publish a new
+    `ActionPhase::AppliedRestartRequired { info }` that the overlay
+    renders as "Update installed; please restart." Strongly consider
+    `process::exit(0)` after a short delay so the user can see the
+    message, since continuing in the old process against the new
+    install tree is risky.
+- **Acceptance:** unit test injects a spawn failure, asserts the
+  published phase is the new `AppliedRestartRequired` variant and
+  that the journal is `Applied` (not removed).
+
+### M28. Tar extractor silently skips symlinks/devices
+
+- **Problem:** `apply_unix::extract_tar_gz` skips non-file/non-dir
+  entries (`apply_unix.rs:163-167`). The intent is "release
+  tarballs never contain these," which is true today, but if a
+  future release artifact accidentally ships a symlink that runtime
+  depends on, extraction reports "succeeded" and the install is
+  silently incomplete.
+- **Fix:** Change the `!entry.is_file() && !entry.is_dir()` branch
+  from `continue` to `return Err(UpdaterError::Io("rejected
+  non-regular entry '...'"))`. Fail closed: a malformed archive is
+  better surfaced as an apply error than as a partial install.
+- **Acceptance:** existing extraction tests pass; a new test that
+  feeds a tar with a symlink entry asserts the apply errors.
+
+### M29. Future-version journal recovery is silent
+
+- **Problem:** When `Journal::load` parses a journal whose state is
+  unknown (e.g. a downgraded build picking up a journal from a
+  newer version), `recover()` leaves it untouched and returns a
+  no-op `RecoveryReport` with no warning log
+  (`apply_journal.rs:210-216, 449-458`). Safe behavior but
+  invisible: a stuck install will never produce any signal in
+  `deadsync.log` to triage from.
+- **Fix:** When `Journal::load` succeeds but `validate()` reports an
+  unknown state / unsupported schema, emit `log::warn!("…journal at
+  {path} has unsupported schema; leaving in place for newer
+  binary…")` from the call site. Don't touch the file.
+- **Acceptance:** unit test that hand-writes a journal with an
+  unknown `state` field asserts a warning is logged and the file is
+  unchanged after `recover()`.
+
+### M30. Per-chunk progress publication is wasteful
+
+- **Problem:** The download progress closure
+  (`action.rs:454-489`) fires every 64 KiB chunk, clones
+  `ReleaseInfo` (which contains the full release notes body) and
+  `ReleaseAsset`, and takes the `PHASE` write lock. For a 50 MiB
+  archive that's ~800 lock-acquire-and-clone passes per download;
+  fast (gigabit) connections push this into the thousands per
+  second. Not a correctness bug today, but unnecessary churn.
+- **Fix:** Throttle the closure: track `last_published: Instant` and
+  `last_pct: u32` in the closure state alongside `first_sample`;
+  publish only when `now - last_published >= 100ms` *or* the integer
+  percent / ETA-bucket changed *or* this is the final byte. Always
+  publish the final tick so the UI never sticks at 99 %.
+- **Acceptance:** existing overlay/download tests still pass; a new
+  test counts how many `Downloading` phases are published for a
+  10 MiB simulated download and asserts it's ≤ 30, not ≥ 160.
+
+### M31. Redirect host pinning isn't explicit
+
+- **Problem:** M18 sanitizes cached URLs and N2 cross-checks the
+  GitHub API `digest`, but live asset / sidecar requests follow
+  whatever redirect chain `ureq` returns without an explicit host
+  allowlist (`download.rs:241-256, 324-329`). GitHub release
+  downloads do legitimately redirect to GitHub-owned object/CDN
+  hosts (`*.githubusercontent.com`, S3-backed signed URLs), so a
+  naive "final host must be github.com" rule would break real
+  downloads — but the *current* policy is "trust whatever the chain
+  resolves to," which is also wrong.
+- **Fix:** Decide and document a redirect allowlist that matches
+  observed GitHub release behavior (`github.com`,
+  `objects.githubusercontent.com`, plus whatever else GitHub
+  currently uses). Enforce in a custom redirect handler. Once C1
+  ships, signature verification will become the load-bearing
+  security check and host pinning can relax to "is HTTPS" — keep
+  the allowlist as defense in depth until then.
+- **Acceptance:** a unit/integration test stubs a 302 to a
+  non-allowlisted host and asserts download fails closed; a 302 to
+  an allowlisted GitHub CDN host succeeds.
 
 
 

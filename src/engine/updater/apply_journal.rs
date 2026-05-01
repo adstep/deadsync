@@ -419,6 +419,23 @@ pub struct RecoveryReport {
     pub journal_removed: bool,
 }
 
+/// Outcome of a failed `execute_with_rollback` call.  `cause` is the
+/// forward-pass error that triggered the abort; `rollback_clean` is
+/// `true` when every restore rename succeeded and `false` when at
+/// least one was blocked (AV, lock, permission denied, transient
+/// filesystem error).
+///
+/// The caller uses `rollback_clean` to decide whether to remove the
+/// journal: a clean rollback means the install is bit-identical to
+/// pre-apply and the journal can be deleted; a dirty rollback means
+/// the install is mixed and the journal must be preserved so the
+/// next launch's [`recover`] can retry the restore.
+#[derive(Debug)]
+pub struct ExecuteFailure {
+    pub cause: UpdaterError,
+    pub rollback_clean: bool,
+}
+
 /// Inspects the journal at `exe_dir` and finishes whatever apply was
 /// in flight.  Safe to call on every startup: returns a no-op report
 /// when no journal is present.

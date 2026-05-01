@@ -251,13 +251,16 @@ fn plan_ops(
 /// (recording it in `executed`), then rename the staged file into
 /// place.  Any error walks `executed` in reverse to restore the
 /// pre-apply state before returning.
-fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
+fn execute_with_rollback(journal: &Journal) -> Result<(), apply_journal::ExecuteFailure> {
     let mut executed: Vec<&Op> = Vec::with_capacity(journal.ops.len());
     for op in &journal.ops {
         if let Some(parent) = op.target.parent() {
             if let Err(e) = fs::create_dir_all(parent) {
-                rollback(&executed);
-                return Err(super::io_err_at("create_dir_all", parent, e));
+                let rollback_clean = rollback(&executed);
+                return Err(apply_journal::ExecuteFailure {
+                    cause: super::io_err_at("create_dir_all", parent, e),
+                    rollback_clean,
+                });
             }
         }
         if op.target_existed {
@@ -267,19 +270,25 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
             // and braces: surface it as an error rather than silently
             // overwriting.
             if op.backup.exists() {
-                rollback(&executed);
-                return Err(UpdaterError::Io(format!(
-                    "backup path '{}' already exists; refusing to overwrite",
-                    op.backup.display(),
-                )));
+                let rollback_clean = rollback(&executed);
+                return Err(apply_journal::ExecuteFailure {
+                    cause: UpdaterError::Io(format!(
+                        "backup path '{}' already exists; refusing to overwrite",
+                        op.backup.display(),
+                    )),
+                    rollback_clean,
+                });
             }
             if let Err(e) = fs::rename(&op.target, &op.backup) {
-                rollback(&executed);
-                return Err(UpdaterError::Io(format!(
-                    "failed to rename '{}' -> '{}': {e}",
-                    op.target.display(),
-                    op.backup.display(),
-                )));
+                let rollback_clean = rollback(&executed);
+                return Err(apply_journal::ExecuteFailure {
+                    cause: UpdaterError::Io(format!(
+                        "failed to rename '{}' -> '{}': {e}",
+                        op.target.display(),
+                        op.backup.display(),
+                    )),
+                    rollback_clean,
+                });
             }
         }
         if let Err(e) = fs::rename(&op.staged, &op.target) {
@@ -287,12 +296,15 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
             if op.target_existed {
                 let _ = fs::rename(&op.backup, &op.target);
             }
-            rollback(&executed);
-            return Err(UpdaterError::Io(format!(
-                "failed to install '{}' -> '{}': {e}",
-                op.staged.display(),
-                op.target.display(),
-            )));
+            let rollback_clean = rollback(&executed);
+            return Err(apply_journal::ExecuteFailure {
+                cause: UpdaterError::Io(format!(
+                    "failed to install '{}' -> '{}': {e}",
+                    op.staged.display(),
+                    op.target.display(),
+                )),
+                rollback_clean,
+            });
         }
         executed.push(op);
     }
@@ -302,15 +314,33 @@ fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
 /// Best-effort reversal of every successfully-executed op: restore the
 /// new file at `target` back to its original `staged` location (so
 /// the staging dir cleanup later sweeps it), then move the backup
-/// back over the target.  Failures are intentionally ignored — the
-/// next startup's [`apply_journal::recover`] is the safety net.
-fn rollback(executed: &[&Op]) {
+/// back over the target.  Returns `true` when every restore rename
+/// succeeded.  When `false`, the caller MUST preserve the journal so
+/// the next launch's [`apply_journal::recover`] can retry the
+/// restore against whatever the install tree now looks like.
+fn rollback(executed: &[&Op]) -> bool {
+    let mut clean = true;
     for op in executed.iter().rev() {
-        let _ = fs::rename(&op.target, &op.staged);
+        if let Err(e) = fs::rename(&op.target, &op.staged) {
+            log::warn!(
+                "updater rollback: failed to restore '{}' -> '{}': {e}",
+                op.target.display(),
+                op.staged.display(),
+            );
+            clean = false;
+        }
         if op.target_existed {
-            let _ = fs::rename(&op.backup, &op.target);
+            if let Err(e) = fs::rename(&op.backup, &op.target) {
+                log::warn!(
+                    "updater rollback: failed to restore backup '{}' -> '{}': {e}",
+                    op.backup.display(),
+                    op.target.display(),
+                );
+                clean = false;
+            }
         }
     }
+    clean
 }
 
 /* ---------- top-level orchestration ---------- */
@@ -339,13 +369,27 @@ pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, Update
     journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
     journal.write_atomic(exe_dir)?;
     staging_guard.disarm();
-    if let Err(e) = execute_with_rollback(&journal) {
-        // Rollback already restored the install tree; drop the
-        // journal so a future startup doesn't try to recover from a
-        // state that no longer matches the filesystem.
-        let _ = fs::remove_file(apply_journal::journal_path(exe_dir));
-        let _ = fs::remove_dir_all(&journal.staging_dir);
-        return Err(e);
+    if let Err(failure) = execute_with_rollback(&journal) {
+        // If the rollback restored the install tree cleanly, the
+        // journal no longer matches anything on disk and we drop it.
+        // If the rollback was incomplete (locked file, AV interfering,
+        // ACL change between probe and apply), keep the journal so
+        // the next startup's `apply_journal::recover` retries the
+        // restore against the mixed state — losing the journal there
+        // would permanently leave the install in a half-applied
+        // state.
+        if failure.rollback_clean {
+            let _ = fs::remove_file(apply_journal::journal_path(exe_dir));
+            let _ = fs::remove_dir_all(&journal.staging_dir);
+        } else {
+            log::warn!(
+                "updater apply failed AND rollback was incomplete; \
+                 leaving journal at '{}' for next-launch recovery: {}",
+                apply_journal::journal_path(exe_dir).display(),
+                failure.cause,
+            );
+        }
+        return Err(failure.cause);
     }
     journal.state = JournalState::Applied;
     journal.write_atomic(exe_dir)?;
@@ -642,11 +686,15 @@ mod tests {
             },
         ];
 
-        let err = execute_with_rollback(&journal).unwrap_err();
-        match err {
+        let failure = execute_with_rollback(&journal).unwrap_err();
+        match failure.cause {
             UpdaterError::Io(_) => {}
             other => panic!("expected Io, got {other:?}"),
         }
+        assert!(
+            failure.rollback_clean,
+            "rollback should be clean when targets are unlocked",
+        );
         assert_eq!(
             fs::read(exe_dir.join("a.txt")).unwrap(),
             b"OLDA",
@@ -749,6 +797,31 @@ mod tests {
         assert!(!apply_journal::journal_path(&exe_dir).exists());
         assert_eq!(fs::read(exe_dir.join("deadsync.exe")).unwrap(), b"NEW");
 
+        let _ = fs::remove_dir_all(&exe_dir);
+    }
+
+    #[test]
+    fn rollback_reports_dirty_when_restore_rename_fails() {
+        // M22: when rollback can't restore a target, the function
+        // must signal `clean = false` so the caller preserves the
+        // journal for the next launch's `recover` to retry.  We
+        // simulate the failure by pointing the op's `staged` path
+        // under a non-existent parent directory: the rollback's
+        // `rename(target -> staged)` then fails.
+        let exe_dir = tempdir("rb-dirty");
+        let journal = Journal::new(&exe_dir);
+        let target = exe_dir.join("a.txt");
+        fs::write(&target, b"NEW").unwrap();
+        let staged = exe_dir.join("ghost").join("a.txt");
+        let backup = journal.backup_path_for(&target);
+        let ops = vec![Op {
+            staged,
+            target: target.clone(),
+            backup,
+            target_existed: false,
+        }];
+        let refs: Vec<&Op> = ops.iter().collect();
+        assert!(!rollback(&refs));
         let _ = fs::remove_dir_all(&exe_dir);
     }
 }
