@@ -248,6 +248,44 @@ fn env_opt_out() -> bool {
     std::env::var_os(ENV_OPT_OUT).is_some_and(|v| !v.is_empty())
 }
 
+/// Reconcile a Fresh fetch outcome with the persisted cache.  Pure so
+/// the bookkeeping is unit-testable without spinning up the worker.
+///
+/// The caller passes the *current* cache, the classified state, the
+/// release tag (lifted out before `classify` consumed the `ReleaseInfo`),
+/// and the ETag from the response.  The returned cache is what
+/// [`write_cache`] should persist next.
+///
+/// Two subtleties:
+/// * The ETag is overwritten **unconditionally**, even when the server
+///   omits it.  Holding on to a stale ETag from a previous response
+///   would let the next `If-None-Match` header match an unrelated
+///   payload and trigger a spurious 304 (N1).
+/// * `cached_release` is set on `Available`, cleared on `UpToDate`, and
+///   left untouched on `UnknownLatest`: clearing on UpToDate keeps an
+///   out-of-date snapshot from re-appearing after the user updates;
+///   leaving it on UnknownLatest is a no-op because we never wrote one
+///   in that case (M3).
+pub fn apply_fresh_to_cache(
+    mut prev: UpdaterCache,
+    state: &UpdateState,
+    tag: &str,
+    etag: Option<String>,
+) -> UpdaterCache {
+    prev.last_seen_tag = Some(tag.to_owned());
+    prev.etag = etag;
+    match state {
+        UpdateState::Available(info) => {
+            prev.cached_release = Some(CachedRelease::from_release_info(info));
+        }
+        UpdateState::UpToDate => {
+            prev.cached_release = None;
+        }
+        UpdateState::UnknownLatest => {}
+    }
+    prev
+}
+
 /// Reach out to GitHub once.  Updates the in-memory snapshot and
 /// persisted cache on success.  Errors are logged, not returned, so the
 /// caller (a fire-and-forget thread) can stay simple.
@@ -290,25 +328,7 @@ pub fn run_check_once() {
             let tag = info.tag.clone();
             let state = classify(info);
             replace_snapshot(state.clone());
-            let mut next = cache();
-            next.last_seen_tag = Some(tag);
-            if etag.is_some() {
-                next.etag = etag;
-            }
-            // Persist the release payload only when it's something the
-            // banner should re-render on the next launch.  Clearing on
-            // UpToDate keeps an out-of-date snapshot from re-appearing
-            // after the user updates; leaving it on UnknownLatest is a
-            // no-op because we never wrote one in the first place.
-            match &state {
-                UpdateState::Available(info) => {
-                    next.cached_release = Some(CachedRelease::from_release_info(info));
-                }
-                UpdateState::UpToDate => {
-                    next.cached_release = None;
-                }
-                UpdateState::UnknownLatest => {}
-            }
+            let next = apply_fresh_to_cache(cache(), &state, &tag, etag);
             write_cache(next);
             match state {
                 UpdateState::UpToDate => log::info!("Update check: up to date"),
@@ -403,6 +423,87 @@ mod tests {
         assert_eq!(loaded.etag.as_deref(), Some("\"e\""));
         assert!(loaded.cached_release.is_none());
         let _ = std::fs::remove_file(&path);
+    }
+
+    fn fresh_release(tag: &str) -> ReleaseInfo {
+        ReleaseInfo {
+            tag: tag.to_owned(),
+            version: semver::Version::parse(tag.trim_start_matches('v')).unwrap(),
+            html_url: format!("https://example/{tag}"),
+            body: String::new(),
+            published_at: None,
+            assets: vec![ReleaseAsset {
+                name: format!("deadsync-{tag}-x86_64-linux.tar.gz"),
+                browser_download_url: format!("https://example/{tag}/asset.tar.gz"),
+                size: 1,
+                digest: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn apply_fresh_clears_etag_when_response_has_none() {
+        // N1: GitHub almost always returns an ETag, but if a response
+        // ever omits it we must drop the previous one rather than carry
+        // a stale value into the next If-None-Match (which could match
+        // an unrelated payload and trigger a spurious 304).
+        let prev = UpdaterCache {
+            last_seen_tag: Some("v0.0.0".into()),
+            etag: Some("\"old-etag\"".into()),
+            cached_release: None,
+        };
+        let info = fresh_release("v9.9.9");
+        let state = classify(info);
+        let next = apply_fresh_to_cache(prev, &state, "v9.9.9", None);
+        assert!(next.etag.is_none(), "stale etag must not survive a Fresh-without-etag");
+        assert_eq!(next.last_seen_tag.as_deref(), Some("v9.9.9"));
+    }
+
+    #[test]
+    fn apply_fresh_overwrites_etag_with_new_value() {
+        let prev = UpdaterCache {
+            last_seen_tag: None,
+            etag: Some("\"old\"".into()),
+            cached_release: None,
+        };
+        let state = classify(fresh_release("v9.9.9"));
+        let next = apply_fresh_to_cache(prev, &state, "v9.9.9", Some("\"new\"".into()));
+        assert_eq!(next.etag.as_deref(), Some("\"new\""));
+    }
+
+    #[test]
+    fn apply_fresh_clears_cached_release_on_up_to_date() {
+        let prev = UpdaterCache {
+            last_seen_tag: None,
+            etag: None,
+            cached_release: Some(CachedRelease {
+                tag: "v1.0.0".into(),
+                html_url: String::new(),
+                body: String::new(),
+                published_at: None,
+                assets: vec![],
+            }),
+        };
+        let next = apply_fresh_to_cache(prev, &UpdateState::UpToDate, "v0.0.0", None);
+        assert!(next.cached_release.is_none());
+    }
+
+    #[test]
+    fn apply_fresh_preserves_cached_release_on_unknown_latest() {
+        let cached = CachedRelease {
+            tag: "v1.0.0".into(),
+            html_url: String::new(),
+            body: String::new(),
+            published_at: None,
+            assets: vec![],
+        };
+        let prev = UpdaterCache {
+            last_seen_tag: None,
+            etag: None,
+            cached_release: Some(cached.clone()),
+        };
+        let next = apply_fresh_to_cache(prev, &UpdateState::UnknownLatest, "nightly", None);
+        assert_eq!(next.cached_release, Some(cached));
     }
 
     #[test]

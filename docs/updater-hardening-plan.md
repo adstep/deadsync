@@ -55,7 +55,7 @@ lands so the rest of the document can stay descriptive.
 | M9  | Make in-app install opt-out for managed distributions         | 🟠       | ✅ Done        | New `[Options] UpdaterInstallEnabled` (default `1`); when `0`, `classify_check_result` routes Available → `AvailableNoInstall` and `request_download` refuses, so banner / Check For Updates still surface releases but the Download button never appears. Packagers (Steam / distro / MSIX) ship the ini with `0`. The `self-update` cargo feature remains for builds that want the apply code stripped entirely. |
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
-| N1  | ETag bookkeeping                                              | 🟡       | ⏳ Not started |                                                                                   |
+| N1  | ETag bookkeeping                                              | 🟡       | ✅ Done        | `apply_fresh_to_cache` lifted out of `run_check_once` and now overwrites `etag` unconditionally so a Fresh-without-ETag drops the previous value instead of carrying it into the next `If-None-Match`. Channel-scoping deferred: M5 removed `UpdateChannel`, so there's only one release URL today. |
 | N2  | Verify GitHub's API `digest` field too                        | 🟡       | ⏳ Not started |                                                                                   |
 | N3  | Add cancellation during long checks/downloads                 | 🟡       | ⏳ Not started |                                                                                   |
 | N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ⏳ Not started |                                                                                   |
@@ -303,9 +303,27 @@ lands so the rest of the document can stay descriptive.
 
 ### N1. ETag bookkeeping
 
-- On a fresh response without an ETag, `next.etag` retains the previous
-  one (`src/engine/updater/state.rs:184-194`). Set it to `None`
-  explicitly, or scope ETags by release URL/channel to avoid leakage.
+- **Problem:** On a fresh response without an ETag, `next.etag` retained
+  the previous one (`src/engine/updater/state.rs:184-194`). Set it to
+  `None` explicitly, or scope ETags by release URL/channel to avoid
+  leakage.
+- **Resolution:** lifted the cache-update logic out of `run_check_once`
+  into a pure `apply_fresh_to_cache(prev, state, tag, etag)` helper,
+  and changed the assignment to `prev.etag = etag` (unconditional).
+  GitHub effectively always sends an ETag, but if it ever stops, we
+  now drop the previous value instead of letting it match an unrelated
+  payload on the next request and trigger a spurious 304.
+- **Tests:**
+  - `apply_fresh_clears_etag_when_response_has_none` exercises the
+    bug-fix branch directly.
+  - `apply_fresh_overwrites_etag_with_new_value`,
+    `apply_fresh_clears_cached_release_on_up_to_date`, and
+    `apply_fresh_preserves_cached_release_on_unknown_latest` lock down
+    the rest of the bookkeeping behavior so a future refactor of the
+    helper can't silently regress M3 or this fix.
+- **Channel-scoping deferred:** the second half of the original fix
+  ("scope ETags by release URL/channel") is moot today — M5 removed
+  `UpdateChannel` and there's only one release URL.
 
 ### N2. Verify GitHub's API `digest` field too
 
