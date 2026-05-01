@@ -2,25 +2,28 @@
 //!
 //! On Linux and FreeBSD the running executable file CAN be renamed
 //! and replaced atomically (the kernel keeps the on-disk inode alive
-//! until the running process exits), so we don't need the
-//! `<name>.old` two-step dance that Windows requires.  The flow is:
+//! until the running process exits), so technically we don't need a
+//! backup-then-install dance.  We do it anyway, mirroring the Windows
+//! flow, because the journal-driven design relies on having a backup
+//! to roll back to if the apply crashes mid-way:
 //!
-//! 1. Extract the downloaded `tar.gz` into a sibling staging dir.
-//!    The Linux/FreeBSD release archives have a single top-level
-//!    `deadsync/` directory (see `scripts/package-linux-release.sh`),
-//!    which is stripped during extraction.
-//! 2. For every staged file, `rename(2)` it on top of the live
-//!    counterpart.  Same-volume renames are atomic and overwrite
-//!    silently; the existing inode of the running binary stays alive
-//!    in memory until exit.
-//! 3. Caller (PR-14) re-execs the new binary with `--restart`.
+//! 1. Extract the downloaded `tar.gz` into a sibling staging dir
+//!    named after the per-apply token in the journal.
+//! 2. Plan one [`apply_journal::Op`] per staged regular file and
+//!    write the journal as
+//!    [`apply_journal::JournalState::Applying`].
+//! 3. For each op, rename the live target aside (to its
+//!    `.deadsync-bak-<token>` sidecar), then rename the staged file
+//!    over the target.  On any error, walk executed ops in reverse
+//!    and restore the pre-apply state.
+//! 4. Rewrite the journal as
+//!    [`apply_journal::JournalState::Applied`] and re-exec the new
+//!    binary with `--restart`.  Recovery cleanup happens on the next
+//!    startup via [`apply_journal::recover`].
 //!
-//! `extract_archive` lives in this file because, although the *logic*
-//! is portable, its `tar` + `flate2` deps are kept compiled-out on
-//! Windows for build-size reasons; we still want a Windows-runnable
-//! unit-test surface, so this module's `cfg` is wider than the
-//! callers'.  The dispatcher entry-point [`apply_tar_gz`] is the only
-//! thing actually gated to Linux/FreeBSD.
+//! `extract_archive` is portable (so the Windows test box can exercise
+//! it), but [`apply_tar_gz`] itself is gated to Linux/FreeBSD because
+//! it touches a real install root.
 
 use std::fs::{self, File};
 use std::io;
@@ -29,9 +32,11 @@ use std::path::{Component, Path, PathBuf};
 use flate2::read::GzDecoder;
 use tar::Archive;
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use super::apply_journal::{self, Journal, JournalState, Op};
 use super::UpdaterError;
 
-/// Result of a successful in-place swap.
+/// Result of a successful apply.  Returned for diagnostics + tests.
 #[derive(Debug, Clone)]
 pub struct ApplyOutcome {
     pub staging_dir: PathBuf,
@@ -182,21 +187,17 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
     Ok(written)
 }
 
-/* ---------- in-place swap (Unix-only because of rename-over-running-exe) ---------- */
+/* ---------- planning + journal-driven apply (Unix-only) ---------- */
 
-/// Renames every file under `staging_dir` on top of its counterpart
-/// in `target_dir`.  Same-volume renames are atomic on Linux and
-/// FreeBSD; the running binary's inode stays alive until the process
-/// exits, so it is safe to overwrite it in-place before re-exec'ing.
-///
-/// On any error mid-walk we abort and leave the partially-installed
-/// state in place — the caller surfaces the error to the user, and
-/// no destructive `.old` files are produced (cf. the Windows path).
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub fn swap_files(staging_dir: &Path, target_dir: &Path) -> Result<usize, UpdaterError> {
+fn plan_ops(
+    journal: &Journal,
+    staging_dir: &Path,
+    target_dir: &Path,
+) -> Result<Vec<Op>, UpdaterError> {
     let files = collect_files(staging_dir)?;
-    let mut moved = 0usize;
-    for staged in &files {
+    let mut ops = Vec::with_capacity(files.len());
+    for staged in files {
         let rel = staged.strip_prefix(staging_dir).map_err(|_| {
             UpdaterError::Io(format!(
                 "staged path '{}' escapes staging dir '{}'",
@@ -205,27 +206,77 @@ pub fn swap_files(staging_dir: &Path, target_dir: &Path) -> Result<usize, Update
             ))
         })?;
         let target = target_dir.join(rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
-        }
-        fs::rename(staged, &target).map_err(|e| {
-            UpdaterError::Io(format!(
-                "failed to install '{}' -> '{}': {e}",
-                staged.display(),
-                target.display(),
-            ))
-        })?;
-        moved += 1;
+        let target_existed = target.exists();
+        let backup = journal.backup_path_for(&target);
+        ops.push(Op {
+            staged,
+            target,
+            backup,
+            target_existed,
+        });
     }
-    Ok(moved)
+    Ok(ops)
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
+    let mut executed: Vec<&Op> = Vec::with_capacity(journal.ops.len());
+    for op in &journal.ops {
+        if let Some(parent) = op.target.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                rollback(&executed);
+                return Err(io_err(e));
+            }
+        }
+        if op.target_existed {
+            if op.backup.exists() {
+                rollback(&executed);
+                return Err(UpdaterError::Io(format!(
+                    "backup path '{}' already exists; refusing to overwrite",
+                    op.backup.display(),
+                )));
+            }
+            if let Err(e) = fs::rename(&op.target, &op.backup) {
+                rollback(&executed);
+                return Err(UpdaterError::Io(format!(
+                    "failed to rename '{}' -> '{}': {e}",
+                    op.target.display(),
+                    op.backup.display(),
+                )));
+            }
+        }
+        if let Err(e) = fs::rename(&op.staged, &op.target) {
+            if op.target_existed {
+                let _ = fs::rename(&op.backup, &op.target);
+            }
+            rollback(&executed);
+            return Err(UpdaterError::Io(format!(
+                "failed to install '{}' -> '{}': {e}",
+                op.staged.display(),
+                op.target.display(),
+            )));
+        }
+        executed.push(op);
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+fn rollback(executed: &[&Op]) {
+    for op in executed.iter().rev() {
+        let _ = fs::rename(&op.target, &op.staged);
+        if op.target_existed {
+            let _ = fs::rename(&op.backup, &op.target);
+        }
+    }
 }
 
 /* ---------- top-level orchestration ---------- */
 
-/// Drives the full apply sequence: writability probe → extract
-/// tarball into a sibling staging dir → swap files in place.  Caller
-/// (PR-14) is responsible for `execv`-ing the new binary with
-/// `--restart` afterwards.
+/// Drives the full apply sequence under the durable journal: probe
+/// writability → extract tarball into the journal's staging dir →
+/// write the journal as `Applying` → execute per-op renames with
+/// rollback on error → rewrite as `Applied`.
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub fn apply_tar_gz(archive_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, UpdaterError> {
     if !is_dir_writable(exe_dir) {
@@ -234,18 +285,23 @@ pub fn apply_tar_gz(archive_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome,
             exe_dir.display(),
         )));
     }
-    let staging_dir = staging_dir_for(exe_dir);
-    if staging_dir.exists() {
-        let _ = fs::remove_dir_all(&staging_dir);
+    let mut journal = Journal::new(exe_dir);
+    if journal.staging_dir.exists() {
+        let _ = fs::remove_dir_all(&journal.staging_dir);
     }
     let bytes = fs::read(archive_path).map_err(io_err)?;
-    let installed_file_count = extract_tar_gz(&bytes, &staging_dir)?;
-    swap_files(&staging_dir, exe_dir)?;
-    // After swap, staging_dir holds only empty directories.  Best-
-    // effort cleanup; failure is harmless.
-    let _ = fs::remove_dir_all(&staging_dir);
+    let installed_file_count = extract_tar_gz(&bytes, &journal.staging_dir)?;
+    journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
+    journal.write_atomic(exe_dir)?;
+    if let Err(e) = execute_with_rollback(&journal) {
+        let _ = fs::remove_file(apply_journal::journal_path(exe_dir));
+        let _ = fs::remove_dir_all(&journal.staging_dir);
+        return Err(e);
+    }
+    journal.state = JournalState::Applied;
+    journal.write_atomic(exe_dir)?;
     Ok(ApplyOutcome {
-        staging_dir,
+        staging_dir: journal.staging_dir,
         installed_file_count,
     })
 }
@@ -274,20 +330,6 @@ pub fn is_dir_writable(dir: &Path) -> bool {
         }
         Err(_) => false,
     }
-}
-
-/// `{exe_dir}/.deadsync-update-staging-{pid}-{nanos}/`.  Sibling so
-/// `rename(2)` stays on the same filesystem.
-pub fn staging_dir_for(exe_dir: &Path) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    exe_dir.join(format!(
-        ".deadsync-update-staging-{}-{}",
-        std::process::id(),
-        nanos
-    ))
 }
 
 /* ---------- helpers ---------- */
@@ -446,26 +488,9 @@ mod tests {
         assert!(!is_dir_writable(&dir));
     }
 
-    #[test]
-    fn staging_dir_for_is_sibling_of_exe_dir() {
-        let exe_dir = PathBuf::from("/install/dir");
-        let staging = staging_dir_for(&exe_dir);
-        assert_eq!(staging.parent(), Some(exe_dir.as_path()));
-        assert!(
-            staging
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap()
-                .starts_with(".deadsync-update-staging-")
-        );
-    }
-
-    // The post-extract `swap_files` + `apply_tar_gz` + collect_files
-    // entry points are gated to Linux/FreeBSD because they're meant
-    // to be exercised against a live install dir on those platforms.
-    // We still want to verify the *logic* works on the dev box, so
-    // the next two tests duplicate the walk on the cross-platform
-    // helper.
+    // The apply_tar_gz / plan_ops / execute_with_rollback entry
+    // points are gated to Linux/FreeBSD because they assume a real
+    // install root.  We still cover the cross-platform helpers below.
 
     #[test]
     fn collect_files_walks_recursively() {

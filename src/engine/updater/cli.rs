@@ -84,22 +84,23 @@ impl UpdaterCli {
 /// best-effort), but the (removed_count, staging_removed) tuple is
 /// returned for diagnostics + tests.
 pub fn run_cleanup(exe_dir: &std::path::Path, staging_dir: &std::path::Path) -> (usize, bool) {
-    #[cfg(all(windows, feature = "self-update"))]
+    // The `staging_dir` argument is retained for back-compat with old
+    // relaunch command lines but is no longer consulted: the journal
+    // file at the install root is now the source of truth for both
+    // the staging dir path and the per-op backup names.
+    let _ = staging_dir;
+    #[cfg(feature = "self-update")]
     {
-        return crate::engine::updater::apply_windows::cleanup_old_files(
-            exe_dir,
-            Some(staging_dir),
-        );
+        let report = crate::engine::updater::apply_journal::recover(exe_dir);
+        let staging_removed = report.staging_removed;
+        let removed_count =
+            report.backups_removed + report.backups_restored + report.installed_removed;
+        return (removed_count, staging_removed);
     }
-    #[cfg(not(all(windows, feature = "self-update")))]
+    #[cfg(not(feature = "self-update"))]
     {
         let _ = exe_dir;
-        let staging_removed = if staging_dir.exists() {
-            std::fs::remove_dir_all(staging_dir).is_ok()
-        } else {
-            false
-        };
-        (0, staging_removed)
+        (0, false)
     }
 }
 
@@ -189,13 +190,14 @@ fn exe_dir() -> Result<PathBuf, super::UpdaterError> {
 #[cfg(all(windows, feature = "self-update"))]
 fn relaunch_self(exe_dir: &std::path::Path) -> Result<(), super::UpdaterError> {
     use std::process::Command;
+    let _ = exe_dir;
     let exe = std::env::current_exe()
         .map_err(|e| super::UpdaterError::Io(format!("current_exe: {e}")))?;
-    let staging = super::apply_windows::staging_dir_for(exe_dir);
+    // No `--cleanup-old <path>` is needed anymore: the new process
+    // discovers the apply journal at its install root and runs
+    // recovery unconditionally on startup.
     Command::new(&exe)
         .arg("--restart")
-        .arg("--cleanup-old")
-        .arg(staging.as_os_str())
         .spawn()
         .map_err(|e| super::UpdaterError::Io(format!("spawn new exe: {e}")))?;
     Ok(())

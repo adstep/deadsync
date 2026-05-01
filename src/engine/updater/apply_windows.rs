@@ -1,20 +1,26 @@
 //! Windows-side "apply" half of the in-app updater.
 //!
-//! On Windows the running `.exe` (and any DLLs it has mapped) cannot be
-//! deleted, but they *can* be renamed.  We exploit that by:
+//! On Windows the running `.exe` (and any DLLs it has mapped) cannot
+//! be deleted, but they *can* be renamed.  We exploit that as follows:
 //!
-//! 1. Extracting the freshly-downloaded archive into a sibling staging
+//! 1. Extract the freshly-downloaded archive into a sibling staging
 //!    directory next to the install root.
-//! 2. For every file in the staging tree, moving the corresponding
-//!    in-place file to `<name>.old`, then moving the staged file into
-//!    the final location.
-//! 3. Spawning the new executable with `--cleanup-old <staging_dir>` and
-//!    exiting `0`.  PR-14 wires up the spawn + the cleanup command line;
-//!    this module provides the orchestration primitives and the
-//!    cleanup helper.
+//! 2. Build a plan (one [`apply_journal::Op`] per staged file) and
+//!    write a journal recording the planned mutations
+//!    ([`apply_journal::JournalState::Applying`]).
+//! 3. For each op, rename the existing target to its per-apply
+//!    backup name (`<target>.deadsync-bak-<token>`), then rename the
+//!    staged file into the target's place.
+//! 4. On any error mid-apply, walk the executed ops in reverse and
+//!    restore them; on success rewrite the journal as
+//!    [`apply_journal::JournalState::Applied`].
+//! 5. Spawn the new executable with `--restart` and exit.  The next
+//!    startup runs [`apply_journal::recover`], which deletes the
+//!    backups and the staging directory.
 //!
-//! The module is gated on `cfg(windows)` per the roadmap.  All
-//! filesystem operations are kept synchronous and free of `unsafe`.
+//! The crash-recovery story lives in [`crate::engine::updater::apply_journal`]:
+//! a crash with the journal still in `Applying` rolls back to a
+//! bit-identical pre-apply tree on the next launch.
 //!
 //! ### Layout assumption
 //!
@@ -26,34 +32,26 @@
 
 #![cfg(windows)]
 
-use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
 use zip::ZipArchive;
 
+use super::apply_journal::{self, Journal, JournalState, Op};
 use super::UpdaterError;
 
-/// Suffix appended to displaced live files prior to running the new
-/// binary.  Picked so that a glob over the install dir can find them
-/// during the post-update cleanup pass.
-pub const OLD_SUFFIX: &str = ".old";
-
-/// Result of a successful in-place swap.  Returned to the caller so the
-/// outer driver (PR-14) can pass `staging_dir` along to the freshly
-/// spawned executable via `--cleanup-old`.
+/// Result of a successful apply.  Returned for diagnostics + tests;
+/// the caller doesn't need to thread anything back into the relaunch
+/// command line because the journal at the install root is now the
+/// source of truth for cleanup.
 #[derive(Debug, Clone)]
 pub struct ApplyOutcome {
     /// Sibling directory the archive was extracted into.  May contain
-    /// leftover empty subdirectories after [`swap_files`] completes;
-    /// the post-update cleanup is responsible for removing it.
+    /// leftover empty subdirectories after the swap completes; the
+    /// post-update cleanup pass removes the directory entirely.
     pub staging_dir: PathBuf,
-    /// Absolute paths of files that were renamed to `<name>.old` and
-    /// are pending deletion on next startup.  Useful for diagnostics.
-    pub displaced_old_files: Vec<PathBuf>,
-    /// Number of files that were swapped in from the archive (i.e.
-    /// number of files in the staging tree).
+    /// Number of files that were swapped in from the archive.
     pub installed_file_count: usize,
 }
 
@@ -201,21 +199,20 @@ pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, 
     Ok(written)
 }
 
-/* ---------- in-place swap ---------- */
+/* ---------- planning + journal-driven apply ---------- */
 
-/// Walks `staging_dir` and, for every file, moves the existing file at
-/// the corresponding location under `target_dir` to `<name>.old`, then
-/// moves the staged file into place.  Missing target files are simply
-/// installed (no `.old` placeholder created).
-///
-/// On any rename error the operation aborts and returns the partial
-/// list of `.old` files created, leaving the rest of the install
-/// untouched; the caller is expected to surface the error and the
-/// next startup's cleanup pass will remove the orphans.
-pub fn swap_files(staging_dir: &Path, target_dir: &Path) -> Result<Vec<PathBuf>, UpdaterError> {
-    let mut displaced = Vec::new();
+/// Walks `staging_dir` and produces an `Op` for every regular file,
+/// pairing it with its target path under `target_dir` and a backup
+/// path derived from the journal's per-apply token.  Sorted to make
+/// iteration deterministic across platforms.
+fn plan_ops(
+    journal: &Journal,
+    staging_dir: &Path,
+    target_dir: &Path,
+) -> Result<Vec<Op>, UpdaterError> {
     let files = collect_files(staging_dir)?;
-    for staged in &files {
+    let mut ops = Vec::with_capacity(files.len());
+    for staged in files {
         let rel = staged.strip_prefix(staging_dir).map_err(|_| {
             UpdaterError::Io(format!(
                 "staged path '{}' escapes staging dir '{}'",
@@ -224,97 +221,93 @@ pub fn swap_files(staging_dir: &Path, target_dir: &Path) -> Result<Vec<PathBuf>,
             ))
         })?;
         let target = target_dir.join(rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
-        }
-        if target.exists() {
-            let old = old_path_for(&target);
-            // Best-effort: if a stale `.old` is still around from a
-            // previous failed attempt, drop it so the rename succeeds.
-            let _ = fs::remove_file(&old);
-            fs::rename(&target, &old).map_err(|e| {
-                UpdaterError::Io(format!(
-                    "failed to rename '{}' -> '{}': {e}",
-                    target.display(),
-                    old.display(),
-                ))
-            })?;
-            displaced.push(old);
-        }
-        fs::rename(staged, &target).map_err(|e| {
-            UpdaterError::Io(format!(
-                "failed to install '{}' -> '{}': {e}",
-                staged.display(),
-                target.display(),
-            ))
-        })?;
+        let target_existed = target.exists();
+        let backup = journal.backup_path_for(&target);
+        ops.push(Op {
+            staged,
+            target,
+            backup,
+            target_existed,
+        });
     }
-    Ok(displaced)
+    Ok(ops)
 }
 
-/// `<path>.old`, preserving any existing extension (we just append the
-/// suffix rather than replacing it; "deadsync.exe" becomes
-/// "deadsync.exe.old").
-pub fn old_path_for(path: &Path) -> PathBuf {
-    let mut s = path.as_os_str().to_owned();
-    s.push(OLD_SUFFIX);
-    PathBuf::from(s)
-}
-
-/* ---------- post-update cleanup ---------- */
-
-/// Recursively removes every `*.old` file under `root` and then deletes
-/// `staging_dir` (if non-empty after [`swap_files`] left empty
-/// directories behind, those are flushed as well).  Errors are logged
-/// implicitly via the returned counts but never propagated: cleanup
-/// must never block a successful start-up.
-///
-/// Returns `(old_files_removed, staging_removed)`.
-pub fn cleanup_old_files(root: &Path, staging_dir: Option<&Path>) -> (usize, bool) {
-    let mut removed = 0usize;
-    let mut stack = vec![root.to_path_buf()];
-    let mut visited = BTreeSet::new();
-    while let Some(dir) = stack.pop() {
-        if !visited.insert(dir.clone()) {
-            continue;
-        }
-        let read = match fs::read_dir(&dir) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for entry in read.flatten() {
-            let path = entry.path();
-            let ft = match entry.file_type() {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-            if ft.is_dir() {
-                stack.push(path);
-            } else if path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(OLD_SUFFIX))
-            {
-                if fs::remove_file(&path).is_ok() {
-                    removed += 1;
-                }
+/// Executes the journal's plan: for each op, ensure the target's
+/// parent directory exists, optionally rename the live file aside
+/// (recording it in `executed`), then rename the staged file into
+/// place.  Any error walks `executed` in reverse to restore the
+/// pre-apply state before returning.
+fn execute_with_rollback(journal: &Journal) -> Result<(), UpdaterError> {
+    let mut executed: Vec<&Op> = Vec::with_capacity(journal.ops.len());
+    for op in &journal.ops {
+        if let Some(parent) = op.target.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                rollback(&executed);
+                return Err(io_err(e));
             }
         }
+        if op.target_existed {
+            // A stale backup from a previous half-completed attempt
+            // could only exist if the per-apply token collided, which
+            // is statistically impossible for 128-bit tokens.  Belt
+            // and braces: surface it as an error rather than silently
+            // overwriting.
+            if op.backup.exists() {
+                rollback(&executed);
+                return Err(UpdaterError::Io(format!(
+                    "backup path '{}' already exists; refusing to overwrite",
+                    op.backup.display(),
+                )));
+            }
+            if let Err(e) = fs::rename(&op.target, &op.backup) {
+                rollback(&executed);
+                return Err(UpdaterError::Io(format!(
+                    "failed to rename '{}' -> '{}': {e}",
+                    op.target.display(),
+                    op.backup.display(),
+                )));
+            }
+        }
+        if let Err(e) = fs::rename(&op.staged, &op.target) {
+            // Roll back this op's own backup before recursing.
+            if op.target_existed {
+                let _ = fs::rename(&op.backup, &op.target);
+            }
+            rollback(&executed);
+            return Err(UpdaterError::Io(format!(
+                "failed to install '{}' -> '{}': {e}",
+                op.staged.display(),
+                op.target.display(),
+            )));
+        }
+        executed.push(op);
     }
-    let staging_removed = match staging_dir {
-        Some(s) if s.exists() => fs::remove_dir_all(s).is_ok(),
-        _ => false,
-    };
-    (removed, staging_removed)
+    Ok(())
+}
+
+/// Best-effort reversal of every successfully-executed op: restore the
+/// new file at `target` back to its original `staged` location (so
+/// the staging dir cleanup later sweeps it), then move the backup
+/// back over the target.  Failures are intentionally ignored — the
+/// next startup's [`apply_journal::recover`] is the safety net.
+fn rollback(executed: &[&Op]) {
+    for op in executed.iter().rev() {
+        let _ = fs::rename(&op.target, &op.staged);
+        if op.target_existed {
+            let _ = fs::rename(&op.backup, &op.target);
+        }
+    }
 }
 
 /* ---------- top-level orchestration ---------- */
 
-/// Drives the full apply sequence: writability probe → extract zip into
-/// a sibling staging dir → swap files in place.  Returns an
-/// [`ApplyOutcome`] describing the staging dir + displaced files.  On
-/// failure, partial state may be left on disk; the next startup's
-/// cleanup pass is the safety net.
+/// Drives the full apply sequence: writability probe → extract zip
+/// into a sibling staging dir → write Applying journal → execute the
+/// per-op renames with rollback on error → write Applied journal.
+/// Returns an [`ApplyOutcome`] describing the staging dir.  On
+/// failure, any partial mutations are rolled back and the journal is
+/// removed if the rollback completed cleanly.
 pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, UpdaterError> {
     if !is_dir_writable(exe_dir) {
         return Err(UpdaterError::Io(format!(
@@ -322,32 +315,28 @@ pub fn apply_zip(zip_path: &Path, exe_dir: &Path) -> Result<ApplyOutcome, Update
             exe_dir.display(),
         )));
     }
-    let staging_dir = staging_dir_for(exe_dir);
-    if staging_dir.exists() {
-        let _ = fs::remove_dir_all(&staging_dir);
+    let mut journal = Journal::new(exe_dir);
+    if journal.staging_dir.exists() {
+        let _ = fs::remove_dir_all(&journal.staging_dir);
     }
     let file = File::open(zip_path).map_err(io_err)?;
-    let installed_file_count = extract_archive(file, &staging_dir)?;
-    let displaced_old_files = swap_files(&staging_dir, exe_dir)?;
+    let installed_file_count = extract_archive(file, &journal.staging_dir)?;
+    journal.ops = plan_ops(&journal, &journal.staging_dir, exe_dir)?;
+    journal.write_atomic(exe_dir)?;
+    if let Err(e) = execute_with_rollback(&journal) {
+        // Rollback already restored the install tree; drop the
+        // journal so a future startup doesn't try to recover from a
+        // state that no longer matches the filesystem.
+        let _ = fs::remove_file(apply_journal::journal_path(exe_dir));
+        let _ = fs::remove_dir_all(&journal.staging_dir);
+        return Err(e);
+    }
+    journal.state = JournalState::Applied;
+    journal.write_atomic(exe_dir)?;
     Ok(ApplyOutcome {
-        staging_dir,
-        displaced_old_files,
+        staging_dir: journal.staging_dir,
         installed_file_count,
     })
-}
-
-/// `{exe_dir}/.deadsync-update-staging-{pid}-{nanos}/` — kept as a
-/// sibling so the eventual `rename` calls stay on the same volume.
-pub fn staging_dir_for(exe_dir: &Path) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    exe_dir.join(format!(
-        ".deadsync-update-staging-{}-{}",
-        std::process::id(),
-        nanos
-    ))
 }
 
 /* ---------- helpers ---------- */
@@ -467,12 +456,6 @@ mod tests {
     }
 
     #[test]
-    fn old_path_for_appends_suffix() {
-        let p = PathBuf::from("/x/y/deadsync.exe");
-        assert_eq!(old_path_for(&p), PathBuf::from("/x/y/deadsync.exe.old"));
-    }
-
-    #[test]
     fn extract_archive_strips_single_top_level_dir() {
         let zip = build_zip(
             &[("deadsync.exe", b"NEWBIN"), ("assets/x.bin", b"ASSET")],
@@ -529,79 +512,104 @@ mod tests {
     }
 
     #[test]
-    fn swap_files_renames_existing_to_old_and_installs_new() {
-        let target = tempdir("swap-target");
-        let staging = tempdir("swap-staging");
+    fn plan_ops_pairs_staged_files_with_targets() {
+        let staging = tempdir("plan-staging");
+        let target = tempdir("plan-target");
+        fs::write(staging.join("a.txt"), b"A").unwrap();
+        fs::create_dir_all(staging.join("nested")).unwrap();
+        fs::write(staging.join("nested/b.bin"), b"B").unwrap();
+        fs::write(target.join("a.txt"), b"OLD").unwrap();
 
-        fs::write(target.join("deadsync.exe"), b"OLDBIN").unwrap();
-        fs::create_dir_all(target.join("assets")).unwrap();
-        fs::write(target.join("assets/keep.bin"), b"KEEP").unwrap();
+        let journal = Journal::new(&target);
+        let mut ops = plan_ops(&journal, &staging, &target).unwrap();
+        ops.sort_by(|x, y| x.target.cmp(&y.target));
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].target, target.join("a.txt"));
+        assert!(ops[0].target_existed);
+        assert_eq!(ops[0].backup, journal.backup_path_for(&ops[0].target));
+        assert_eq!(ops[1].target, target.join("nested").join("b.bin"));
+        assert!(!ops[1].target_existed);
 
-        fs::write(staging.join("deadsync.exe"), b"NEWBIN").unwrap();
-        fs::create_dir_all(staging.join("assets")).unwrap();
-        fs::write(staging.join("assets/new.bin"), b"NEW").unwrap();
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&target);
+    }
 
-        let displaced = swap_files(&staging, &target).unwrap();
-        assert_eq!(displaced.len(), 1);
+    #[test]
+    fn execute_with_rollback_installs_each_op() {
+        let exe_dir = tempdir("exec-ok");
+        let mut journal = Journal::new(&exe_dir);
+        fs::create_dir_all(&journal.staging_dir).unwrap();
+        fs::write(exe_dir.join("a.txt"), b"OLD").unwrap();
+        let staged_a = journal.staging_dir.join("a.txt");
+        let staged_b = journal.staging_dir.join("b.txt");
+        fs::write(&staged_a, b"NEWA").unwrap();
+        fs::write(&staged_b, b"NEWB").unwrap();
+        journal.ops = vec![
+            Op {
+                staged: staged_a,
+                target: exe_dir.join("a.txt"),
+                backup: journal.backup_path_for(&exe_dir.join("a.txt")),
+                target_existed: true,
+            },
+            Op {
+                staged: staged_b,
+                target: exe_dir.join("b.txt"),
+                backup: journal.backup_path_for(&exe_dir.join("b.txt")),
+                target_existed: false,
+            },
+        ];
+
+        execute_with_rollback(&journal).unwrap();
+        assert_eq!(fs::read(exe_dir.join("a.txt")).unwrap(), b"NEWA");
+        assert_eq!(fs::read(exe_dir.join("b.txt")).unwrap(), b"NEWB");
+        assert!(journal.ops[0].backup.exists());
+        assert_eq!(fs::read(&journal.ops[0].backup).unwrap(), b"OLD");
+
+        let _ = fs::remove_dir_all(&exe_dir);
+    }
+
+    #[test]
+    fn execute_with_rollback_restores_on_mid_apply_failure() {
+        let exe_dir = tempdir("exec-fail");
+        let mut journal = Journal::new(&exe_dir);
+        fs::create_dir_all(&journal.staging_dir).unwrap();
+        fs::write(exe_dir.join("a.txt"), b"OLDA").unwrap();
+        fs::write(exe_dir.join("b.txt"), b"OLDB").unwrap();
+        let staged_a = journal.staging_dir.join("a.txt");
+        fs::write(&staged_a, b"NEWA").unwrap();
+        // op[0] is well-formed; op[1] points at a non-existent staged
+        // file, guaranteeing the rename will fail and trigger rollback.
+        let bogus_staged = journal.staging_dir.join("does-not-exist");
+        journal.ops = vec![
+            Op {
+                staged: staged_a,
+                target: exe_dir.join("a.txt"),
+                backup: journal.backup_path_for(&exe_dir.join("a.txt")),
+                target_existed: true,
+            },
+            Op {
+                staged: bogus_staged,
+                target: exe_dir.join("b.txt"),
+                backup: journal.backup_path_for(&exe_dir.join("b.txt")),
+                target_existed: true,
+            },
+        ];
+
+        let err = execute_with_rollback(&journal).unwrap_err();
+        match err {
+            UpdaterError::Io(_) => {}
+            other => panic!("expected Io, got {other:?}"),
+        }
         assert_eq!(
-            displaced[0].file_name().and_then(|n| n.to_str()),
-            Some("deadsync.exe.old")
+            fs::read(exe_dir.join("a.txt")).unwrap(),
+            b"OLDA",
+            "op[0] target should be restored to its pre-apply contents",
         );
+        assert_eq!(fs::read(exe_dir.join("b.txt")).unwrap(), b"OLDB");
+        assert!(!journal.ops[0].backup.exists());
+        assert!(!journal.ops[1].backup.exists());
 
-        assert_eq!(fs::read(target.join("deadsync.exe")).unwrap(), b"NEWBIN");
-        assert_eq!(fs::read(target.join("deadsync.exe.old")).unwrap(), b"OLDBIN");
-        assert_eq!(fs::read(target.join("assets/new.bin")).unwrap(), b"NEW");
-        assert_eq!(fs::read(target.join("assets/keep.bin")).unwrap(), b"KEEP");
-
-        let _ = fs::remove_dir_all(&target);
-        let _ = fs::remove_dir_all(&staging);
-    }
-
-    #[test]
-    fn swap_files_overwrites_stale_old_file() {
-        let target = tempdir("swap-stale");
-        let staging = tempdir("swap-stale-stage");
-
-        fs::write(target.join("a.txt"), b"V1").unwrap();
-        fs::write(target.join("a.txt.old"), b"STALE").unwrap();
-        fs::write(staging.join("a.txt"), b"V2").unwrap();
-
-        let displaced = swap_files(&staging, &target).unwrap();
-        assert_eq!(displaced.len(), 1);
-        assert_eq!(fs::read(target.join("a.txt")).unwrap(), b"V2");
-        assert_eq!(fs::read(target.join("a.txt.old")).unwrap(), b"V1");
-
-        let _ = fs::remove_dir_all(&target);
-        let _ = fs::remove_dir_all(&staging);
-    }
-
-    #[test]
-    fn cleanup_old_files_removes_old_suffix_recursively() {
-        let root = tempdir("cleanup");
-        let staging = root.join(".staging");
-        fs::create_dir_all(&staging).unwrap();
-        fs::write(root.join("a.txt"), b"keep").unwrap();
-        fs::write(root.join("a.txt.old"), b"drop").unwrap();
-        fs::create_dir_all(root.join("assets")).unwrap();
-        fs::write(root.join("assets/b.bin.old"), b"drop").unwrap();
-
-        let (n, staging_gone) = cleanup_old_files(&root, Some(&staging));
-        assert_eq!(n, 2);
-        assert!(staging_gone);
-        assert!(!root.join("a.txt.old").exists());
-        assert!(!root.join("assets/b.bin.old").exists());
-        assert!(root.join("a.txt").exists());
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn cleanup_old_files_is_safe_when_nothing_to_remove() {
-        let root = tempdir("cleanup-empty");
-        let (n, staging_gone) = cleanup_old_files(&root, None);
-        assert_eq!(n, 0);
-        assert!(!staging_gone);
-        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&exe_dir);
     }
 
     #[test]
@@ -621,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_zip_writes_files_into_exe_dir_and_renames_existing() {
+    fn apply_zip_installs_files_and_writes_applied_journal() {
         let exe_dir = tempdir("apply-zip");
         fs::write(exe_dir.join("deadsync.exe"), b"OLD").unwrap();
 
@@ -634,25 +642,40 @@ mod tests {
 
         let outcome = apply_zip(&zip_path, &exe_dir).unwrap();
         assert_eq!(outcome.installed_file_count, 2);
-        assert_eq!(outcome.displaced_old_files.len(), 1);
         assert_eq!(fs::read(exe_dir.join("deadsync.exe")).unwrap(), b"NEW");
-        assert_eq!(fs::read(exe_dir.join("deadsync.exe.old")).unwrap(), b"OLD");
         assert_eq!(fs::read(exe_dir.join("assets/x.bin")).unwrap(), b"X");
+
+        let journal = Journal::load(&exe_dir).unwrap().expect("journal present");
+        assert_eq!(journal.state, JournalState::Applied);
+        assert_eq!(journal.staging_dir, outcome.staging_dir);
+        // The displaced old binary is now under the journal-named
+        // backup, not the legacy `.old` suffix.
+        let backup = journal.backup_path_for(&exe_dir.join("deadsync.exe"));
+        assert_eq!(fs::read(&backup).unwrap(), b"OLD");
 
         let _ = fs::remove_dir_all(&exe_dir);
     }
 
     #[test]
-    fn staging_dir_for_is_sibling_of_exe_dir() {
-        let exe_dir = PathBuf::from("/install/dir");
-        let staging = staging_dir_for(&exe_dir);
-        assert_eq!(staging.parent(), Some(exe_dir.as_path()));
-        assert!(
-            staging
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap()
-                .starts_with(".deadsync-update-staging-")
+    fn apply_zip_then_recover_cleans_backups_and_staging() {
+        let exe_dir = tempdir("apply-zip-recover");
+        fs::write(exe_dir.join("deadsync.exe"), b"OLD").unwrap();
+        let zip = build_zip(
+            &[("deadsync.exe", b"NEW")],
+            Some("deadsync-v1.0.0-x86_64-windows"),
         );
+        let zip_path = exe_dir.join("update.zip");
+        fs::write(&zip_path, &zip).unwrap();
+
+        let outcome = apply_zip(&zip_path, &exe_dir).unwrap();
+        let report = apply_journal::recover(&exe_dir);
+        assert!(report.journal_removed);
+        assert!(report.staging_removed);
+        assert_eq!(report.backups_removed, 1);
+        assert!(!outcome.staging_dir.exists());
+        assert!(!apply_journal::journal_path(&exe_dir).exists());
+        assert_eq!(fs::read(exe_dir.join("deadsync.exe")).unwrap(), b"NEW");
+
+        let _ = fs::remove_dir_all(&exe_dir);
     }
 }

@@ -203,14 +203,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             env!("CARGO_PKG_VERSION")
         );
     }
-    if let Some(staging) = cli.cleanup_old.as_deref() {
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(std::path::PathBuf::from));
-        if let Some(exe_dir) = exe_dir {
-            let (removed, staging_gone) = engine::updater::cli::run_cleanup(&exe_dir, staging);
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::PathBuf::from))
+    {
+        // The journal at the install root is now the source of
+        // truth for both apply rollback (Applying state) and
+        // post-update cleanup (Applied state).  Run recovery on
+        // every startup; `--cleanup-old` is accepted for back-compat
+        // with old relaunch command lines but its argument is
+        // ignored.
+        let _ = cli.cleanup_old.as_deref();
+        let report = engine::updater::apply_journal::recover(&exe_dir);
+        if report.journal_removed {
             log::info!(
-                "Post-update cleanup: removed {removed} .old file(s), staging removed: {staging_gone}"
+                "Updater recovery: backups_removed={} backups_restored={} installed_removed={} staging_removed={}",
+                report.backups_removed,
+                report.backups_restored,
+                report.installed_removed,
+                report.staging_removed,
             );
         }
     }
