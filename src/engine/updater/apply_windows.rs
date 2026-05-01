@@ -191,6 +191,19 @@ pub fn extract_archive<R: Read + Seek>(reader: R, dest: &Path) -> Result<usize, 
                 .map_err(|e| super::io_err_at("create_dir_all", &out_path, e))?;
             continue;
         }
+        if entry.is_symlink() || !entry.is_file() {
+            // Fail closed on symlinks and any other non-regular zip
+            // entry (devices, encrypted blobs we don't support, etc).
+            // Release archives only contain regular files and
+            // directories; encountering anything else means either
+            // a packaging mistake or a hand-crafted archive trying
+            // to slip a runtime-resolved indirection into the
+            // install tree.  Surfacing as an error is safer than
+            // silently producing a partial install.
+            return Err(UpdaterError::Io(format!(
+                "rejected non-regular zip entry '{raw_name}'"
+            )));
+        }
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| super::io_err_at("create_dir_all", parent, e))?;
@@ -592,6 +605,34 @@ mod tests {
         let _ = extract_archive(Cursor::new(&zip), &dest);
         let escape = dest.parent().unwrap().join("escape.txt");
         assert!(!escape.exists(), "traversal succeeded: {}", escape.display());
+        let _ = fs::remove_dir_all(&dest);
+    }
+
+    #[test]
+    fn extract_archive_rejects_symlink_entry() {
+        // Build a zip that contains one regular file and one symlink
+        // entry.  An attacker could use the symlink to redirect a
+        // subsequent file write outside the staging dir; we require
+        // the extractor to reject the archive outright.
+        let mut buf = Vec::new();
+        {
+            let mut w = ZipWriter::new(Cursor::new(&mut buf));
+            let opts =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            w.start_file("keep.txt", opts).unwrap();
+            w.write_all(b"ok").unwrap();
+            w.add_symlink("evil", "../../etc/passwd", opts)
+                .unwrap();
+            w.finish().unwrap();
+        }
+        let dest = tempdir("symlink-reject");
+        let err = extract_archive(Cursor::new(&buf), &dest)
+            .expect_err("symlink entry must be rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("rejected non-regular zip entry"),
+            "unexpected error: {msg}",
+        );
         let _ = fs::remove_dir_all(&dest);
     }
 

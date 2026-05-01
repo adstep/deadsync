@@ -161,10 +161,18 @@ pub fn extract_tar_gz(zip_bytes: &[u8], dest: &Path) -> Result<usize, UpdaterErr
             continue;
         }
         if !entry_type.is_file() {
-            // Skip symlinks/hardlinks/devices/etc.  Release tarballs
-            // never contain these, but we don't want to silently
-            // produce a partial install if someone hand-crafts one.
-            continue;
+            // Fail closed on symlinks, hardlinks, devices, FIFOs,
+            // etc.  Release tarballs only contain regular files and
+            // directories; encountering anything else means either
+            // a packaging mistake or a hand-crafted archive trying
+            // to slip a runtime-resolved indirection into the
+            // install tree.  Surfacing this as an error is safer
+            // than silently producing a partial install that a user
+            // might run.
+            return Err(UpdaterError::Io(format!(
+                "rejected non-regular tar entry '{raw_name}' (type {:?})",
+                entry_type,
+            )));
         }
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent)
@@ -667,6 +675,45 @@ mod tests {
         // extractor uses.
         assert!(sanitize_entry("deadsync/../escape.txt", Some("deadsync")).is_none());
         assert!(sanitize_entry("../escape.txt", None).is_none());
+    }
+
+    #[test]
+    fn extract_tar_gz_rejects_symlink_entry() {
+        use tar::EntryType;
+        let mut buf = Vec::new();
+        {
+            let enc = GzEncoder::new(&mut buf, Compression::fast());
+            let mut tar = Builder::new(enc);
+            // One legitimate file so the archive isn't trivially empty,
+            // followed by a symlink that an attacker might use to redirect
+            // a later write outside the staging dir.
+            let mut hdr = Header::new_gnu();
+            hdr.set_path("deadsync/keep.txt").unwrap();
+            hdr.set_size(2);
+            hdr.set_mode(0o644);
+            hdr.set_cksum();
+            tar.append(&hdr, &b"ok"[..]).unwrap();
+
+            let mut link = Header::new_gnu();
+            link.set_path("deadsync/evil").unwrap();
+            link.set_size(0);
+            link.set_mode(0o777);
+            link.set_entry_type(EntryType::Symlink);
+            link.set_link_name("/etc/passwd").unwrap();
+            link.set_cksum();
+            tar.append(&link, std::io::empty()).unwrap();
+
+            tar.finish().unwrap();
+        }
+        let dest = tempdir("symlink-reject");
+        let err = extract_tar_gz(&buf, &dest)
+            .expect_err("symlink entry must be rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("rejected non-regular tar entry"),
+            "unexpected error: {msg}",
+        );
+        let _ = fs::remove_dir_all(&dest);
     }
 
     #[test]
