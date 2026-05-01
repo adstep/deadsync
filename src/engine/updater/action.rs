@@ -21,7 +21,7 @@
 //! this module touches winit, fonts, or the renderer.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, RwLock};
 use std::thread;
 
@@ -134,22 +134,33 @@ static PHASE: LazyLock<RwLock<ActionPhase>> =
 /// becomes a no-op.
 static WORKER_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-/// Cancellation flag, observed by the check / download workers at
-/// natural checkpoints.  Set by [`request_cancel`] when the user
-/// dismisses the overlay during `Checking` / `Downloading`.  Cleared
-/// at the start of every fresh worker so a previous cancel doesn't
-/// poison the next attempt.
-static CANCEL: AtomicBool = AtomicBool::new(false);
+/// Monotonic operation-generation counter.  Bumped by every
+/// `request_check_now` / `request_download` / `request_cancel` so each
+/// worker can capture its generation at spawn and refuse to publish
+/// results once a newer operation has started.  Workers compare their
+/// captured generation to the current one, and `set_phase_if_current`
+/// refuses to clobber the global phase from a stale worker.
+static OP_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// Returns `true` if the user requested the in-flight check / download
-/// be cancelled.  Workers should poll this at safe points and exit by
-/// transitioning to [`ActionPhase::Idle`] rather than `Error`.
-pub fn cancel_requested() -> bool {
-    CANCEL.load(Ordering::SeqCst)
+/// Bump the generation and return the new value.  Called by every
+/// worker-spawning request and by `request_cancel`.
+fn begin_operation() -> u64 {
+    OP_GENERATION.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
 }
 
-fn clear_cancel() {
-    CANCEL.store(false, Ordering::SeqCst);
+/// True if `generation` is no longer the active operation.  Workers
+/// poll this at the same checkpoints the old `CANCEL` flag was polled
+/// at, and treat a stale generation as a cancellation request.
+fn worker_should_stop(generation: u64) -> bool {
+    OP_GENERATION.load(Ordering::SeqCst) != generation
+}
+
+/// Returns `true` if the in-flight check / download has been
+/// cancelled or superseded.  Retained as a thin wrapper over
+/// [`worker_should_stop`] for callers that don't track a generation.
+#[cfg(test)]
+fn cancel_requested_for(generation: u64) -> bool {
+    worker_should_stop(generation)
 }
 
 /// Mark the in-flight check / download as cancelled and immediately
@@ -164,7 +175,9 @@ fn clear_cancel() {
 pub fn request_cancel() {
     match current() {
         ActionPhase::Checking | ActionPhase::Downloading { .. } => {
-            CANCEL.store(true, Ordering::SeqCst);
+            // Bump the generation: any in-flight worker's eventual
+            // result will be discarded by `set_phase_if_current`.
+            let _ = begin_operation();
             set_phase(ActionPhase::Idle);
         }
         _ => {}
@@ -189,6 +202,26 @@ fn set_phase(next: ActionPhase) {
     if let Ok(mut guard) = PHASE.write() {
         *guard = next;
     }
+}
+
+/// Conditionally publish `next` to the global phase: only if
+/// `generation` is still the active operation.  Returns `true` when
+/// the phase was published.  Workers must use this (rather than
+/// [`set_phase`]) for any state they want to *show the user*: if a
+/// newer operation has started, the worker's result is stale and
+/// silently dropped.
+///
+/// The generation is re-checked under the write lock so a request
+/// that bumps the generation between our check and the store can't
+/// slip in undetected.
+fn set_phase_if_current(generation: u64, next: ActionPhase) -> bool {
+    if let Ok(mut guard) = PHASE.write() {
+        if OP_GENERATION.load(Ordering::SeqCst) == generation {
+            *guard = next;
+            return true;
+        }
+    }
+    false
 }
 
 /// Pure transition: "check completed, here is the result, what should
@@ -266,14 +299,17 @@ pub fn request_check_now() {
     if matches!(current(), ActionPhase::Checking | ActionPhase::Downloading { .. }) {
         return;
     }
-    clear_cancel();
+    // Bump the generation *before* setting the phase so any prior
+    // in-flight worker's late result is already stale by the time
+    // they observe the new Checking phase.
+    let generation = begin_operation();
     set_phase(ActionPhase::Checking);
     let _ = thread::Builder::new()
         .name("deadsync-updater-check".to_owned())
-        .spawn(run_check_now);
+        .spawn(move || run_check_now(generation));
 }
 
-fn run_check_now() {
+fn run_check_now(generation: u64) {
     let agent = super::check_agent();
     // We deliberately ignore the persisted ETag so a manual "Check now"
     // always returns Fresh; otherwise the user would be stuck staring at
@@ -281,15 +317,15 @@ fn run_check_now() {
     let outcome = match fetch_latest_release(&agent, None) {
         Ok(o) => o,
         Err(err) => {
-            if cancel_requested() {
+            if worker_should_stop(generation) {
                 return;
             }
             log::warn!("Manual update check failed: {err}");
-            set_phase(classify_error(&err));
+            set_phase_if_current(generation, classify_error(&err));
             return;
         }
     };
-    if cancel_requested() {
+    if worker_should_stop(generation) {
         log::info!("Manual update check cancelled by user; discarding result");
         return;
     }
@@ -297,18 +333,23 @@ fn run_check_now() {
         FetchOutcome::NotModified => {
             // We forced etag=None so this branch is unreachable, but
             // surface it as up-to-date if the server returns 304 anyway.
-            set_phase(ActionPhase::UpToDate {
-                tag: crate::engine::version::current_tag(),
-            });
+            set_phase_if_current(
+                generation,
+                ActionPhase::UpToDate {
+                    tag: crate::engine::version::current_tag(),
+                },
+            );
             return;
         }
         FetchOutcome::Fresh { info, .. } => info,
     };
     let state = classify(info);
     // Mirror the passive snapshot used by the menu banner so a manual
-    // check refreshes that too.
+    // check refreshes that too.  This is unconditional: even a
+    // superseded worker's freshly-fetched release info is useful for
+    // the banner, and `replace_snapshot` has its own staleness check.
     super::state::replace_snapshot(state.clone());
-    set_phase(classify_check_result(state));
+    set_phase_if_current(generation, classify_check_result(state));
 }
 
 /// Spawn a worker that downloads + verifies the asset associated with
@@ -331,7 +372,7 @@ pub fn request_download() {
         set_phase(ActionPhase::AvailableNoInstall { info });
         return;
     }
-    clear_cancel();
+    let generation = begin_operation();
     set_phase(ActionPhase::Downloading {
         info: info.clone(),
         asset: asset.clone(),
@@ -340,27 +381,27 @@ pub fn request_download() {
     });
     let _ = thread::Builder::new()
         .name("deadsync-updater-download".to_owned())
-        .spawn(move || run_download(info, asset));
+        .spawn(move || run_download(info, asset, generation));
 }
 
-fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
+fn run_download(info: ReleaseInfo, asset: ReleaseAsset, generation: u64) {
     if let Some(fake) = std::env::var_os("DEADSYNC_UPDATER_FAKE_DOWNLOAD") {
-        run_fake_download(info, asset, std::path::PathBuf::from(fake));
+        run_fake_download(info, asset, std::path::PathBuf::from(fake), generation);
         return;
     }
     let check = super::check_agent();
     let sidecar = match fetch_checksum_sidecar(&check, &asset.browser_download_url) {
         Ok(t) => t,
         Err(err) => {
-            if cancel_requested() {
+            if worker_should_stop(generation) {
                 return;
             }
             log::warn!("Failed to fetch checksum sidecar: {err}");
-            set_phase(classify_error(&err));
+            set_phase_if_current(generation, classify_error(&err));
             return;
         }
     };
-    if cancel_requested() {
+    if worker_should_stop(generation) {
         log::info!("Update download cancelled before sidecar parse");
         return;
     }
@@ -368,7 +409,7 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
         Ok(d) => d,
         Err(err) => {
             log::warn!("Failed to parse checksum sidecar: {err}");
-            set_phase(classify_error(&err));
+            set_phase_if_current(generation, classify_error(&err));
             return;
         }
     };
@@ -389,7 +430,7 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
                     asset.name,
                     api_digest
                 );
-                set_phase(classify_error(&err));
+                set_phase_if_current(generation, classify_error(&err));
                 return;
             }
         }
@@ -399,12 +440,18 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
     let info_for_progress = info.clone();
     let asset_for_progress = asset.clone();
     let progress = move |written: u64, total: Option<u64>| {
-        set_phase(ActionPhase::Downloading {
-            info: info_for_progress.clone(),
-            asset: asset_for_progress.clone(),
-            written,
-            total,
-        });
+        // Progress updates use the gen-aware setter so a superseded
+        // download's residual progress ticks can't overwrite a fresh
+        // ConfirmDownload / Idle phase.
+        set_phase_if_current(
+            generation,
+            ActionPhase::Downloading {
+                info: info_for_progress.clone(),
+                asset: asset_for_progress.clone(),
+                written,
+                total,
+            },
+        );
     };
 
     match download_to_file(
@@ -413,23 +460,27 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
         &expected,
         &dest,
         progress,
-        cancel_requested,
+        move || worker_should_stop(generation),
     ) {
         Ok(()) => {
             log::info!("Update {} downloaded to {}", info.tag, dest.display());
-            set_phase(ActionPhase::Ready {
-                info,
-                path: dest,
-                sha256: expected,
-            });
+            set_phase_if_current(
+                generation,
+                ActionPhase::Ready {
+                    info,
+                    path: dest,
+                    sha256: expected,
+                },
+            );
         }
         Err(UpdaterError::Cancelled) => {
             log::info!("Update download cancelled by user");
-            // request_cancel already flipped the phase to Idle.
+            // request_cancel (or a superseding op) already flipped the
+            // phase; nothing to publish.
         }
         Err(err) => {
             log::warn!("Update download failed: {err}");
-            set_phase(classify_error(&err));
+            set_phase_if_current(generation, classify_error(&err));
         }
     }
 }
@@ -441,7 +492,12 @@ fn run_download(info: ReleaseInfo, asset: ReleaseAsset) {
 /// seconds (default 5).  All overlay text continues to read from the
 /// real `ReleaseInfo` / `ReleaseAsset`, so the user-facing flow is
 /// indistinguishable from a real GitHub download.
-fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::PathBuf) {
+fn run_fake_download(
+    info: ReleaseInfo,
+    asset: ReleaseAsset,
+    source: std::path::PathBuf,
+    generation: u64,
+) {
     let total_secs: f32 = std::env::var("DEADSYNC_UPDATER_FAKE_DOWNLOAD_SECS")
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -460,29 +516,38 @@ fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::
                 "DEADSYNC_UPDATER_FAKE_DOWNLOAD={} could not be read: {err}",
                 source.display(),
             );
-            set_phase(ActionPhase::Error {
-                kind: ActionErrorKind::Io,
-                detail: format!("fake source unreadable: {err}"),
-            });
+            set_phase_if_current(
+                generation,
+                ActionPhase::Error {
+                    kind: ActionErrorKind::Io,
+                    detail: format!("fake source unreadable: {err}"),
+                },
+            );
             return;
         }
     };
     let dest_dir = downloads_dir();
     if let Err(err) = std::fs::create_dir_all(&dest_dir) {
         log::warn!("Failed to create downloads dir: {err}");
-        set_phase(ActionPhase::Error {
-            kind: ActionErrorKind::Io,
-            detail: err.to_string(),
-        });
+        set_phase_if_current(
+            generation,
+            ActionPhase::Error {
+                kind: ActionErrorKind::Io,
+                detail: err.to_string(),
+            },
+        );
         return;
     }
     let dest = dest_dir.join(&asset.name);
     if let Err(err) = std::fs::write(&dest, &bytes) {
         log::warn!("Failed to stage fake download: {err}");
-        set_phase(ActionPhase::Error {
-            kind: ActionErrorKind::Io,
-            detail: err.to_string(),
-        });
+        set_phase_if_current(
+            generation,
+            ActionPhase::Error {
+                kind: ActionErrorKind::Io,
+                detail: err.to_string(),
+            },
+        );
         return;
     }
 
@@ -494,27 +559,33 @@ fn run_fake_download(info: ReleaseInfo, asset: ReleaseAsset, source: std::path::
     const TICKS: u32 = 50;
     let tick_ms = ((total_secs * 1000.0) / TICKS as f32).max(20.0) as u64;
     for i in 1..=TICKS {
-        if cancel_requested() {
+        if worker_should_stop(generation) {
             log::info!("Fake update download cancelled by user");
             return;
         }
         let frac = i as f64 / TICKS as f64;
         let written = ((total_bytes as f64) * frac).round() as u64;
-        set_phase(ActionPhase::Downloading {
-            info: info.clone(),
-            asset: asset.clone(),
-            written,
-            total: Some(total_bytes),
-        });
+        set_phase_if_current(
+            generation,
+            ActionPhase::Downloading {
+                info: info.clone(),
+                asset: asset.clone(),
+                written,
+                total: Some(total_bytes),
+            },
+        );
         thread::sleep(std::time::Duration::from_millis(tick_ms));
     }
     log::info!("Fake update {} staged at {}", info.tag, dest.display());
     let sha256 = super::download::sha256_of(&bytes);
-    set_phase(ActionPhase::Ready {
-        info,
-        path: dest,
-        sha256,
-    });
+    set_phase_if_current(
+        generation,
+        ActionPhase::Ready {
+            info,
+            path: dest,
+            sha256,
+        },
+    );
 }
 
 /// Absolute path of the directory archives are downloaded into.
@@ -745,22 +816,27 @@ mod tests {
     }
 
     #[test]
-    fn request_cancel_flips_checking_to_idle_and_sets_flag() {
+    fn request_cancel_flips_checking_to_idle_and_bumps_generation() {
         // Serialise behind WORKER_LOCK so we don't trample concurrent tests.
         let _g = WORKER_LOCK.lock().unwrap();
-        clear_cancel();
+        let before = OP_GENERATION.load(Ordering::SeqCst);
         set_phase(ActionPhase::Checking);
         request_cancel();
         assert_eq!(current(), ActionPhase::Idle);
-        assert!(cancel_requested());
-        clear_cancel();
+        assert_ne!(
+            OP_GENERATION.load(Ordering::SeqCst),
+            before,
+            "request_cancel must bump the generation so the in-flight worker is invalidated",
+        );
+        // Any worker that captured `before` must now be considered stale.
+        assert!(cancel_requested_for(before));
         set_phase(ActionPhase::Idle);
     }
 
     #[test]
-    fn request_cancel_flips_downloading_to_idle_and_sets_flag() {
+    fn request_cancel_flips_downloading_to_idle_and_bumps_generation() {
         let _g = WORKER_LOCK.lock().unwrap();
-        clear_cancel();
+        let before = OP_GENERATION.load(Ordering::SeqCst);
         let info = release_with_tag("v9.9.9", "x");
         let asset = info.assets[0].clone();
         set_phase(ActionPhase::Downloading {
@@ -771,30 +847,88 @@ mod tests {
         });
         request_cancel();
         assert_eq!(current(), ActionPhase::Idle);
-        assert!(cancel_requested());
-        clear_cancel();
+        assert_ne!(OP_GENERATION.load(Ordering::SeqCst), before);
+        assert!(cancel_requested_for(before));
         set_phase(ActionPhase::Idle);
     }
 
     #[test]
     fn request_cancel_is_noop_outside_check_or_download() {
         let _g = WORKER_LOCK.lock().unwrap();
-        clear_cancel();
         // Applying must not be cancellable: a partial extract / swap
         // would corrupt the install.
         set_phase(ActionPhase::Applying {
             info: release_with_tag("v9.9.9", "x"),
         });
+        let before = OP_GENERATION.load(Ordering::SeqCst);
         request_cancel();
         assert!(matches!(current(), ActionPhase::Applying { .. }));
-        assert!(!cancel_requested());
+        assert_eq!(
+            OP_GENERATION.load(Ordering::SeqCst),
+            before,
+            "non-cancellable phase must not bump the generation",
+        );
         set_phase(ActionPhase::Idle);
 
         // Idle is also a no-op (nothing to cancel).
+        let before = OP_GENERATION.load(Ordering::SeqCst);
         set_phase(ActionPhase::Idle);
         request_cancel();
         assert_eq!(current(), ActionPhase::Idle);
-        assert!(!cancel_requested());
+        assert_eq!(OP_GENERATION.load(Ordering::SeqCst), before);
+    }
+
+    #[test]
+    fn set_phase_if_current_drops_stale_worker_writes() {
+        // A slow worker captures a generation, the user cancels
+        // (bumping the generation), and the worker belatedly tries to
+        // publish a Ready / Error.  The stale result must be silently
+        // dropped, not clobber the fresh Idle / Checking state the
+        // cancel left behind.
+        let _g = WORKER_LOCK.lock().unwrap();
+        let stale = OP_GENERATION.load(Ordering::SeqCst);
+        // Simulate the cancel + new op: bump the generation twice.
+        let _ = begin_operation();
+        set_phase(ActionPhase::Checking);
+        let fresh = OP_GENERATION.load(Ordering::SeqCst);
+        assert_ne!(stale, fresh);
+
+        // Stale worker tries to publish Ready: must be dropped.
+        let info = release_with_tag("v9.9.9", "x");
+        let published = set_phase_if_current(
+            stale,
+            ActionPhase::Ready {
+                info: info.clone(),
+                path: PathBuf::from("ignored"),
+                sha256: [0u8; 32],
+            },
+        );
+        assert!(!published, "stale generation must not publish");
+        assert!(
+            matches!(current(), ActionPhase::Checking),
+            "fresh phase must be preserved, got {:?}",
+            current(),
+        );
+
+        // Fresh worker can publish.
+        let published = set_phase_if_current(
+            fresh,
+            ActionPhase::UpToDate {
+                tag: "v1.2.3".into(),
+            },
+        );
+        assert!(published);
+        assert!(matches!(current(), ActionPhase::UpToDate { .. }));
+        set_phase(ActionPhase::Idle);
+    }
+
+    #[test]
+    fn worker_should_stop_returns_true_when_generation_advances() {
+        let _g = WORKER_LOCK.lock().unwrap();
+        let mine = OP_GENERATION.load(Ordering::SeqCst);
+        assert!(!worker_should_stop(mine));
+        let _ = begin_operation();
+        assert!(worker_should_stop(mine), "advancing generation must stop a stale worker");
     }
 
     #[test]

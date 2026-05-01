@@ -64,7 +64,7 @@ lands so the rest of the document can stay descriptive.
 | C4  | Run journal recovery *before* singleton lock acquired         | 🔴       | ✅ Done        | `main.rs` now acquires the singleton guard *first* and only runs `apply_journal::recover` afterwards (on the lock-winning path or the OS-error soft-fail path). A losing-race second instance exits before recovery can touch live install files. |
 | C5  | Recovery of `Applying` fails on Windows when target survives  | 🔴       | ✅ Done        | `recover` now removes a partially-written `target` before renaming `backup -> target`, and only deletes the journal when every rollback step succeeded (locked / failed restores leave the journal in place for the next startup to retry). 3 new unit tests cover the partial-target rename, the journal-preservation-on-failure path, and the missing-backup idempotence case. |
 | C6  | `--no-default-features` build is broken                       | 🔴       | ✅ Done        | Resolved by removing the `self-update` cargo feature entirely (per M9 the `[Options] UpdaterInstallEnabled` config is now the sole install-disable knob). `tar` / `flate2` are no longer optional; all `#[cfg(feature = "self-update")]` gates dropped from `mod.rs`, `apply_journal.rs`, `cli.rs`. `main.rs` now calls `apply_journal::recover` directly with no shim. |
-| M12 | Cancellation generation token (worker-result race)            | 🟠       | ⏳ Not started | A cancelled worker keeps running until its next poll; if the user starts a new check/download in between, the new worker's `clear_cancel()` lets the old worker eventually publish `Ready` / `Error` over fresh state. Use a monotonic op-id captured by each worker. |
+| M12 | Cancellation generation token (worker-result race)            | 🟠       | ✅ Done        | Replaced the global `CANCEL: AtomicBool` with a monotonic `OP_GENERATION: AtomicU64` bumped by every `request_check_now` / `request_download` / `request_cancel`. Workers capture their generation at spawn, poll `worker_should_stop(gen)` for cancellation, and publish via `set_phase_if_current(gen, _)` which silently drops stale Ready/Error/Downloading writes. Closes the race where a cancelled worker's late result clobbered a fresh worker's state. |
 | M13 | Cancellation not checked after final flush/fsync/rename       | 🟠       | ⏳ Not started | `stream_to_file` polls between chunks but not after EOF; `download_to_file` then flushes/fsyncs/hashes/renames with no cancel check, so a Back press during the final tail still surfaces `Ready`. |
 | M14 | Windows download rename fails when `dest` already exists      | 🟠       | ⏳ Not started | `fs::rename(staging, dest)` on Windows errors out if `dest` exists (e.g. user dismissed Ready and re-checked). Either replace via `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` semantics, or detect a pre-verified `dest` and reuse it. |
 | M15 | Apply is add/replace-only — removed files stick forever       | 🟠       | ⏳ Not started | `plan_ops` walks the staging tree only, so files removed in a future release stay on disk (stale DLLs, helper binaries, retired assets). Need a release-side manifest of updater-owned paths and journaled deletes confined to that set. |
@@ -587,19 +587,23 @@ lands so the rest of the document can stay descriptive.
   `Idle` and sets `CANCEL` synchronously, but the worker keeps running
   until its next poll. If the user starts a new check/download in
   between, the new worker calls `clear_cancel()`
-  (`src/engine/updater/action.rs:270`, `src/engine/updater/action.rs:335`)
+  (`src/engine/updater/action.rs:270`, `src/engine/updater/action.rs:336`)
   and the *old* worker — which never observed the flag — eventually
   returns `Ok` and calls `set_phase`, clobbering the new worker's
   state with a stale `Ready` / `ConfirmDownload` / `Error`.
-- **Fix:** replace the global bool with a monotonic op-id (e.g.
-  `static OP_ID: AtomicU64`, incremented by `request_check_now` /
-  `request_download` / `request_cancel`). Each worker captures its
-  generation at spawn, polls "is my generation still current?" instead
-  of "is cancel set?", and refuses to publish results if a newer
-  generation has started.
-- **Acceptance:** unit test that spawns a slow worker (e.g. via the
-  fake-download path), cancels it, starts a new fake download, then
-  unblocks the old worker and asserts the new worker's phase wins.
+- **Resolution:** replaced the global `CANCEL` bool with a monotonic
+  `OP_GENERATION: AtomicU64`. `request_check_now`, `request_download`,
+  and `request_cancel` each call `begin_operation()` (fetch_add, return
+  new). Each worker captures its generation at spawn and polls
+  `worker_should_stop(gen)` — true when the global counter has moved
+  past `gen`. Publication happens through `set_phase_if_current(gen,
+  next)`, which re-checks the generation under the `PHASE` write lock
+  before storing, so a stale worker's late result is silently dropped
+  rather than clobbering fresh state. New unit tests
+  `set_phase_if_current_drops_stale_worker_writes` and
+  `worker_should_stop_returns_true_when_generation_advances`
+  exercise the guard directly; the existing `request_cancel_*` tests
+  were updated to assert the generation bump.
 
 ### M13. Cancellation not checked after final flush/fsync/rename
 
