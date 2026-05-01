@@ -260,7 +260,8 @@ fn phase_version_tag(phase: &ActionPhase) -> Option<String> {
         // so the big focal tag would just duplicate the latest version.
         ActionPhase::Downloading { info, .. }
         | ActionPhase::Ready { info, .. }
-        | ActionPhase::Applying { info } => Some(info.tag.clone()),
+        | ActionPhase::Applying { info }
+        | ActionPhase::AvailableNoInstall { info } => Some(info.tag.clone()),
         ActionPhase::UpToDate { tag } => Some(tag.clone()),
         _ => None,
     }
@@ -317,6 +318,15 @@ pub fn phase_strings(phase: &ActionPhase) -> (String, Vec<String>, String, Optio
             // Tag is rendered above as the focal point, so the body
             // can stay empty (the title alone reads cleanly).
             Vec::new(),
+            tr("Updater", "FooterDismiss").to_string(),
+            None,
+        ),
+        ActionPhase::AvailableNoInstall { info } => (
+            tr("Updater", "TitleConfirm").to_string(),
+            vec![
+                tr("Updater", "BodyManualDownload").to_string(),
+                truncate(&info.html_url, 80),
+            ],
             tr("Updater", "FooterDismiss").to_string(),
             None,
         ),
@@ -410,6 +420,7 @@ pub fn handle_input(phase: &ActionPhase, ev: &InputEvent) -> InputOutcome {
             _ => InputOutcome::Consumed,
         },
         ActionPhase::UpToDate { .. }
+        | ActionPhase::AvailableNoInstall { .. }
         | ActionPhase::Error { .. } => match ev.action {
             VirtualAction::p1_start
             | VirtualAction::p2_start

@@ -28,7 +28,7 @@ use super::download::{
     download_to_file, fetch_checksum_sidecar, parse_checksum_sidecar,
 };
 use super::{
-    classify, expected_asset_name, fetch_latest_release, host_target,
+    apply_supported_for_host, classify, expected_asset_name, fetch_latest_release, host_target,
     pick_asset_for_host, FetchOutcome, ReleaseAsset, ReleaseInfo, UpdateState,
     UpdaterError,
 };
@@ -54,6 +54,12 @@ pub enum ActionPhase {
     /// A check completed and reported the build is current.  Lets the
     /// overlay say "You're up to date" rather than vanishing silently.
     UpToDate { tag: String },
+    /// A check completed and reported an update, but this build can't
+    /// install it in-place on the current host (e.g. macOS, or any
+    /// build compiled without the `self-update` feature).  We still
+    /// surface the new version + the release-page URL so the user can
+    /// download manually; the overlay never offers a Download button.
+    AvailableNoInstall { info: ReleaseInfo },
     /// The download is in flight.  `total` is `Some` when the server
     /// reported a Content-Length and otherwise falls back to the asset
     /// metadata; it is also `None` while we're still computing it.
@@ -161,8 +167,15 @@ pub fn classify_check_result(state: UpdateState) -> ActionPhase {
             },
             Some(target) => match pick_asset_for_host(&info.assets, &info.tag, target) {
                 Some(asset) => {
-                    let asset = asset.clone();
-                    ActionPhase::ConfirmDownload { info, asset }
+                    if !apply_supported_for_host() {
+                        // We ship a download for this host but can't run
+                        // the apply step in-place (notably macOS).  Show
+                        // the release info without a Download button.
+                        ActionPhase::AvailableNoInstall { info }
+                    } else {
+                        let asset = asset.clone();
+                        ActionPhase::ConfirmDownload { info, asset }
+                    }
                 }
                 None => ActionPhase::Error {
                     kind: ActionErrorKind::NoAssetForHost,
@@ -479,9 +492,44 @@ mod tests {
         let name = expected_asset_name(&bumped, target);
         let info = release_with_tag(&bumped, &name);
         let phase = classify_check_result(UpdateState::Available(info.clone()));
-        match phase {
-            ActionPhase::ConfirmDownload { asset, .. } => assert_eq!(asset.name, name),
-            other => panic!("expected ConfirmDownload, got {other:?}"),
+        if apply_supported_for_host() {
+            match phase {
+                ActionPhase::ConfirmDownload { asset, .. } => assert_eq!(asset.name, name),
+                other => panic!("expected ConfirmDownload, got {other:?}"),
+            }
+        } else {
+            match phase {
+                ActionPhase::AvailableNoInstall { info: got } => {
+                    assert_eq!(got.tag, bumped);
+                }
+                other => panic!("expected AvailableNoInstall, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn classify_check_result_available_on_unsupported_host_skips_download() {
+        // Synthesize an Available state regardless of host so we exercise
+        // the gating logic on every CI runner.  We can only assert when
+        // running on a host that actually picks an asset; otherwise the
+        // NoAssetForHost branch fires before the gate.
+        let target = match host_target() {
+            Some(t) => t,
+            None => return,
+        };
+        let bumped = format!(
+            "v{}.{}.{}",
+            version::current().major,
+            version::current().minor,
+            version::current().patch + 1,
+        );
+        let name = expected_asset_name(&bumped, target);
+        let info = release_with_tag(&bumped, &name);
+        let phase = classify_check_result(UpdateState::Available(info));
+        if apply_supported_for_host() {
+            assert!(matches!(phase, ActionPhase::ConfirmDownload { .. }));
+        } else {
+            assert!(matches!(phase, ActionPhase::AvailableNoInstall { .. }));
         }
     }
 

@@ -51,7 +51,7 @@ lands so the rest of the document can stay descriptive.
 | M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ✅ Done        | Removed: `UpdateChannel` enum, `Config::update_channel`, the `update_update_channel` setter, the `UpdateChannel` ini key (load/save/defaults), and the two related tests. The updater always polls `/releases/latest`. |
 | M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
 | M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
-| M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ⏳ Not started |                                                                                   |
+| M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ✅ Done        | `apply_supported_for_host()` mirrors the cli cfg gate; `classify_check_result` short-circuits Available → `AvailableNoInstall { info }` on macOS / non-`self-update` builds; overlay shows release tag + `html_url` with Dismiss only — no Download button. |
 | M9  | Make `self-update` opt-in per distribution                    | 🟠       | ⏳ Not started |                                                                                   |
 | M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
 | M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ✅ Done        | Removed unused constant; updater now uses dedicated `check_agent` (10 s global) and `download_agent` (no global, 15 s connect / 10 s resolve) so multi-MB archives aren't capped at the score-submit timeout. |
@@ -223,6 +223,22 @@ lands so the rest of the document can stay descriptive.
 - **Fix:** introduce an `apply_supported_for_host()` helper, and on
   unsupported platforms either disable the install button before
   download or replace it with "Open release page in browser."
+- **Status (resolved):**
+  - `engine::updater::apply_supported_for_host()` (in `mod.rs`) returns
+    true only when `cfg!(all(feature = "self-update", any(target_os =
+    "windows", target_os = "linux", target_os = "freebsd")))` —
+    exactly mirroring the cfg gate on `cli::apply_for_host`. A unit
+    test (`apply_supported_matches_cfg_targets`) keeps the two in sync.
+  - `action::classify_check_result` checks the gate when the remote
+    state is `Available` and a matching asset exists. Unsupported hosts
+    transition to a new `ActionPhase::AvailableNoInstall { info }`
+    instead of `ConfirmDownload`, so the worker never accepts a
+    `request_download` call on macOS / unsupported builds.
+  - `update_overlay` renders `AvailableNoInstall` with the release tag
+    as the focal point, body text "In-app install isn't available on
+    this platform. Visit:" + `info.html_url` (truncated to 80 chars),
+    and a Dismiss-only footer. No browser-launching dependency was
+    added; the URL is shown so the user can navigate to it manually.
 
 ### M9. Make `self-update` opt-in per distribution
 
