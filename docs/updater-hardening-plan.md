@@ -34,6 +34,34 @@ Steam, Flatpak, Snap, etc.) can opt out without code changes.
 - 💡 **Future / platform** — required before adding a specific
   distribution channel.
 
+## Status
+
+Tracks progress against the items below. Update this table as work
+lands so the rest of the document can stay descriptive.
+
+| ID  | Title                                                         | Severity | Status         | Landed in / notes                                                                 |
+| --- | ------------------------------------------------------------- | -------- | -------------- | --------------------------------------------------------------------------------- |
+| C1  | Add independent signature verification for downloaded artifacts | 🔴       | ⏳ Not started |                                                                                   |
+| C2  | Gate `DEADSYNC_UPDATER_FAKE_DOWNLOAD` to dev/test builds      | 🔴       | ⏳ Not started |                                                                                   |
+| C3  | Stop deleting arbitrary `*.old` files under the install root  | 🔴       | ✅ Done        | Backups now use per-apply token suffix; recursive `*.old` cleanup pass removed (`apply_journal`). |
+| M1  | Make `apply` transactional / rollback-capable                 | 🟠       | ✅ Done        | Durable JSON journal + per-op backup-then-install + crash recovery on next launch (`apply_journal`). |
+| M2  | Re-verify the staged archive immediately before extraction    | 🟠       | ⏳ Not started |                                                                                   |
+| M3  | Persist enough release metadata to reconstruct `Available` after a 304 | 🟠 | ⏳ Not started |                                                                                   |
+| M4  | Use `last_checked_at` to throttle startup checks              | 🟠       | ⏳ Not started | `UpdateCheckMode` setting removed; always-on-startup is the only mode now, but no throttle yet. |
+| M5  | Wire up `UpdateChannel::Prerelease` or remove the choice      | 🟠       | ⏳ Not started |                                                                                   |
+| M6  | Gate `DEADSYNC_UPDATER_RELEASE_URL` to dev/test builds        | 🟠       | ⏳ Not started |                                                                                   |
+| M7  | Thread `ApplyOutcome.staging_dir` into `relaunch_self`        | 🟠       | ✅ Done        | Resolved by removal: relaunch no longer passes `--cleanup-old <staging>`; journal at install root is the source of truth. |
+| M8  | Don't offer in-app install on platforms where apply is unsupported | 🟠 | ⏳ Not started |                                                                                   |
+| M9  | Make `self-update` opt-in per distribution                    | 🟠       | ⏳ Not started |                                                                                   |
+| M10 | Add an inter-process updater lock                             | 🟠       | ✅ Done        | `engine::single_instance` (Windows named mutex / Unix `flock`); second instance exits with code 1; `--restart` retries 3 s. |
+| M11 | Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent        | 🟠       | ⏳ Not started |                                                                                   |
+| N1  | ETag bookkeeping                                              | 🟡       | ⏳ Not started |                                                                                   |
+| N2  | Verify GitHub's API `digest` field too                        | 🟡       | ⏳ Not started |                                                                                   |
+| N3  | Add cancellation during long checks/downloads                 | 🟡       | ⏳ Not started |                                                                                   |
+| N4  | Stage downloads to `*.part`, then atomically rename           | 🟡       | ⏳ Not started |                                                                                   |
+| N5  | Audit unused i18n keys                                        | 🟡       | ⏳ Not started |                                                                                   |
+| N6  | Refresh stale comments                                        | 🟡       | ⏳ Not started |                                                                                   |
+
 ---
 
 ## 🔴 Critical
@@ -198,15 +226,14 @@ Steam, Flatpak, Snap, etc.) can opt out without code changes.
 
 ### M10. Add an inter-process updater lock
 
-- **Status:** done — `src/engine/single_instance.rs` provides a
-  cross-platform process-wide lock (Windows named mutex, Unix
-  `flock`); `main.rs` acquires it on startup and exits with code 1
-  if another instance holds it. The `--restart` path retries for 3 s
-  to bridge the relaunch handover.
-- **Problem (historical):** the action state machine uses in-process
-  locks only (`src/engine/updater/action.rs:110-116`). Two running
-  instances can both download/apply, or one can apply while another
-  holds files open.
+- **Problem:** the action state machine uses in-process locks only
+  (`src/engine/updater/action.rs:110-116`). Two running instances can
+  both download/apply, or one can apply while another holds files
+  open.
+- **Fix:** acquire a cross-process lock (lockfile or named mutex) in
+  `apply_archive_and_relaunch`, and refuse to start apply if another
+  instance is detected. Detect at check-now time and surface a clear
+  error.
 
 ### M11. Reconcile `REQUEST_TIMEOUT` with the shared HTTP agent
 
