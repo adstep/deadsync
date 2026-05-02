@@ -210,6 +210,86 @@ Course files follow the same pattern: DeadSync scans the data-directory `courses
 
 On first run in non-portable mode, if DeadSync finds a `deadsync.ini` next to the executable but not in the data directory, it will automatically copy `deadsync.ini`, `save/`, and legacy cache subdirectories into the new data/cache locations. Install-folder `songs/` and `courses/` are **not** copied; they remain in place and are still scanned in non-portable mode. The originals are **not** deleted — you can clean them up manually after verifying everything works.
 
+## Updates
+
+DeadSync ships with an in-app updater that checks GitHub Releases for newer
+versions and (on supported platforms) can apply them in place.
+
+### How the check works
+
+- On startup the game asks `api.github.com` for the
+  [latest release](https://github.com/pnn64/deadsync/releases/latest)
+  using an `If-None-Match` ETag, so a re-check usually transfers a few
+  hundred bytes rather than the full release JSON.
+- The check is rate-limited to once per 24 h per launch unless you
+  trigger a manual check.
+- If a newer version is available, the main menu shows
+  "Update available: vX.Y.Z" and an overlay with version, download
+  size, and confirm/dismiss controls.
+- Pressing **F5** on the menu forces an immediate re-check.
+
+### How the apply step works
+
+When you confirm in the overlay, DeadSync downloads the platform
+archive into the cache directory and verifies its SHA-256 against a
+sidecar published alongside each release asset
+(`<archive>.sha256`). On confirmation in the **Ready** state:
+
+- **Windows** — extracts the zip into a sibling staging dir, renames
+  every in-place file to `<name>.old`, moves the staged file into
+  position, then spawns the new `deadsync.exe` with
+  `--restart --cleanup-old <staging>` and exits. The new process
+  removes the `.old` files and the staging dir on startup.
+- **Linux / FreeBSD** — extracts the tarball into a sibling staging
+  dir and uses `rename(2)` to drop each file on top of its live
+  counterpart. The kernel keeps the running ELF inode alive until
+  exit, so no `.old` two-step is needed; the new process is then
+  spawned with `--restart`.
+- **macOS** — apply is not yet implemented; the check + banner work,
+  but the overlay's confirm button surfaces an error. Track progress
+  in [issue #303](https://github.com/pnn64/deadsync/issues/303).
+
+The apply step refuses to run when the install directory is not
+writable (e.g. a system-managed install under `/usr/bin` or
+`Program Files`).
+
+### Trust model
+
+Verification is a SHA-256 hash of the released archive served by
+GitHub Releases over HTTPS. There is no code signing yet, so the
+guarantees are:
+
+- Bytes you receive match what the publisher uploaded.
+- Network tampering would have to also forge GitHub's TLS
+  certificate.
+
+Code signing / notarization may be added later; see
+[#301](https://github.com/pnn64/deadsync/issues/301).
+
+### Opting out
+
+Three ways to disable the in-app updater, from least to most
+permanent:
+
+- **Per launch**: pass `--no-update-check` on the command line.
+- **Per install**: in the **Options** screen, set
+  `Update Check` to `Disabled`. The setting persists in
+  `deadsync.ini`.
+- **At build time**: `cargo build --release --no-default-features`
+  drops the apply phase (zip/tarball extract + binary swap) but
+  keeps the check + notification banner. Distro packagers should
+  use this so the system package manager remains the source of
+  truth for the binary.
+
+### Portable vs system installs
+
+The updater only attempts in-place replacement when the install
+directory is writable. The Windows / Linux / FreeBSD release
+archives contain a `portable.txt` marker, so installs you just
+unpacked will always be writable; system-managed installs (e.g.
+unpacked under `/opt/deadsync` as root, or `Program Files`) will
+refuse to apply and print a clear error.
+
 ## Contributing
 
 We welcome contributions of all sizes. These notes are directional, not law—open a discussion or draft PR if you are unsure.
