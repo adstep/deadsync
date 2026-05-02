@@ -300,7 +300,7 @@ impl Default for Config {
             keyboard_features: true,
             show_video_backgrounds: true,
             machine_show_select_profile: true,
-            allow_switch_profile_in_menu: false,
+            allow_switch_profile_in_menu: true,
             machine_show_select_color: true,
             machine_show_select_style: true,
             machine_show_select_play_mode: true,
