@@ -1,7 +1,6 @@
 use crate::act;
 use crate::assets::i18n::{tr, tr_fmt};
 use crate::assets::{self, AssetManager, visual_styles};
-use crate::config::dirs;
 use crate::engine::audio;
 use crate::engine::gfx::BlendMode;
 use crate::engine::input::{InputEvent, VirtualAction};
@@ -303,10 +302,7 @@ fn build_choices() -> Vec<Choice> {
         let mut mini_indicator = profile::MiniIndicator::None;
         let mut noteskin = profile::NoteSkin::default();
         let mut judgment = profile::JudgmentGraphic::default();
-        let ini_path = dirs::app_dirs()
-            .profiles_root()
-            .join(&p.id)
-            .join("profile.ini");
+        let ini_path = profile::local_profile_dir(&p.id).join("profile.ini");
         let mut ini = crate::config::SimpleIni::new();
         if ini.load(&ini_path).is_ok() {
             let get_player_option = |key: &str| ini.get(player_options_section, key);

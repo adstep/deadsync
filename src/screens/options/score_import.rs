@@ -145,7 +145,7 @@ pub(super) fn sync_pack_options() -> (Vec<String>, Vec<Option<String>>) {
 pub(super) fn load_score_import_profiles() -> Vec<ScoreImportProfileConfig> {
     let mut profiles = Vec::new();
     for summary in profile::scan_local_profiles() {
-        let profile_dir = dirs::app_dirs().profiles_root().join(summary.id.as_str());
+        let profile_dir = profile::local_profile_dir(&summary.id);
         let mut gs = SimpleIni::new();
         let mut ac = SimpleIni::new();
         let gs_api_key = if gs.load(profile_dir.join("groovestats.ini")).is_ok() {

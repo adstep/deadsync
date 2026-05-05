@@ -834,7 +834,7 @@ pub(super) fn current_score_hundredths(gs: &gameplay::State, player_idx: usize) 
 }
 
 fn itl_file_path(profile_id: &str) -> PathBuf {
-    profile::local_profile_dir_for_id(profile_id).join(ITL_FILE_NAME)
+    profile::local_profile_dir(profile_id).join(ITL_FILE_NAME)
 }
 
 fn ensure_itl_score_cache_loaded(profile_id: &str) {

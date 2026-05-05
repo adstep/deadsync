@@ -4,13 +4,14 @@ use bincode::{Decode, Encode};
 use bitflags::bitflags;
 use chrono::{Datelike, Local};
 use log::{debug, info, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
+use uuid::Uuid;
 
 mod update;
 
@@ -459,17 +460,211 @@ bitflags! {
 }
 
 // --- Profile Data ---
-const DEFAULT_PROFILE_ID: &str = "default";
+
+/// Well-known GUID for the auto-created default profile.
+const DEFAULT_PROFILE_GUID: &str = "00000000-0000-0000-0000-000000000000";
+
+/// Folder name for the default profile on disk.
+const DEFAULT_PROFILE_FOLDER: &str = "default";
+
 const PROFILE_STATS_VERSION_V1: u16 = 1;
 
-#[inline(always)]
-fn local_profile_dir(id: &str) -> PathBuf {
-    dirs::app_dirs().profiles_root().join(id)
+// --- Profile GUID Registry ---
+//
+// Maps profile GUIDs to their folder paths on disk.  Built once at startup by
+// `init_profile_registry()` and kept in sync by create/rename/delete helpers.
+
+#[derive(Clone, Debug)]
+struct ProfileRegistryEntry {
+    dir_name: String,
+    dir_path: PathBuf,
 }
 
-#[inline(always)]
-pub fn local_profile_dir_for_id(id: &str) -> PathBuf {
-    local_profile_dir(id)
+#[derive(Default)]
+struct ProfileRegistry {
+    /// GUID → entry mapping.
+    entries: HashMap<String, ProfileRegistryEntry>,
+}
+
+static PROFILE_REGISTRY: std::sync::LazyLock<Mutex<ProfileRegistry>> =
+    std::sync::LazyLock::new(|| Mutex::new(ProfileRegistry::default()));
+
+fn lock_registry() -> std::sync::MutexGuard<'static, ProfileRegistry> {
+    PROFILE_REGISTRY.lock().unwrap()
+}
+
+/// Look up a profile's directory by its GUID.  Falls back to
+/// `profiles_root().join(guid)` if the GUID is not in the registry (e.g.
+/// during early init before the registry is populated).
+pub fn local_profile_dir(guid: &str) -> PathBuf {
+    let reg = lock_registry();
+    if let Some(entry) = reg.entries.get(guid) {
+        entry.dir_path.clone()
+    } else {
+        // Fallback: treat the id as a folder name (legacy / pre-registry).
+        dirs::app_dirs().profiles_root().join(guid)
+    }
+}
+
+/// Read `ProfileID` from a profile.ini at the given path.
+fn read_profile_guid(ini_path: &Path) -> Option<String> {
+    let mut ini = SimpleIni::new();
+    if ini.load(ini_path).is_err() {
+        return None;
+    }
+    ini.get("userprofile", "ProfileID")
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Write (or overwrite) the `ProfileID` key in profile.ini.
+fn write_profile_guid(ini_path: &Path, guid: &str) -> Result<(), std::io::Error> {
+    let src = fs::read_to_string(ini_path)?;
+    let mut out = String::with_capacity(src.len() + 64);
+    let mut in_userprofile = false;
+    let mut wrote_guid = false;
+
+    for raw_line in src.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            // If leaving [userprofile] without having written the GUID, insert it.
+            if in_userprofile && !wrote_guid {
+                out.push_str("ProfileID=");
+                out.push_str(guid);
+                out.push('\n');
+                wrote_guid = true;
+            }
+            let section = trimmed[1..trimmed.len() - 1].trim();
+            in_userprofile = section.eq_ignore_ascii_case("userprofile");
+            out.push_str(raw_line);
+            out.push('\n');
+            continue;
+        }
+
+        if in_userprofile {
+            if let Some(eq) = trimmed.find('=') {
+                let key = trimmed[..eq].trim();
+                if key.eq_ignore_ascii_case("ProfileID") {
+                    out.push_str("ProfileID=");
+                    out.push_str(guid);
+                    out.push('\n');
+                    wrote_guid = true;
+                    continue;
+                }
+            }
+        }
+
+        out.push_str(raw_line);
+        out.push('\n');
+    }
+
+    // If [userprofile] was the last section and we still haven't written it.
+    if in_userprofile && !wrote_guid {
+        out.push_str("ProfileID=");
+        out.push_str(guid);
+        out.push('\n');
+    }
+
+    fs::write(ini_path, out)
+}
+
+/// Scan all profile folders and build the GUID → path registry.
+///
+/// Profiles without a `ProfileID` in their `profile.ini` get one generated
+/// and written back.  The default folder gets the well-known zero GUID.
+/// Duplicate GUIDs cause the second profile to get a fresh GUID.
+pub fn init_profile_registry() {
+    let root = dirs::app_dirs().profiles_root();
+    let Ok(read_dir) = fs::read_dir(&root) else {
+        return;
+    };
+
+    let mut reg = lock_registry();
+    let mut seen_guids: HashSet<String> = HashSet::new();
+
+    for entry in read_dir.flatten() {
+        let Ok(ft) = entry.file_type() else { continue };
+        if !ft.is_dir() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(dir_name) = file_name.to_str().map(|s| s.to_string()) else {
+            continue;
+        };
+        let ini_path = entry.path().join("profile.ini");
+        if !ini_path.is_file() {
+            continue;
+        }
+
+        let mut guid = read_profile_guid(&ini_path).unwrap_or_default();
+
+        // Assign the well-known zero GUID to the default folder.
+        if dir_name == DEFAULT_PROFILE_FOLDER && (guid.is_empty() || guid != DEFAULT_PROFILE_GUID) {
+            guid = DEFAULT_PROFILE_GUID.to_string();
+            if let Err(e) = write_profile_guid(&ini_path, &guid) {
+                warn!("Failed to write default ProfileID to '{}': {}", dir_name, e);
+            }
+        }
+
+        // Backfill missing GUID.
+        if guid.is_empty() {
+            guid = Uuid::new_v4().to_string();
+            if let Err(e) = write_profile_guid(&ini_path, &guid) {
+                warn!("Failed to backfill ProfileID for '{}': {}", dir_name, e);
+            } else {
+                info!("Assigned ProfileID {} to profile '{}'.", guid, dir_name);
+            }
+        }
+
+        // Validate UUID format (loose check).
+        if Uuid::parse_str(&guid).is_err() && guid != DEFAULT_PROFILE_GUID {
+            let new_guid = Uuid::new_v4().to_string();
+            warn!(
+                "Malformed ProfileID '{}' in '{}'; regenerating as {}.",
+                guid, dir_name, new_guid
+            );
+            guid = new_guid;
+            let _ = write_profile_guid(&ini_path, &guid);
+        }
+
+        // Handle duplicate GUIDs.
+        if seen_guids.contains(&guid) {
+            let new_guid = Uuid::new_v4().to_string();
+            warn!(
+                "Duplicate ProfileID '{}' in '{}'; reassigning as {}.",
+                guid, dir_name, new_guid
+            );
+            guid = new_guid;
+            let _ = write_profile_guid(&ini_path, &guid);
+        }
+
+        seen_guids.insert(guid.clone());
+        reg.entries.insert(
+            guid,
+            ProfileRegistryEntry {
+                dir_name,
+                dir_path: entry.path(),
+            },
+        );
+    }
+
+    info!(
+        "Profile registry initialized with {} profile(s).",
+        reg.entries.len()
+    );
+}
+
+/// Resolve the GUID for the default profile.  Returns the well-known zero GUID
+/// if a "default" folder exists in the registry, otherwise the first available
+/// local profile GUID, or `None` if no profiles exist.
+pub fn default_profile_guid() -> Option<String> {
+    let reg = lock_registry();
+    if reg.entries.contains_key(DEFAULT_PROFILE_GUID) {
+        return Some(DEFAULT_PROFILE_GUID.to_string());
+    }
+    // Fallback: first profile alphabetically by dir_name.
+    let mut entries: Vec<_> = reg.entries.iter().collect();
+    entries.sort_by(|a, b| a.1.dir_name.cmp(&b.1.dir_name));
+    entries.first().map(|(guid, _)| guid.to_string())
 }
 
 #[inline(always)]
@@ -3434,7 +3629,7 @@ static SESSION: std::sync::LazyLock<Mutex<SessionState>> = std::sync::LazyLock::
     Mutex::new(SessionState {
         active_profiles: [
             ActiveProfile::Local {
-                id: DEFAULT_PROFILE_ID.to_string(),
+                id: DEFAULT_PROFILE_GUID.to_string(),
             },
             ActiveProfile::Guest,
         ],
@@ -3632,6 +3827,7 @@ fn ensure_local_profile_files(id: &str) -> Result<(), std::io::Error> {
         );
 
         content.push_str("[userprofile]\n");
+        content.push_str(&format!("ProfileID = {id}\n"));
         content.push_str(&format!("DisplayName = {}\n", default_profile.display_name));
         content.push_str(&format!(
             "PlayerInitials = {}\n",
@@ -4391,11 +4587,6 @@ pub struct LocalProfileSummary {
 }
 
 #[inline(always)]
-fn is_local_profile_id(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s != "." && s != ".." && !s.contains(['/', '\\', '\0'])
-}
-
-#[inline(always)]
 fn cmp_profile_ids_case_insensitive(a: &str, b: &str) -> std::cmp::Ordering {
     a.chars()
         .flat_map(char::to_lowercase)
@@ -4404,36 +4595,16 @@ fn cmp_profile_ids_case_insensitive(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 pub fn scan_local_profiles() -> Vec<LocalProfileSummary> {
-    let root = dirs::app_dirs().profiles_root();
-    let Ok(read_dir) = fs::read_dir(&root) else {
-        return Vec::new();
-    };
-
+    let reg = lock_registry();
     let mut out = Vec::new();
-    for entry in read_dir.flatten() {
-        let Ok(ft) = entry.file_type() else {
-            continue;
-        };
-        if !ft.is_dir() {
-            continue;
-        }
-        let Some(id) = entry
-            .file_name()
-            .to_str()
-            .map(std::string::ToString::to_string)
-        else {
-            continue;
-        };
-        if !is_local_profile_id(&id) {
-            continue;
-        }
 
-        let ini_path = entry.path().join("profile.ini");
+    for (guid, entry) in &reg.entries {
+        let ini_path = entry.dir_path.join("profile.ini");
         if !ini_path.is_file() {
             continue;
         }
 
-        let mut display_name = id.clone();
+        let mut display_name = entry.dir_name.clone();
         let mut ini = SimpleIni::new();
         if ini.load(&ini_path).is_ok()
             && let Some(name) = ini.get("userprofile", "DisplayName")
@@ -4442,16 +4613,25 @@ pub fn scan_local_profiles() -> Vec<LocalProfileSummary> {
             display_name = name;
         }
 
-        let avatar_path = find_profile_avatar_path(&entry.path());
+        let avatar_path = find_profile_avatar_path(&entry.dir_path);
 
         out.push(LocalProfileSummary {
-            id,
+            id: guid.clone(),
             display_name,
             avatar_path,
         });
     }
 
-    out.sort_by(|a, b| cmp_profile_ids_case_insensitive(&a.id, &b.id));
+    // Sort by display name (case-insensitive), default profile first.
+    out.sort_by(|a, b| {
+        let a_is_default = a.id == DEFAULT_PROFILE_GUID;
+        let b_is_default = b.id == DEFAULT_PROFILE_GUID;
+        match (a_is_default, b_is_default) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => cmp_profile_ids_case_insensitive(&a.display_name, &b.display_name),
+        }
+    });
     out
 }
 
@@ -4550,7 +4730,7 @@ pub fn migrate_legacy_profile_folders() {
         }
 
         let new_name = if name == "00000000" {
-            DEFAULT_PROFILE_ID.to_string()
+            DEFAULT_PROFILE_FOLDER.to_string()
         } else {
             // Read DisplayName from profile.ini.
             let ini_path = entry.path().join("profile.ini");
@@ -4643,8 +4823,10 @@ pub fn create_local_profile(display_name: &str) -> Result<String, std::io::Error
         ));
     }
 
-    let id = allocate_named_profile_id(name)?;
-    let dir = local_profile_dir(&id);
+    let folder_name = allocate_named_profile_id(name)?;
+    let guid = Uuid::new_v4().to_string();
+    let root = dirs::app_dirs().profiles_root();
+    let dir = root.join(&folder_name);
     fs::create_dir_all(&dir)?;
 
     let mut default_profile = Profile::default();
@@ -4663,6 +4845,7 @@ pub fn create_local_profile(display_name: &str) -> Result<String, std::io::Error
         &default_profile.player_options_doubles,
     );
     content.push_str("[userprofile]\n");
+    content.push_str(&format!("ProfileID={guid}\n"));
     content.push_str(&format!("DisplayName={name}\n"));
     content.push_str(&format!("PlayerInitials={initials}\n"));
     content.push('\n');
@@ -4678,7 +4861,7 @@ pub fn create_local_profile(display_name: &str) -> Result<String, std::io::Error
     content.push_str(&format!("CaloriesBurnedDate={today}\n"));
     content.push_str("CaloriesBurnedToday=0\n");
     content.push('\n');
-    fs::write(profile_ini_path(&id), content)?;
+    fs::write(dir.join("profile.ini"), content)?;
 
     let mut gs = String::new();
     gs.push_str("[GrooveStats]\n");
@@ -4686,15 +4869,27 @@ pub fn create_local_profile(display_name: &str) -> Result<String, std::io::Error
     gs.push_str("IsPadPlayer=0\n");
     gs.push_str("Username=\n");
     gs.push('\n');
-    fs::write(groovestats_ini_path(&id), gs)?;
+    fs::write(dir.join("groovestats.ini"), gs)?;
 
     let mut ac = String::new();
     ac.push_str("[ArrowCloud]\n");
     ac.push_str("ApiKey=\n");
     ac.push('\n');
-    fs::write(arrowcloud_ini_path(&id), ac)?;
+    fs::write(dir.join("arrowcloud.ini"), ac)?;
 
-    Ok(id)
+    // Register in the GUID→path registry.
+    {
+        let mut reg = lock_registry();
+        reg.entries.insert(
+            guid.clone(),
+            ProfileRegistryEntry {
+                dir_name: folder_name,
+                dir_path: dir,
+            },
+        );
+    }
+
+    Ok(guid)
 }
 
 fn rewrite_profile_display_name(path: &Path, display_name: &str) -> Result<(), std::io::Error> {
@@ -4755,11 +4950,11 @@ fn rewrite_profile_display_name(path: &Path, display_name: &str) -> Result<(), s
     fs::write(path, out)
 }
 
-pub fn rename_local_profile(id: &str, display_name: &str) -> Result<(), std::io::Error> {
-    if !is_local_profile_id(id) {
+pub fn rename_local_profile(guid: &str, display_name: &str) -> Result<(), std::io::Error> {
+    if guid.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "Invalid local profile id",
+            "Invalid profile GUID",
         ));
     }
 
@@ -4771,7 +4966,8 @@ pub fn rename_local_profile(id: &str, display_name: &str) -> Result<(), std::io:
         ));
     }
 
-    let ini_path = profile_ini_path(id);
+    let old_dir = local_profile_dir(guid);
+    let ini_path = old_dir.join("profile.ini");
     if !ini_path.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -4780,76 +4976,75 @@ pub fn rename_local_profile(id: &str, display_name: &str) -> Result<(), std::io:
     }
     rewrite_profile_display_name(&ini_path, name)?;
 
-    // Rename the profile folder to match the new display name.
-    let new_id = allocate_named_profile_id(name)?;
-    let folder_renamed = if new_id != id {
-        let old_dir = local_profile_dir(id);
-        let new_dir = local_profile_dir(&new_id);
+    // Rename the folder to match the new display name.
+    let new_folder = allocate_named_profile_id(name)?;
+    let root = dirs::app_dirs().profiles_root();
+    let new_dir = root.join(&new_folder);
+
+    let old_folder = old_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    if new_folder != old_folder {
         if new_dir.exists() {
             warn!(
                 "Cannot rename profile folder '{}' -> '{}': target exists.",
-                id, new_id
+                old_folder, new_folder
             );
-            false
         } else {
             match fs::rename(&old_dir, &new_dir) {
                 Ok(()) => {
-                    info!("Renamed profile folder '{}' -> '{}'.", id, new_id);
-                    true
+                    info!("Renamed profile folder '{}' -> '{}'.", old_folder, new_folder);
+                    // Update the registry to point to the new path.
+                    let mut reg = lock_registry();
+                    if let Some(entry) = reg.entries.get_mut(guid) {
+                        entry.dir_name = new_folder;
+                        entry.dir_path = new_dir;
+                    }
                 }
                 Err(e) => {
                     warn!(
                         "Failed to rename profile folder '{}' -> '{}': {}",
-                        id, new_id, e
+                        old_folder, new_folder, e
                     );
-                    false
                 }
             }
         }
-    } else {
-        false
-    };
+    }
 
-    let effective_id = if folder_renamed { &new_id } else { id };
-
+    // Update in-memory display name for active profiles.
     let p1_active = active_local_profile_id_for_side(PlayerSide::P1)
         .as_deref()
-        .is_some_and(|active_id| active_id == id);
+        .is_some_and(|active_id| active_id == guid);
     let p2_active = active_local_profile_id_for_side(PlayerSide::P2)
         .as_deref()
-        .is_some_and(|active_id| active_id == id);
+        .is_some_and(|active_id| active_id == guid);
 
     if p1_active || p2_active {
         let mut profiles = lock_profiles();
         if p1_active {
+            let avatar_path = find_profile_avatar_path(&local_profile_dir(guid));
             profiles[side_ix(PlayerSide::P1)].display_name = name.to_string();
+            profiles[side_ix(PlayerSide::P1)].avatar_path = avatar_path.clone();
+            profiles[side_ix(PlayerSide::P1)].avatar_texture_key =
+                avatar_path.map(|p| p.to_string_lossy().into_owned());
         }
         if p2_active {
+            let avatar_path = find_profile_avatar_path(&local_profile_dir(guid));
             profiles[side_ix(PlayerSide::P2)].display_name = name.to_string();
+            profiles[side_ix(PlayerSide::P2)].avatar_path = avatar_path.clone();
+            profiles[side_ix(PlayerSide::P2)].avatar_texture_key =
+                avatar_path.map(|p| p.to_string_lossy().into_owned());
         }
-    }
-
-    // Update session active profile ID and invalidate score caches if the
-    // folder was actually renamed on disk.
-    if folder_renamed {
-        {
-            let mut session = lock_session();
-            for slot in session.active_profiles.iter_mut() {
-                if let ActiveProfile::Local { id: slot_id } = slot {
-                    if slot_id == id {
-                        *slot_id = effective_id.to_string();
-                    }
-                }
-            }
-        }
-        crate::game::scores::invalidate_profile_score_caches(id);
     }
 
     Ok(())
 }
 
 pub fn delete_local_profile(id: &str) -> Result<(), std::io::Error> {
-    if !is_local_profile_id(id) {
+    if id.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Invalid local profile id",
@@ -4865,6 +5060,12 @@ pub fn delete_local_profile(id: &str) -> Result<(), std::io::Error> {
     }
 
     fs::remove_dir_all(&dir)?;
+
+    // Remove from registry.
+    {
+        let mut reg = lock_registry();
+        reg.entries.remove(id);
+    }
 
     for side in [PlayerSide::P1, PlayerSide::P2] {
         let is_active = active_local_profile_id_for_side(side)
