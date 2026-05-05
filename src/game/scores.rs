@@ -829,6 +829,21 @@ fn ensure_machine_local_score_cache_loaded() {
     }
 }
 
+/// Remove all in-memory score cache entries for the given profile ID.
+///
+/// Called when a profile folder is renamed on disk so that subsequent lookups
+/// reload from the new path.
+pub fn invalidate_profile_score_caches(profile_id: &str) {
+    {
+        let mut gs = GS_SCORE_CACHE.lock().unwrap();
+        gs.loaded_profiles.remove(profile_id);
+    }
+    {
+        let mut local = LOCAL_SCORE_CACHE.lock().unwrap();
+        local.loaded_profiles.remove(profile_id);
+    }
+}
+
 pub fn prewarm_select_music_score_caches() {
     let started = Instant::now();
 

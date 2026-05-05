@@ -203,6 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(windows)]
     let _windows_timing = boost_windows_runtime_timing();
+    game::profile::migrate_legacy_profile_folders();
     game::profile::load();
     if let Err(e) = engine::audio::init(engine::audio::InitConfig {
         output_device_index: cfg.audio_output_device_index,

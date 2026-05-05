@@ -459,7 +459,7 @@ bitflags! {
 }
 
 // --- Profile Data ---
-const DEFAULT_PROFILE_ID: &str = "00000000";
+const DEFAULT_PROFILE_ID: &str = "default";
 const PROFILE_STATS_VERSION_V1: u16 = 1;
 
 #[inline(always)]
@@ -4455,16 +4455,86 @@ pub fn scan_local_profiles() -> Vec<LocalProfileSummary> {
     out
 }
 
-const LOCAL_PROFILE_MAX_ID: u32 = 99_999_999;
+/// Convert a display name into a filesystem-safe folder name.
+///
+/// Lowercases, replaces non-alphanumeric runs with `-`, strips leading/trailing
+/// dashes, and truncates to 48 characters. Returns `"profile"` if the result
+/// is empty.
+fn sanitize_folder_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = true; // suppress leading dash
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    // Strip trailing dash.
+    while out.ends_with('-') {
+        out.pop();
+    }
+    // Truncate to 48 characters on a char boundary.
+    if out.len() > 48 {
+        let mut end = 48;
+        while !out.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        out.truncate(end);
+        while out.ends_with('-') {
+            out.pop();
+        }
+    }
+    if out.is_empty() {
+        "profile".to_string()
+    } else {
+        out
+    }
+}
 
-fn scan_local_profile_numbers() -> Vec<u32> {
+/// Allocate a folder name for a new profile based on its display name.
+///
+/// Sanitises the name then, if the folder already exists, appends `-2`, `-3`,
+/// etc. until a free name is found.
+fn allocate_named_profile_id(display_name: &str) -> Result<String, std::io::Error> {
+    let base = sanitize_folder_name(display_name);
+    let root = dirs::app_dirs().profiles_root();
+    if !root.join(&base).exists() {
+        return Ok(base);
+    }
+    for n in 2..=999 {
+        let candidate = format!("{base}-{n}");
+        if !root.join(&candidate).exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::other(
+        "Too many profiles with the same name",
+    ))
+}
+
+/// Returns `true` if `name` looks like a legacy 8-digit numeric profile ID.
+fn is_legacy_numeric_id(name: &str) -> bool {
+    name.len() == 8 && name.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Migrate legacy 8-digit numeric profile folders to human-readable names.
+///
+/// Called once at startup. `"00000000"` becomes `"default"`; other numeric
+/// folders are renamed to the sanitised `DisplayName` from their
+/// `profile.ini`.  The function is idempotent — it only touches folders whose
+/// name is still an 8-digit number.
+pub fn migrate_legacy_profile_folders() {
     let root = dirs::app_dirs().profiles_root();
     let Ok(read_dir) = fs::read_dir(&root) else {
-        return Vec::new();
+        return;
     };
 
-    let mut out = Vec::new();
-    for entry in read_dir.flatten() {
+    // Collect entries first to avoid mutating the directory while iterating.
+    let entries: Vec<_> = read_dir.flatten().collect();
+    for entry in entries {
         let Ok(ft) = entry.file_type() else {
             continue;
         };
@@ -4475,44 +4545,68 @@ fn scan_local_profile_numbers() -> Vec<u32> {
         let Some(name) = file_name.to_str() else {
             continue;
         };
-        if name.len() != 8 {
+        if !is_legacy_numeric_id(name) {
             continue;
         }
-        let Ok(n) = name.parse::<u32>() else {
-            continue;
+
+        let new_name = if name == "00000000" {
+            DEFAULT_PROFILE_ID.to_string()
+        } else {
+            // Read DisplayName from profile.ini.
+            let ini_path = entry.path().join("profile.ini");
+            let mut display = String::new();
+            let mut ini = SimpleIni::new();
+            if ini.load(&ini_path).is_ok() {
+                if let Some(dn) = ini.get("userprofile", "DisplayName") {
+                    display = dn;
+                }
+            }
+            let base = if display.trim().is_empty() {
+                "profile".to_string()
+            } else {
+                sanitize_folder_name(display.trim())
+            };
+            // Resolve collisions.
+            if !root.join(&base).exists() {
+                base
+            } else {
+                let mut resolved = base.clone();
+                for n in 2..=999 {
+                    let candidate = format!("{base}-{n}");
+                    if !root.join(&candidate).exists() {
+                        resolved = candidate;
+                        break;
+                    }
+                }
+                resolved
+            }
         };
-        if n <= LOCAL_PROFILE_MAX_ID {
-            out.push(n);
+
+        if new_name == name {
+            continue;
+        }
+
+        let old_path = root.join(name);
+        let new_path = root.join(&new_name);
+        if new_path.exists() {
+            warn!(
+                "Cannot migrate profile folder '{}' -> '{}': target already exists.",
+                name, new_name
+            );
+            continue;
+        }
+        match fs::rename(&old_path, &new_path) {
+            Ok(()) => {
+                info!("Migrated profile folder '{}' -> '{}'.", name, new_name);
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to migrate profile folder '{}' -> '{}': {}",
+                    name, new_name, e
+                );
+            }
         }
     }
-    out
-}
-
-fn allocate_local_profile_id() -> Result<String, std::io::Error> {
-    let mut nums = scan_local_profile_numbers();
-    nums.sort_unstable();
-    nums.dedup();
-
-    let mut first_free = 0_u32;
-    for &n in &nums {
-        if n == first_free {
-            first_free += 1;
-        } else if n > first_free {
-            break;
-        }
-    }
-
-    let mut next = nums.last().copied().unwrap_or(0);
-    if !nums.is_empty() {
-        next = next.saturating_add(1);
-    }
-    if next > LOCAL_PROFILE_MAX_ID {
-        if first_free > LOCAL_PROFILE_MAX_ID {
-            return Err(std::io::Error::other("Too many profiles"));
-        }
-        next = first_free;
-    }
-    Ok(format!("{next:08}"))
 }
 
 fn initials_from_name(name: &str) -> String {
@@ -4549,7 +4643,7 @@ pub fn create_local_profile(display_name: &str) -> Result<String, std::io::Error
         ));
     }
 
-    let id = allocate_local_profile_id()?;
+    let id = allocate_named_profile_id(name)?;
     let dir = local_profile_dir(&id);
     fs::create_dir_all(&dir)?;
 
@@ -4686,12 +4780,45 @@ pub fn rename_local_profile(id: &str, display_name: &str) -> Result<(), std::io:
     }
     rewrite_profile_display_name(&ini_path, name)?;
 
+    // Rename the profile folder to match the new display name.
+    let new_id = allocate_named_profile_id(name)?;
+    let folder_renamed = if new_id != id {
+        let old_dir = local_profile_dir(id);
+        let new_dir = local_profile_dir(&new_id);
+        if new_dir.exists() {
+            warn!(
+                "Cannot rename profile folder '{}' -> '{}': target exists.",
+                id, new_id
+            );
+            false
+        } else {
+            match fs::rename(&old_dir, &new_dir) {
+                Ok(()) => {
+                    info!("Renamed profile folder '{}' -> '{}'.", id, new_id);
+                    true
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to rename profile folder '{}' -> '{}': {}",
+                        id, new_id, e
+                    );
+                    false
+                }
+            }
+        }
+    } else {
+        false
+    };
+
+    let effective_id = if folder_renamed { &new_id } else { id };
+
     let p1_active = active_local_profile_id_for_side(PlayerSide::P1)
         .as_deref()
         .is_some_and(|active_id| active_id == id);
     let p2_active = active_local_profile_id_for_side(PlayerSide::P2)
         .as_deref()
         .is_some_and(|active_id| active_id == id);
+
     if p1_active || p2_active {
         let mut profiles = lock_profiles();
         if p1_active {
@@ -4700,6 +4827,22 @@ pub fn rename_local_profile(id: &str, display_name: &str) -> Result<(), std::io:
         if p2_active {
             profiles[side_ix(PlayerSide::P2)].display_name = name.to_string();
         }
+    }
+
+    // Update session active profile ID and invalidate score caches if the
+    // folder was actually renamed on disk.
+    if folder_renamed {
+        {
+            let mut session = lock_session();
+            for slot in session.active_profiles.iter_mut() {
+                if let ActiveProfile::Local { id: slot_id } = slot {
+                    if slot_id == id {
+                        *slot_id = effective_id.to_string();
+                    }
+                }
+            }
+        }
+        crate::game::scores::invalidate_profile_score_caches(id);
     }
 
     Ok(())
@@ -4830,7 +4973,8 @@ mod tests {
     use super::{
         BackgroundFilter, DEFAULT_BIRTH_YEAR, DEFAULT_WEIGHT_POUNDS, LastPlayed, NoteSkin,
         PLAYER_INITIALS_MAX_LEN, PlayStyle, Profile, TimingWindowsOption, initials_from_name,
-        parse_groovestats_is_pad_player, sanitize_player_initials,
+        is_legacy_numeric_id, parse_groovestats_is_pad_player, sanitize_folder_name,
+        sanitize_player_initials,
     };
     use std::str::FromStr;
 
@@ -5221,5 +5365,65 @@ mod tests {
         assert!(mask.is_empty());
         assert_eq!(error_bar_style_from_mask(mask), ErrorBarStyle::None);
         assert!(!error_bar_text_from_mask(mask));
+    }
+
+    // --- sanitize_folder_name tests ---
+
+    #[test]
+    fn sanitize_folder_name_basic() {
+        assert_eq!(sanitize_folder_name("Alice"), "alice");
+        assert_eq!(sanitize_folder_name("Bob Smith"), "bob-smith");
+    }
+
+    #[test]
+    fn sanitize_folder_name_special_chars() {
+        assert_eq!(sanitize_folder_name("foo/bar\\baz"), "foo-bar-baz");
+        assert_eq!(sanitize_folder_name("a!!b##c"), "a-b-c");
+        assert_eq!(sanitize_folder_name("---hello---"), "hello");
+    }
+
+    #[test]
+    fn sanitize_folder_name_empty_and_whitespace() {
+        assert_eq!(sanitize_folder_name(""), "profile");
+        assert_eq!(sanitize_folder_name("   "), "profile");
+        assert_eq!(sanitize_folder_name("!!!"), "profile");
+    }
+
+    #[test]
+    fn sanitize_folder_name_truncates_long_names() {
+        let long = "a".repeat(100);
+        let result = sanitize_folder_name(&long);
+        assert!(result.len() <= 48);
+        assert_eq!(result, "a".repeat(48));
+    }
+
+    #[test]
+    fn sanitize_folder_name_no_trailing_dash_after_truncate() {
+        // 47 a's + space + more → after sanitize: 47 a's + "-" + more, truncated at 48 = "aaa...a-"
+        // trailing dash should be stripped.
+        let name = format!("{} bbb", "a".repeat(47));
+        let result = sanitize_folder_name(&name);
+        assert!(!result.ends_with('-'));
+        assert!(result.len() <= 48);
+    }
+
+    #[test]
+    fn sanitize_folder_name_collapses_runs() {
+        assert_eq!(sanitize_folder_name("a   b   c"), "a-b-c");
+        assert_eq!(sanitize_folder_name("a...b"), "a-b");
+    }
+
+    // --- is_legacy_numeric_id tests ---
+
+    #[test]
+    fn legacy_numeric_id_detection() {
+        assert!(is_legacy_numeric_id("00000000"));
+        assert!(is_legacy_numeric_id("00000001"));
+        assert!(is_legacy_numeric_id("99999999"));
+        assert!(!is_legacy_numeric_id("default"));
+        assert!(!is_legacy_numeric_id("alice"));
+        assert!(!is_legacy_numeric_id("0000000"));  // 7 digits
+        assert!(!is_legacy_numeric_id("000000000")); // 9 digits
+        assert!(!is_legacy_numeric_id("0000000a"));  // has letter
     }
 }
