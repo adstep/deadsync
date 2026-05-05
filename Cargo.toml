@@ -135,7 +135,10 @@ ash-window = "0.13.0"
 [target.'cfg(all(not(target_pointer_width = "32"), target_os = "windows"))'.dependencies]
 wgpu = { version = "29.0.3", features = ["dx12", "vulkan", "gles"] }
 
-[target.'cfg(all(not(target_pointer_width = "32"), not(target_os = "windows")))'.dependencies]
+[target.'cfg(all(not(target_pointer_width = "32"), target_os = "macos"))'.dependencies]
+wgpu = { version = "29.0.3", features = ["metal", "vulkan", "gles"] }
+
+[target.'cfg(all(not(target_pointer_width = "32"), not(target_os = "windows"), not(target_os = "macos")))'.dependencies]
 wgpu = { version = "29.0.3", features = ["vulkan", "gles"] }
 
 [target.'cfg(all(target_pointer_width = "32", target_os = "windows"))'.dependencies]
