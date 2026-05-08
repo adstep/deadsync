@@ -165,6 +165,11 @@ pub struct PlayerState {
     /// Player's GrooveStats handle, when configured. Overlays can
     /// deep-link to `https://groovestats.com/player.php?username=<…>`.
     pub groovestats_username: Option<String>,
+    /// Player's ArrowCloud UUID v4, when their AC API key has resolved
+    /// against `api.arrowcloud.dance/user` at least once this run.
+    /// Overlays should `GET https://api.arrowcloud.dance/user/<uuid>`
+    /// (no auth) to resolve the avatar URL, country code, alias, etc.
+    pub arrowcloud_user_id: Option<String>,
     pub score_percent: f64,
     pub ex_score_percent: f64,
     pub hard_ex_score_percent: f64,
@@ -323,10 +328,12 @@ fn chart_info_from(chart: &crate::game::chart::ChartData) -> ChartInfo {
 fn player_state_from(p: &crate::game::stage_stats::PlayerStageSummary) -> PlayerState {
     PlayerState {
         profile_name: p.profile_name.clone(),
-        // initials/groovestats_username aren't carried on the immutable
-        // stage summary; the live gameplay-tick path populates them.
+        // initials/groovestats_username/arrowcloud_user_id aren't carried
+        // on the immutable stage summary; the live gameplay-tick path
+        // populates them.
         initials: String::new(),
         groovestats_username: None,
+        arrowcloud_user_id: None,
         score_percent: p.score_percent,
         ex_score_percent: p.ex_score_percent,
         hard_ex_score_percent: p.hard_ex_score_percent,
@@ -413,6 +420,7 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
             let trimmed = profile.groovestats_username.trim();
             if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
         };
+        let ac_user_id = crate::game::scores::cached_arrowcloud_user_id_for_side(side);
         let score_fraction =
             crate::game::gameplay::display_itg_score_percent(state, player_idx);
         let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
@@ -429,6 +437,7 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
                 profile_name,
                 initials,
                 groovestats_username: gs_username,
+                arrowcloud_user_id: ac_user_id,
                 score_percent: score_fraction,
                 ex_score_percent: ex,
                 hard_ex_score_percent: hard_ex,

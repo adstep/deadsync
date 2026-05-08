@@ -3010,6 +3010,9 @@ fn arrowcloud_entry_user_id(entry: &ArrowCloudLeaderboardEntry) -> Option<&str> 
 
 fn arrowcloud_user_context_from_api(user: ArrowCloudUserApiUser) -> ArrowCloudUserContext {
     let self_user_id = (!user.id.trim().is_empty()).then_some(user.id);
+    if let Some(id) = self_user_id.as_ref() {
+        cache_arrowcloud_user_id_for_current_keys(id);
+    }
     let rival_user_ids = user
         .rival_user_ids
         .into_iter()
@@ -3020,6 +3023,42 @@ fn arrowcloud_user_context_from_api(user: ArrowCloudUserApiUser) -> ArrowCloudUs
         self_user_id,
         rival_user_ids,
     }
+}
+
+/// Cache of (ArrowCloud API key trimmed) -> resolved user UUID, populated
+/// whenever a successful `/user` call returns. Lets the telemetry feed
+/// expose `players[].arrowcloud_user_id` without doing its own request,
+/// and without changing existing call sites that don't know which side
+/// their `api_key` belongs to.
+static ARROWCLOUD_USER_ID_CACHE: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cache_arrowcloud_user_id_for_current_keys(user_id: &str) {
+    let trimmed = user_id.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    // Map both player profiles' API keys -> this UUID. Cheap and
+    // covers every case (active profile changes, both sides linked,
+    // shared key, etc.).
+    let mut cache = ARROWCLOUD_USER_ID_CACHE.lock().unwrap();
+    for side in [profile::PlayerSide::P1, profile::PlayerSide::P2] {
+        let key = profile::get_for_side(side).arrowcloud_api_key.trim().to_string();
+        if !key.is_empty() {
+            cache.insert(key, trimmed.to_string());
+        }
+    }
+}
+
+/// Look up the cached ArrowCloud user UUID for a player. Returns `None`
+/// if the player has no AC API key set or if no `/user` call has
+/// returned yet. Cheap (single map lookup); safe to call from telemetry.
+pub fn cached_arrowcloud_user_id_for_side(side: profile::PlayerSide) -> Option<String> {
+    let key = profile::get_for_side(side).arrowcloud_api_key.trim().to_string();
+    if key.is_empty() {
+        return None;
+    }
+    ARROWCLOUD_USER_ID_CACHE.lock().unwrap().get(&key).cloned()
 }
 
 #[inline(always)]

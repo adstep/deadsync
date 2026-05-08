@@ -290,6 +290,7 @@ clients are dropped silently.
     { "profile_name": "...",
       "initials": "AAA",                  // 3-letter ITG arcade abbreviation
       "groovestats_username": "pnn",      // null when not linked
+      "arrowcloud_user_id": "a5dd627d-c5c7-47a7-99b2-854dbb80bfe7", // null until AC /user fetch resolves
       "score_percent": 0.9512,
       "ex_score_percent": 0.91, "hard_ex_score_percent": 0.86,
       "grade": "Tier03", "disqualified": false,
