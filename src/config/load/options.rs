@@ -316,6 +316,11 @@ fn load_audio_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
         .get("Telemetry", "BindAddress")
         .and_then(|v| TelemetryBind::from_str(&v).ok())
         .unwrap_or(default.telemetry_bind);
+    let machine_id = conf
+        .get("Telemetry", "MachineId")
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    super::runtime::set_telemetry_machine_id(machine_id);
 }
 
 fn load_select_music_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {

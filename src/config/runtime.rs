@@ -23,6 +23,8 @@ pub(super) static MACHINE_DEFAULT_NOTESKIN: std::sync::LazyLock<Mutex<String>> =
     std::sync::LazyLock::new(|| Mutex::new(DEFAULT_MACHINE_NOTESKIN.to_string()));
 pub(super) static ADDITIONAL_SONG_FOLDERS: std::sync::LazyLock<Mutex<String>> =
     std::sync::LazyLock::new(|| Mutex::new(String::new()));
+pub(super) static TELEMETRY_MACHINE_ID: std::sync::LazyLock<Mutex<String>> =
+    std::sync::LazyLock::new(|| Mutex::new(String::new()));
 static SAVE_TX: std::sync::LazyLock<Option<mpsc::Sender<SaveReq>>> =
     std::sync::LazyLock::new(start_save_worker);
 
@@ -217,4 +219,12 @@ pub fn machine_default_noteskin() -> String {
 
 pub fn additional_song_folders() -> String {
     ADDITIONAL_SONG_FOLDERS.lock().unwrap().clone()
+}
+
+pub fn telemetry_machine_id() -> String {
+    TELEMETRY_MACHINE_ID.lock().unwrap().clone()
+}
+
+pub(super) fn set_telemetry_machine_id(value: String) {
+    *TELEMETRY_MACHINE_ID.lock().unwrap() = value;
 }

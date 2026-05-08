@@ -226,6 +226,7 @@ Enabled=1
 WriteStateFile=1            ; writes <data dir>/telemetry/state.json + nowplaying.txt
 WebSocketPort=8765          ; 0 disables; non-zero binds the WebSocket server
 BindAddress=Loopback        ; Loopback (default, same machine only) or Lan (any host on the network)
+MachineId=                  ; optional; identifies this PC in aggregated multi-cab feeds
 ```
 
 Both backends are off by default. The WebSocket server defaults to
@@ -272,9 +273,12 @@ clients are dropped silently.
   "schema_version": 1,
   "timestamp_ms": 1731110400123,
   "screen": "ScreenSelectMusic",          // matches save/current_screen.txt
+  "machine_id": "p1-cab-left",            // from [Telemetry] MachineId; empty when unset
   "song": {
     "title": "...", "subtitle": "...", "artist": "...", "pack": "...",
-    "display_bpm": "150", "music_length_seconds": 124.5,
+    "display_bpm": "150",
+    "music_length_seconds": 124.5,        // audio file length, includes trailing silence
+    "chart_length_seconds": 118.7,        // last note in the active chart — use this for progress bars
     "banner_path": null, "background_path": null
   },
   "chart": {
@@ -286,8 +290,14 @@ clients are dropped silently.
     { "profile_name": "...", "score_percent": 0.9512,
       "ex_score_percent": 0.91, "hard_ex_score_percent": 0.86,
       "grade": "Tier03", "disqualified": false,
+      "combo": 412,
+      "modifiers": ["Mirror", "1.20x"],   // small badge tags; empty when none active
+      "personal_best": {                  // null per metric when no prior score / cache not loaded
+        "itg": 0.9412, "ex": 0.9128, "hard_ex": null
+      },
       "judgments": { "w0": 0, "w1": 412, "w2": 19, "w3": 4, "w4": 1, "w5": 0, "miss": 2 } }
   ],
+  "elapsed_seconds": 42.3,                // current music time during gameplay; null otherwise
   "music_rate": 1.0
 }
 ```

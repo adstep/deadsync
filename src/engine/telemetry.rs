@@ -79,6 +79,9 @@ pub struct TelemetryConfig {
     /// the network — only safe on a trusted LAN. There is no auth, so
     /// never expose this to the open internet.
     pub bind_address: String,
+    /// Identifier for this game PC. Empty when unset. Lets a single
+    /// broadcaster aggregator multiplex multiple cabinets keyed by ID.
+    pub machine_id: String,
     /// Settle window for `Song` updates. `0` disables debouncing entirely
     /// and emits every focus change immediately.
     pub song_debounce: Duration,
@@ -91,6 +94,7 @@ impl Default for TelemetryConfig {
             write_state_file: true,
             websocket_port: 0,
             bind_address: DEFAULT_BIND_ADDR.to_string(),
+            machine_id: String::new(),
             song_debounce: DEFAULT_SONG_DEBOUNCE,
         }
     }
@@ -114,7 +118,12 @@ pub struct GameStateSnapshot {
     pub chart: Option<ChartInfo>,
     /// Per-side player state. `None` for unused player slots.
     pub players: Vec<Option<PlayerState>>,
+    pub elapsed_seconds: Option<f32>,
     pub music_rate: Option<f32>,
+    /// Identifier for this game PC, configured via `[Telemetry] MachineId=`.
+    /// Empty when unset. Lets a single broadcaster aggregator multiplex
+    /// multiple cabinets keyed by ID.
+    pub machine_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -124,7 +133,14 @@ pub struct SongInfo {
     pub artist: String,
     pub pack: String,
     pub display_bpm: String,
+    /// Length of the underlying audio file, including any trailing
+    /// silence. Use [`SongInfo::chart_length_seconds`] for progress bars
+    /// — overlays want the chart end, not the music end.
     pub music_length_seconds: f32,
+    /// Time of the last note in the active chart (in seconds, after
+    /// `music_rate`). Match the in-game gameplay timer. `0.0` when no
+    /// chart is loaded.
+    pub chart_length_seconds: f32,
     pub banner_path: Option<String>,
     pub background_path: Option<String>,
 }
@@ -148,7 +164,23 @@ pub struct PlayerState {
     pub hard_ex_score_percent: f64,
     pub grade: String,
     pub disqualified: bool,
+    pub combo: u32,
+    /// Active modifier tags as short strings (e.g. `"Mirror"`, `"Replay"`,
+    /// `"1.50x"`). Empty when no notable modifiers are active. Tournament
+    /// overlays render these as small badge chips next to the player.
+    pub modifiers: Vec<String>,
+    /// Personal best per scoring metric. `None` for any metric the
+    /// player has no prior score on, or when the leaderboard cache
+    /// hasn't been populated yet.
+    pub personal_best: PersonalBest,
     pub judgments: JudgmentCounts,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct PersonalBest {
+    pub itg: Option<f64>,
+    pub ex: Option<f64>,
+    pub hard_ex: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -185,6 +217,9 @@ pub enum Update {
     Player { side: usize, state: Option<PlayerState> },
     /// Wipe all per-player state (e.g. when leaving evaluation).
     ClearPlayers,
+    /// Current music time in seconds (gameplay progress). `None` outside
+    /// of gameplay.
+    Elapsed(Option<f32>),
 }
 
 /* ---------------- Convenience builders ---------------- */
@@ -257,6 +292,7 @@ fn song_info_from(song: &crate::game::song::SongData) -> SongInfo {
         pack: pack_name_from_path(&song.simfile_path),
         display_bpm: song.display_bpm.clone(),
         music_length_seconds: song.music_length_seconds,
+        chart_length_seconds: song.precise_last_second_seconds,
         banner_path: song
             .banner_path
             .as_ref()
@@ -286,6 +322,12 @@ fn player_state_from(p: &crate::game::stage_stats::PlayerStageSummary) -> Player
         hard_ex_score_percent: p.hard_ex_score_percent,
         grade: grade_name(p.grade),
         disqualified: p.disqualified,
+        // Live combo / modifiers / personal_best aren't part of the
+        // immutable stage summary; fill in defaults here. The
+        // gameplay-tick path populates them with live data.
+        combo: 0,
+        modifiers: Vec::new(),
+        personal_best: PersonalBest::default(),
         judgments: JudgmentCounts {
             w0: p.window_counts.w0,
             w1: p.window_counts.w1,
@@ -348,10 +390,14 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
         *last = Some(now);
     }
 
+    publish(Update::Elapsed(Some(state.current_music_time_display)));
+
     use crate::game::profile::PlayerSide;
     for player_idx in 0..state.num_players.min(crate::game::gameplay::MAX_PLAYERS) {
+        let runtime = &state.players[player_idx];
         let side = if player_idx == 0 { PlayerSide::P1 } else { PlayerSide::P2 };
-        let profile_name = crate::game::profile::get_for_side(side).display_name;
+        let profile = crate::game::profile::get_for_side(side);
+        let profile_name = profile.display_name.clone();
         let score_fraction =
             crate::game::gameplay::display_itg_score_percent(state, player_idx);
         let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
@@ -363,6 +409,10 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
         // Note: we always publish these regardless of the player's
         // in-game show/hide settings — broadcasters need full data.
         let counts = crate::game::gameplay::display_window_counts(state, player_idx, None);
+        let modifiers = build_modifiers(state, &profile);
+        let personal_best = personal_best_from(
+            crate::game::gameplay::scorebox_snapshot_for_side(state, side),
+        );
         publish(Update::Player {
             side: player_idx,
             state: Some(PlayerState {
@@ -372,6 +422,9 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
                 hard_ex_score_percent: hard_ex,
                 grade: grade_name(grade),
                 disqualified: false,
+                combo: runtime.combo,
+                modifiers,
+                personal_best,
                 judgments: JudgmentCounts {
                     w0: counts.w0,
                     w1: counts.w1,
@@ -384,6 +437,64 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
             }),
         });
     }
+}
+
+/// Build the modifier badge list for a player. Kept intentionally small:
+/// only modifiers a stream viewer would care about (turn / scroll
+/// mirroring, music rate when ≠ 1.0, replay/autoplay flags). Other
+/// player-options exist but are mostly cosmetic.
+fn build_modifiers(
+    state: &crate::game::gameplay::State,
+    profile: &crate::game::profile::Profile,
+) -> Vec<String> {
+    use crate::game::profile::TurnOption;
+    let mut out: Vec<String> = Vec::new();
+
+    match profile.turn_option {
+        TurnOption::None => {}
+        other => out.push(other.to_string()),
+    }
+    if profile.reverse_scroll {
+        out.push("Reverse".into());
+    }
+    if state.music_rate.is_finite() && (state.music_rate - 1.0).abs() > f32::EPSILON {
+        out.push(format!("{:.2}x", state.music_rate));
+    }
+    if state.is_replay() {
+        out.push("Replay".into());
+    } else if state.autoplay_enabled {
+        out.push("Autoplay".into());
+    }
+    out
+}
+
+/// Pull the player's personal-best score per metric out of the
+/// scorebox leaderboard cache. Returns all-`None` when the cache hasn't
+/// loaded yet or the player hasn't played the chart before.
+fn personal_best_from(
+    snapshot: Option<&crate::game::scores::CachedPlayerLeaderboardData>,
+) -> PersonalBest {
+    let Some(snapshot) = snapshot else {
+        return PersonalBest::default();
+    };
+    let Some(data) = snapshot.data.as_ref() else {
+        return PersonalBest::default();
+    };
+    let mut out = PersonalBest::default();
+    for pane in &data.panes {
+        let self_score = pane.entries.iter().find(|e| e.is_self).map(|e| e.score / 10000.0);
+        let Some(score) = self_score else { continue };
+        if pane.is_groovestats() {
+            if pane.is_ex {
+                out.ex.get_or_insert(score);
+            } else {
+                out.itg.get_or_insert(score);
+            }
+        } else if pane.is_hard_ex() {
+            out.hard_ex.get_or_insert(score);
+        }
+    }
+    out
 }
 
 /// Throttle for [`publish_gameplay_tick`]. Live overlays don't need more
@@ -481,6 +592,7 @@ fn publisher_loop(
 ) {
     let mut snapshot = GameStateSnapshot {
         schema_version: SCHEMA_VERSION,
+        machine_id: cfg.machine_id.clone(),
         ..Default::default()
     };
     let mut sockets: Vec<WebSocket<TcpStream>> = Vec::new();
@@ -563,6 +675,11 @@ fn apply_update(snapshot: &mut GameStateSnapshot, update: Update) {
     match update {
         Update::Screen(screen) => {
             snapshot.screen = screen.current_screen_file_name().to_string();
+            // Leaving gameplay: discard live elapsed time so consumers
+            // don't see a stale value persist across screens.
+            if !matches!(screen, crate::screens::Screen::Gameplay) {
+                snapshot.elapsed_seconds = None;
+            }
         }
         Update::Song { song, chart, music_rate } => {
             snapshot.song = song;
@@ -579,6 +696,9 @@ fn apply_update(snapshot: &mut GameStateSnapshot, update: Update) {
         }
         Update::ClearPlayers => {
             snapshot.players.clear();
+        }
+        Update::Elapsed(seconds) => {
+            snapshot.elapsed_seconds = seconds;
         }
     }
 }

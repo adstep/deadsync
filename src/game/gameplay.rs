@@ -3638,7 +3638,6 @@ pub struct State {
     pub hold_judgments: [Option<HoldJudgmentRenderInfo>; MAX_COLS],
     pub is_in_freeze: bool,
     pub is_in_delay: bool,
-
     pub possible_grade_points: [i32; MAX_PLAYERS],
     pub song_completed_naturally: bool,
     pub autoplay_enabled: bool,
@@ -3807,6 +3806,14 @@ impl State {
                 acc
             },
         )
+    }
+
+    /// True when the run is replaying a recorded performance rather than
+    /// taking live input. Combined with `autoplay_enabled`, lets external
+    /// telemetry consumers distinguish replay/autoplay runs from live ones.
+    #[inline(always)]
+    pub fn is_replay(&self) -> bool {
+        self.replay_mode
     }
 }
 

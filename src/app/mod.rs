@@ -7775,6 +7775,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             write_state_file: config.telemetry_write_state_file,
             websocket_port: config.telemetry_websocket_port,
             bind_address: config.telemetry_bind.bind_address().to_string(),
+            machine_id: config::telemetry_machine_id(),
             ..Default::default()
         },
         dirs::app_dirs(),

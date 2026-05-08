@@ -266,6 +266,7 @@ fn push_default_options(content: &mut String, default: &Config) {
     push_bool(content, "WriteStateFile", default.telemetry_write_state_file);
     push_line(content, "WebSocketPort", default.telemetry_websocket_port);
     push_line(content, "BindAddress", default.telemetry_bind.as_str());
+    push_line(content, "MachineId", "");
     content.push('\n');
 }
 
