@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <!--
-  DeadSync live state — VERSUS overlay.
+  DeadSync live state — VERSUS overlay (center-column layout).
 
-  Side-by-side score comparison overlay for tournament/versus
-  broadcasts. Both players' state is always published regardless of
-  each player's in-game show/hide preferences, so the broadcast can
-  show full information either way.
+  Mirrors the in-game StepStatistics center column at the dead center
+  of the screen so the OBS overlay opaquely covers the in-game version
+  rather than displaying the same numbers in two places. Designed to
+  be layered on top of a full-screen game capture in OBS at 1920x1080.
 
-  URL parameters (append to the OBS Browser Source URL):
+  Source size in OBS:
+    Browser source 1920 x 1080 (or your stream resolution)
+    Custom CSS:   body { background: rgba(0,0,0,0); }
+
+  URL parameters:
     ?host=10.0.0.11   game-PC host (default 127.0.0.1)
     ?port=8765        telemetry port (default 8765)
-    ?metric=itg       which score type to compare:
-                        itg     - ITG % (default)
-                        ex      - EX %
-                        hardex  - Hard EX %
-
-  Recommended OBS source size: 1280 x 220.
+    ?token=...        when [Telemetry] Token is set on the game PC
+    ?metric=itg|ex|hardex   compare metric (default itg)
 -->
 <html lang="en">
 <head>
@@ -23,7 +23,8 @@
   <title>DeadSync — Versus</title>
   <style>
     :root {
-      --bg-card: rgba(0, 0, 0, 0.55);
+      --bg-card: rgba(0, 0, 0, 0.62);
+      --bg-center: rgba(0, 0, 0, 0.95);
       --fg: #f5f5f5;
       --muted: #9aa0a6;
       --p1: #4ea8ff;
@@ -31,85 +32,77 @@
       --neutral: #888;
       --good: #6cd36c;
       --bad: #ff7f7f;
+      --w0: #80e0ff;
+      --w1: #f5f5f5;
+      --w2: #ffd166;
+      --w3: #6cd36c;
+      --w4: #d28aff;
+      --w5: #ff8c4a;
+      --miss: #ff5555;
     }
     html, body {
       margin: 0;
       padding: 0;
+      height: 100%;
       background: transparent;
       color: var(--fg);
       font: 16px/1.2 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
+    body {
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
     .stage {
-      box-sizing: border-box;
-      width: 100%;
-      max-width: 1280px;
-      padding: 14px 18px 8px 18px;
-      background: var(--bg-card);
-      border-radius: 14px;
-      backdrop-filter: blur(8px);
-    }
-    .row {
       display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      align-items: center;
-      gap: 18px;
+      grid-template-columns: 280px 220px 280px;
+      align-items: stretch;
+      width: 100%;
+      max-width: 100vw;
+      height: 100vh;
+      pointer-events: none;
     }
+    /* Side panels: identity only, transparent except the small card. */
     .panel {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      min-width: 0;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 14px;
+      background: var(--bg-card);
+      backdrop-filter: blur(8px);
+      max-height: 50vh;
+      align-self: center;
     }
-    .panel.right { text-align: right; align-items: flex-end; }
+    .panel.left { border-radius: 0 12px 12px 0; }
+    .panel.right { border-radius: 12px 0 0 12px; text-align: right; align-items: flex-end; }
     .name {
-      font-size: 20px;
-      font-weight: 700;
+      font-size: 22px;
+      font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 100%;
     }
     .name.p1 { color: var(--p1); }
     .name.p2 { color: var(--p2); }
-    .score {
-      font-size: 38px;
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.02em;
-    }
     .grade {
       font-size: 12px;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       color: var(--muted);
       text-transform: uppercase;
     }
     .grade.pulse { animation: grade-pulse 700ms ease-out; }
     @keyframes grade-pulse {
       0%   { transform: scale(1); }
-      40%  { transform: scale(1.4); color: #fff; text-shadow: 0 0 16px var(--accent, #fff); }
+      40%  { transform: scale(1.5); color: #fff; text-shadow: 0 0 14px var(--neutral); }
       100% { transform: scale(1); }
     }
-    .judgments {
-      font-size: 12px;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-      display: flex;
-      gap: 10px;
-    }
-    .panel.right .judgments { justify-content: flex-end; }
-    .judgments .miss { color: var(--bad); font-weight: 600; }
-    .judgments .miss.flash { animation: miss-flash 800ms ease-out; }
-    @keyframes miss-flash {
-      0%   { transform: scale(1); color: var(--bad); }
-      30%  { transform: scale(1.5); color: #fff; text-shadow: 0 0 12px var(--bad); }
-      100% { transform: scale(1); color: var(--bad); }
-    }
-    .judgments .w0 { color: #80e0ff; font-weight: 600; }
     .modifiers {
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
       font-size: 11px;
-      margin-top: 2px;
     }
     .panel.right .modifiers { justify-content: flex-end; }
     .modifier-chip {
@@ -121,43 +114,120 @@
     .pb-delta {
       font-size: 11px;
       font-variant-numeric: tabular-nums;
-      margin-top: 2px;
       color: var(--muted);
     }
     .pb-delta .positive { color: var(--good); font-weight: 600; }
     .pb-delta .negative { color: var(--bad); }
+
+    /* Center column: opaque, full height, covers the in-game center column. */
     .center {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      min-width: 280px;
+      align-items: stretch;
+      background: var(--bg-center);
+      padding: 16px 8px 8px 8px;
+      box-shadow: 0 0 24px rgba(0, 0, 0, 0.4);
     }
-    .delta {
-      font-size: 18px;
-      font-weight: 700;
+    .scores-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      align-items: end;
+      margin-bottom: 4px;
+    }
+    .score {
+      font-size: 26px;
+      font-weight: 800;
       font-variant-numeric: tabular-nums;
-      margin-bottom: 6px;
-      min-height: 22px;
+      letter-spacing: -0.02em;
+      line-height: 1;
     }
-    .delta.p1 { color: var(--p1); }
-    .delta.p2 { color: var(--p2); }
-    .delta.tied { color: var(--neutral); }
+    .score.p1 { text-align: right; color: var(--p1); }
+    .score.p2 { text-align: left;  color: var(--p2); }
+    .metric-label {
+      grid-column: 1 / span 2;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 2px;
+    }
+
+    /* Judgment stack: P1 count | LABEL | P2 count, one row per window. */
+    .judgments {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .jrow {
+      display: grid;
+      grid-template-columns: 1fr 56px 1fr;
+      align-items: baseline;
+      font-variant-numeric: tabular-nums;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .jrow .lbl {
+      text-align: center;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .jrow .p1c { text-align: right; padding-right: 8px; }
+    .jrow .p2c { text-align: left;  padding-left: 8px; }
+    .jrow.w0 .lbl, .jrow.w0 .p1c, .jrow.w0 .p2c { color: var(--w0); }
+    .jrow.w1 .lbl, .jrow.w1 .p1c, .jrow.w1 .p2c { color: var(--w1); }
+    .jrow.w2 .lbl, .jrow.w2 .p1c, .jrow.w2 .p2c { color: var(--w2); }
+    .jrow.w3 .lbl, .jrow.w3 .p1c, .jrow.w3 .p2c { color: var(--w3); }
+    .jrow.w4 .lbl, .jrow.w4 .p1c, .jrow.w4 .p2c { color: var(--w4); }
+    .jrow.w5 .lbl, .jrow.w5 .p1c, .jrow.w5 .p2c { color: var(--w5); }
+    .jrow.miss .lbl, .jrow.miss .p1c, .jrow.miss .p2c { color: var(--miss); }
+    .jrow .flash { animation: miss-flash 800ms ease-out; }
+    @keyframes miss-flash {
+      0%   { transform: scale(1); }
+      30%  { transform: scale(1.4); color: #fff; text-shadow: 0 0 12px var(--miss); }
+      100% { transform: scale(1); }
+    }
+
+    /* Lead bar + change indicator. */
+    .lead-block {
+      margin-top: auto;
+      padding-top: 8px;
+    }
     .lead-change {
       font-size: 11px;
       min-height: 14px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       color: var(--muted);
       font-variant-numeric: tabular-nums;
+      text-align: center;
       transition: opacity 400ms ease-out;
     }
     .lead-change.p1 { color: var(--p1); }
     .lead-change.p2 { color: var(--p2); }
     .lead-change.fade { opacity: 0; }
+    .delta {
+      font-size: 14px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      min-height: 18px;
+      margin-bottom: 4px;
+    }
+    .delta.p1 { color: var(--p1); }
+    .delta.p2 { color: var(--p2); }
+    .delta.tied { color: var(--neutral); }
     .h2h {
       width: 100%;
-      height: 14px;
+      height: 10px;
       background: rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
+      border-radius: 6px;
       position: relative;
       overflow: hidden;
     }
@@ -169,18 +239,11 @@
     }
     .h2h .fill.p1 { left: 0; background: linear-gradient(90deg, transparent, var(--p1)); }
     .h2h .fill.p2 { right: 0; background: linear-gradient(270deg, transparent, var(--p2)); }
-    .metric-label {
-      margin-top: 6px;
-      font-size: 11px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
     .progress {
-      margin-top: 10px;
+      margin-top: 6px;
       width: 100%;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.08);
+      height: 3px;
+      background: rgba(255, 255, 255, 0.06);
       border-radius: 2px;
       overflow: hidden;
     }
@@ -207,34 +270,37 @@
 <body>
   <div id="status" class="status">connecting…</div>
   <div class="stage">
-    <div class="row">
-      <div id="p1" class="panel left empty">
-        <div class="name p1" id="p1-name">P1</div>
-        <div class="score" id="p1-score">--.--%</div>
-        <div class="grade" id="p1-grade"></div>
-        <div class="judgments" id="p1-judgments"></div>
-        <div class="modifiers" id="p1-modifiers"></div>
-        <div class="pb-delta" id="p1-pb"></div>
+    <div id="p1" class="panel left empty">
+      <div class="name p1" id="p1-name">P1</div>
+      <div class="grade" id="p1-grade"></div>
+      <div class="modifiers" id="p1-modifiers"></div>
+      <div class="pb-delta" id="p1-pb"></div>
+    </div>
+
+    <div class="center">
+      <div class="scores-row">
+        <div class="score p1" id="p1-score">--.--%</div>
+        <div class="score p2" id="p2-score">--.--%</div>
+        <div class="metric-label" id="metric-label">ITG %</div>
       </div>
-      <div class="center">
+      <div class="judgments" id="judgments"></div>
+      <div class="lead-block">
         <div id="lead-change" class="lead-change fade"></div>
         <div id="delta" class="delta tied">tied</div>
         <div class="h2h">
           <div id="h2h-p1" class="fill p1" style="width: 50%;"></div>
           <div id="h2h-p2" class="fill p2" style="width: 50%;"></div>
         </div>
-        <div class="metric-label" id="metric-label">ITG %</div>
-      </div>
-      <div id="p2" class="panel right empty">
-        <div class="name p2" id="p2-name">P2</div>
-        <div class="score" id="p2-score">--.--%</div>
-        <div class="grade" id="p2-grade"></div>
-        <div class="judgments" id="p2-judgments"></div>
-        <div class="modifiers" id="p2-modifiers"></div>
-        <div class="pb-delta" id="p2-pb"></div>
+        <div id="progress" class="progress hidden"><div id="progress-fill" class="fill"></div></div>
       </div>
     </div>
-    <div id="progress" class="progress hidden"><div id="progress-fill" class="fill"></div></div>
+
+    <div id="p2" class="panel right empty">
+      <div class="name p2" id="p2-name">P2</div>
+      <div class="grade" id="p2-grade"></div>
+      <div class="modifiers" id="p2-modifiers"></div>
+      <div class="pb-delta" id="p2-pb"></div>
+    </div>
   </div>
 
   <script>
@@ -253,7 +319,19 @@
     const cfg = METRICS[metric] || METRICS.itg;
     document.getElementById('metric-label').textContent = cfg.label;
 
-    // Grade ranking (low -> high) for grade-up pulse detection.
+    // Match the in-game judgment stack ordering: W0..W5 + Miss.
+    // W0 only renders when at least one player has FA+ counts > 0; the row
+    // is hidden otherwise to match what most casts show.
+    const ROWS = [
+      { key: 'w0', label: 'F+' },
+      { key: 'w1', label: 'F'  },
+      { key: 'w2', label: 'EX' },
+      { key: 'w3', label: 'GR' },
+      { key: 'w4', label: 'DC' },
+      { key: 'w5', label: 'WO' },
+      { key: 'miss', label: 'M' },
+    ];
+
     const GRADE_ORDER = [
       'Failed', 'Tier17', 'Tier16', 'Tier15', 'Tier14', 'Tier13', 'Tier12',
       'Tier11', 'Tier10', 'Tier09', 'Tier08', 'Tier07', 'Tier06', 'Tier05',
@@ -267,20 +345,6 @@
     const url = `ws://${host}:${port}${tokenSuffix}`;
     const $ = (id) => document.getElementById(id);
     const fmtPct = (x) => (x * 100).toFixed(2) + '%';
-
-    function judgmentLine(j) {
-      if (!j) return '';
-      const parts = [];
-      if (j.w0) parts.push(`<span class="w0">${j.w0}</span>`);
-      parts.push(`${j.w1 || 0}`);
-      parts.push(`${j.w2 || 0}`);
-      parts.push(`${j.w3 || 0}`);
-      if (j.w4) parts.push(`${j.w4}`);
-      if (j.w5) parts.push(`${j.w5}`);
-      // Always render a miss element so we can flash it when count goes 0->n.
-      parts.push(`<span class="miss" data-count="${j.miss || 0}">${j.miss || 0} miss</span>`);
-      return parts.join(' / ');
-    }
 
     function modifierChips(mods) {
       if (!mods || !mods.length) return '';
@@ -301,46 +365,25 @@
     // Per-side previous values for combo-break / grade-up detection.
     const prev = { p1: { miss: 0, grade: null }, p2: { miss: 0, grade: null } };
 
-    function renderSide(sideKey, player) {
+    function renderSidePanel(sideKey, player) {
       const panel = $(sideKey);
       const name = $(`${sideKey}-name`);
-      const score = $(`${sideKey}-score`);
-      const jud = $(`${sideKey}-judgments`);
       const grade = $(`${sideKey}-grade`);
       const mods = $(`${sideKey}-modifiers`);
       const pb = $(`${sideKey}-pb`);
 
       if (!player) {
         panel.classList.add('empty');
-        score.textContent = '--.--%';
-        jud.innerHTML = '';
+        name.textContent = sideKey.toUpperCase();
         grade.textContent = '';
         mods.innerHTML = '';
         pb.innerHTML = '';
-        return null;
+        return;
       }
       panel.classList.remove('empty');
       name.textContent = player.profile_name || sideKey.toUpperCase();
-      const value = Number(player[cfg.field]) || 0;
-      score.textContent = fmtPct(value);
-      jud.innerHTML = judgmentLine(player.judgments);
 
-      // Combo-break flash: if miss went 0 -> any, flash the miss element.
       const pState = prev[sideKey];
-      const newMiss = (player.judgments && player.judgments.miss) || 0;
-      if (pState.miss === 0 && newMiss > 0) {
-        const missEl = jud.querySelector('.miss');
-        if (missEl) {
-          // Re-trigger by removing then adding the class on next frame.
-          missEl.classList.remove('flash');
-          // eslint-disable-next-line no-void
-          void missEl.offsetWidth;
-          missEl.classList.add('flash');
-        }
-      }
-      pState.miss = newMiss;
-
-      // Grade-up pulse.
       const newGrade = player.grade || null;
       if (pState.grade && newGrade && gradeIdx(newGrade) > gradeIdx(pState.grade)) {
         grade.classList.remove('pulse');
@@ -349,30 +392,90 @@
         grade.classList.add('pulse');
       }
       grade.textContent = newGrade || '';
-      pState.grade = newGrade;
 
       mods.innerHTML = modifierChips(player.modifiers);
       pb.innerHTML = pbLine(player);
+    }
+
+    function renderScore(sideKey, player) {
+      const el = $(`${sideKey}-score`);
+      if (!player) {
+        el.textContent = '--.--%';
+        el.classList.add('faded');
+        return null;
+      }
+      el.classList.remove('faded');
+      const value = Number(player[cfg.field]) || 0;
+      el.textContent = fmtPct(value);
       return value;
     }
 
-    // Sliding-window lead delta tracker. Holds (timestamp, p1Score-p2Score)
-    // samples for the last LEAD_WINDOW_MS milliseconds; the printed value
-    // is the change in (p1-p2) from the oldest in-window sample to now.
+    // Build / update the judgment stack centered between the two players.
+    function renderJudgments(p1, p2) {
+      const container = $('judgments');
+      const p1j = (p1 && p1.judgments) || {};
+      const p2j = (p2 && p2.judgments) || {};
+
+      // Hide the W0 row unless someone has a count there (only relevant
+      // for FA+ casts).
+      const showW0 = (p1j.w0 || 0) > 0 || (p2j.w0 || 0) > 0;
+
+      // Lazy-build the rows once.
+      if (container.childElementCount !== ROWS.length) {
+        container.innerHTML = '';
+        for (const row of ROWS) {
+          const div = document.createElement('div');
+          div.className = `jrow ${row.key}`;
+          div.innerHTML =
+            `<span class="p1c" data-key="${row.key}-p1">0</span>` +
+            `<span class="lbl">${row.label}</span>` +
+            `<span class="p2c" data-key="${row.key}-p2">0</span>`;
+          container.appendChild(div);
+        }
+      }
+
+      for (const row of ROWS) {
+        const rowEl = container.querySelector(`.jrow.${row.key}`);
+        rowEl.style.display = (row.key === 'w0' && !showW0) ? 'none' : '';
+        const p1c = rowEl.querySelector('.p1c');
+        const p2c = rowEl.querySelector('.p2c');
+        const p1v = (p1j[row.key] || 0);
+        const p2v = (p2j[row.key] || 0);
+        p1c.textContent = p1v;
+        p2c.textContent = p2v;
+      }
+
+      // Combo-break flash on miss going 0 -> n, both sides.
+      ['p1', 'p2'].forEach((sideKey) => {
+        const newMiss = (sideKey === 'p1' ? p1j.miss : p2j.miss) || 0;
+        const pState = prev[sideKey];
+        if (pState.miss === 0 && newMiss > 0) {
+          const cell = container.querySelector(`.jrow.miss .${sideKey}c`);
+          if (cell) {
+            cell.classList.remove('flash');
+            // eslint-disable-next-line no-void
+            void cell.offsetWidth;
+            cell.classList.add('flash');
+          }
+        }
+        pState.miss = newMiss;
+      });
+    }
+
+    // Sliding-window lead-change indicator.
     const LEAD_WINDOW_MS = 10_000;
     const leadSamples = [];
     let leadFadeTimer = 0;
     function updateLeadChange(diff) {
       const t = Date.now();
       leadSamples.push([t, diff]);
-      // Drop samples older than the window.
       while (leadSamples.length > 0 && t - leadSamples[0][0] > LEAD_WINDOW_MS) {
         leadSamples.shift();
       }
+      const el = $('lead-change');
       if (leadSamples.length < 2) return;
       const oldest = leadSamples[0][1];
-      const swing = diff - oldest; // positive => p1 gained relative to p2
-      const el = $('lead-change');
+      const swing = diff - oldest;
       if (Math.abs(swing) < 0.0005) {
         el.classList.add('fade');
         return;
@@ -387,15 +490,21 @@
 
     function leadToBias(delta) {
       const sign = Math.sign(delta);
-      const mag = Math.min(Math.abs(delta), 0.05) / 0.05; // saturate at 5%
+      const mag = Math.min(Math.abs(delta), 0.05) / 0.05;
       const eased = 1 - Math.pow(1 - mag, 3);
       return sign * eased;
     }
 
     function render(snapshot) {
       const players = Array.isArray(snapshot.players) ? snapshot.players : [];
-      const v1 = renderSide('p1', players[0]);
-      const v2 = renderSide('p2', players[1]);
+      const p1 = players[0] || null;
+      const p2 = players[1] || null;
+
+      renderSidePanel('p1', p1);
+      renderSidePanel('p2', p2);
+      const v1 = renderScore('p1', p1);
+      const v2 = renderScore('p2', p2);
+      renderJudgments(p1, p2);
 
       const delta = $('delta');
       const fillP1 = $('h2h-p1');
@@ -424,7 +533,6 @@
         updateLeadChange(diff);
       }
 
-      // Progress bar: prefer chart end (last note) over music length.
       const song = snapshot.song;
       const denom =
         (song && Number(song.chart_length_seconds)) ||
