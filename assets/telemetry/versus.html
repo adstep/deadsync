@@ -32,13 +32,16 @@
       --neutral: #888;
       --good: #6cd36c;
       --bad: #ff7f7f;
-      --w0: #80e0ff;
-      --w1: #f5f5f5;
-      --w2: #ffd166;
-      --w3: #6cd36c;
-      --w4: #d28aff;
-      --w5: #ff8c4a;
-      --miss: #ff5555;
+      /* Engine judgment palette — matches src/engine/present/color.rs
+         JUDGMENT_RGBA / JUDGMENT_DIM_RGBA. W0 is the FA+ inner-Fantastic
+         white, the rest follow the StepMania Simply Love convention. */
+      --w0:        #FFFFFF; --w0-dim:        #595959;
+      --w1:        #21CCE8; --w1-dim:        #0C4E59;
+      --w2:        #E29C18; --w2-dim:        #593D09;
+      --w3:        #66C955; --w3-dim:        #2D5925;
+      --w4:        #B45CFF; --w4-dim:        #3F2059;
+      --w5:        #C9855E; --w5-dim:        #593B29;
+      --miss:      #FF3030; --miss-dim:      #591010;
     }
     html, body {
       margin: 0;
@@ -196,17 +199,24 @@
     }
     .jrow .p1c { text-align: right; padding-right: 6px; }
     .jrow .p2c { text-align: left;  padding-left: 6px; }
-    /* Dim leading zeros + bright actual count, mirroring how the in-game
-       column prints e.g. "0034" with the "00" muted and "34" lit. */
-    .digits .dim    { opacity: 0.18; }
+    /* Per-row colors. Bright = engine JUDGMENT_RGBA, dim = engine
+       JUDGMENT_DIM_RGBA (proper darker per-row hue, not just an
+       opacity drop — matches the in-game Wendy column rendering). */
     .digits .bright { opacity: 1; }
-    .jrow.w0 .lbl, .jrow.w0 .p1c, .jrow.w0 .p2c { color: var(--w0); }
-    .jrow.w1 .lbl, .jrow.w1 .p1c, .jrow.w1 .p2c { color: var(--w1); }
-    .jrow.w2 .lbl, .jrow.w2 .p1c, .jrow.w2 .p2c { color: var(--w2); }
-    .jrow.w3 .lbl, .jrow.w3 .p1c, .jrow.w3 .p2c { color: var(--w3); }
-    .jrow.w4 .lbl, .jrow.w4 .p1c, .jrow.w4 .p2c { color: var(--w4); }
-    .jrow.w5 .lbl, .jrow.w5 .p1c, .jrow.w5 .p2c { color: var(--w5); }
-    .jrow.miss .lbl, .jrow.miss .p1c, .jrow.miss .p2c { color: var(--miss); }
+    .jrow.w0  .digits .dim    { color: var(--w0-dim); }
+    .jrow.w1  .digits .dim    { color: var(--w1-dim); }
+    .jrow.w2  .digits .dim    { color: var(--w2-dim); }
+    .jrow.w3  .digits .dim    { color: var(--w3-dim); }
+    .jrow.w4  .digits .dim    { color: var(--w4-dim); }
+    .jrow.w5  .digits .dim    { color: var(--w5-dim); }
+    .jrow.miss .digits .dim   { color: var(--miss-dim); }
+    .jrow.w0 .lbl, .jrow.w0 .p1c .bright, .jrow.w0 .p2c .bright { color: var(--w0); }
+    .jrow.w1 .lbl, .jrow.w1 .p1c .bright, .jrow.w1 .p2c .bright { color: var(--w1); }
+    .jrow.w2 .lbl, .jrow.w2 .p1c .bright, .jrow.w2 .p2c .bright { color: var(--w2); }
+    .jrow.w3 .lbl, .jrow.w3 .p1c .bright, .jrow.w3 .p2c .bright { color: var(--w3); }
+    .jrow.w4 .lbl, .jrow.w4 .p1c .bright, .jrow.w4 .p2c .bright { color: var(--w4); }
+    .jrow.w5 .lbl, .jrow.w5 .p1c .bright, .jrow.w5 .p2c .bright { color: var(--w5); }
+    .jrow.miss .lbl, .jrow.miss .p1c .bright, .jrow.miss .p2c .bright { color: var(--miss); }
     .jrow .flash { animation: miss-flash 800ms ease-out; }
     @keyframes miss-flash {
       0%   { transform: scale(1); }
