@@ -583,7 +583,166 @@
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 5000);
     }
-    connect();
+
+    /* ---------------- Demo mode ----------------
+       Open this file with ?demo=1 (or no host configured AND on file://)
+       to drive a synthetic stream of snapshots without a running
+       DeadSync. Useful for designing/testing the overlay locally; never
+       runs unless explicitly requested.
+
+       Simulates a 120-second song with both players' scores climbing,
+       lead handing back and forth, occasional misses (to trigger the
+       miss-flash), and grade upgrades crossing tier thresholds.
+    */
+    const demoExplicit = params.get('demo') === '1';
+    function startDemo() {
+      $('status').textContent = `DEMO · ${cfg.label}`;
+      $('status').className = 'status ok';
+
+      const SONG = {
+        title: 'Arcology On Permafrost',
+        subtitle: '',
+        artist: 'qishipai',
+        pack: 'Tournament Pack',
+        display_bpm: '180',
+        music_length_seconds: 124,
+        chart_length_seconds: 120,
+        banner_path: null,
+        background_path: null,
+      };
+      const CHART = {
+        id: 'demoaaaa',
+        difficulty: 'Challenge',
+        meter: 13,
+        step_artist: 'demo',
+        stepstype: 'dance-single',
+      };
+      const TIER_BREAKS = [
+        ['Quint', 1.001], ['Tier01', 1.0],   ['Tier02', 0.99], ['Tier03', 0.98],
+        ['Tier04', 0.96], ['Tier05', 0.94],  ['Tier06', 0.92], ['Tier07', 0.89],
+        ['Tier08', 0.86], ['Tier09', 0.83],  ['Tier10', 0.80], ['Tier11', 0.76],
+        ['Tier12', 0.72], ['Tier13', 0.68],  ['Tier14', 0.64], ['Tier15', 0.60],
+        ['Tier16', 0.55], ['Tier17', 0.0],
+      ];
+      function gradeFor(score) {
+        for (const [g, threshold] of TIER_BREAKS) {
+          if (score >= threshold) return g;
+        }
+        return 'Failed';
+      }
+
+      const players = [
+        { name: 'Tony',   ini: 'TNY', mods: ['Mirror'], target: 0.972 },
+        { name: 'Rynker', ini: 'RNK', mods: ['1.05x'],  target: 0.968 },
+      ];
+
+      let elapsed = 0;
+      const judgments = [
+        { w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, miss: 0 },
+        { w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, miss: 0 },
+      ];
+      let totalNotes = 1100; // pretend chart has ~1100 notes
+
+      function step() {
+        elapsed += 0.25;
+        if (elapsed > SONG.chart_length_seconds + 4) {
+          // Restart the song.
+          elapsed = 0;
+          for (let i = 0; i < 2; i++) {
+            judgments[i] = { w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, miss: 0 };
+          }
+        }
+
+        const progress = Math.max(0, Math.min(1, elapsed / SONG.chart_length_seconds));
+        for (let i = 0; i < 2; i++) {
+          // Tick a few notes per step, mostly Fantastic, occasionally drift.
+          const tick = 2 + Math.floor(Math.random() * 4);
+          for (let n = 0; n < tick; n++) {
+            const r = Math.random();
+            // Player target accuracy biases the random distribution.
+            const acc = players[i].target + (Math.random() - 0.5) * 0.04;
+            if (acc > 0.985 && r < 0.2)        judgments[i].w0  += 1;
+            else if (acc > 0.96 && r < 0.78)   judgments[i].w1  += 1;
+            else if (r < 0.90)                 judgments[i].w2  += 1;
+            else if (r < 0.97)                 judgments[i].w3  += 1;
+            else if (r < 0.99)                 judgments[i].w4  += 1;
+            else                               judgments[i].w5  += 1;
+          }
+          // Occasional miss — drives combo-break flash.
+          if (Math.random() < 0.012) judgments[i].miss += 1;
+        }
+
+        const players_state = [0, 1].map((i) => {
+          const j = judgments[i];
+          const judged = j.w0 + j.w1 + j.w2 + j.w3 + j.w4 + j.w5 + j.miss;
+          // Crude ITG % approximation: weighted average of windows.
+          const weighted =
+            j.w0 * 1.0 + j.w1 * 1.0 + j.w2 * 0.98 + j.w3 * 0.6 +
+            j.w4 * 0.2 + j.w5 * (-0.4) + j.miss * (-0.8);
+          const score = judged > 0 ? Math.max(0, weighted / judged) : 0;
+          // Slow swap: nudge each player toward their target.
+          const blended = score * 0.6 + players[i].target * 0.4;
+          return {
+            profile_name: players[i].name,
+            initials: players[i].ini,
+            groovestats_username: players[i].name.toLowerCase(),
+            arrowcloud_user_id: null,
+            score_percent: blended,
+            ex_score_percent: blended * 0.96,
+            hard_ex_score_percent: blended * 0.91,
+            grade: gradeFor(blended),
+            disqualified: false,
+            combo: judged - j.miss,
+            modifiers: players[i].mods,
+            personal_best: { itg: 0.965, ex: 0.92, hard_ex: 0.85 },
+            judgments: { ...j },
+          };
+        });
+
+        const snapshot = {
+          schema_version: 1,
+          timestamp_ms: Date.now(),
+          screen: 'ScreenGameplay',
+          machine_id: 'demo-cab',
+          song: SONG,
+          chart: CHART,
+          players: players_state,
+          elapsed_seconds: elapsed,
+          music_rate: 1.0,
+        };
+        render(snapshot);
+      }
+
+      step();
+      setInterval(step, 250);
+    }
+
+    // Decide between live and demo: explicit ?demo=1 wins; otherwise
+    // running over file:// with no ?host= and no telemetry server
+    // available falls back to demo automatically after the first
+    // failed connection so testing the overlay locally is one click.
+    if (demoExplicit) {
+      startDemo();
+    } else {
+      // Live mode: try connecting; on first hard failure with file://
+      // fall back to demo with a visible "DEMO" status so the file is
+      // still useful as a one-click preview.
+      const fallbackToDemo = location.protocol === 'file:' && !params.get('host');
+      let triedDemo = false;
+      const realScheduleReconnect = scheduleReconnect;
+      // Wrap scheduleReconnect to convert the first error into a demo
+      // when running off the local filesystem.
+      // eslint-disable-next-line no-func-assign
+      scheduleReconnect = function () {
+        if (fallbackToDemo && !triedDemo) {
+          triedDemo = true;
+          startDemo();
+          return;
+        }
+        realScheduleReconnect();
+      };
+      connect();
+    }
   </script>
 </body>
 </html>
