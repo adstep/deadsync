@@ -272,6 +272,47 @@ pub struct Config {
     /// Live state telemetry: bind a local WebSocket server to `127.0.0.1:<port>`.
     /// `0` disables the WebSocket backend.
     pub telemetry_websocket_port: u16,
+    /// Live state telemetry: which interfaces the WebSocket server binds.
+    /// Defaults to loopback only.
+    pub telemetry_bind: TelemetryBind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelemetryBind {
+    /// Bind to `127.0.0.1` only — telemetry is reachable from the same
+    /// machine. Default.
+    Loopback,
+    /// Bind to `0.0.0.0` — telemetry is reachable from any host on the
+    /// network. There is no auth; only safe on a trusted LAN.
+    Lan,
+}
+
+impl TelemetryBind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loopback => "Loopback",
+            Self::Lan => "Lan",
+        }
+    }
+
+    pub const fn bind_address(self) -> &'static str {
+        match self {
+            Self::Loopback => "127.0.0.1",
+            Self::Lan => "0.0.0.0",
+        }
+    }
+}
+
+impl FromStr for TelemetryBind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "loopback" | "127.0.0.1" | "localhost" => Ok(Self::Loopback),
+            "lan" | "0.0.0.0" | "all" => Ok(Self::Lan),
+            _ => Err(()),
+        }
+    }
 }
 
 impl Default for Config {
@@ -395,6 +436,7 @@ impl Default for Config {
             telemetry_enabled: false,
             telemetry_write_state_file: true,
             telemetry_websocket_port: 0,
+            telemetry_bind: TelemetryBind::Loopback,
         }
     }
 }

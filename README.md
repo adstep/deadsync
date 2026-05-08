@@ -224,11 +224,26 @@ Enable it in `deadsync.ini`:
 [Telemetry]
 Enabled=1
 WriteStateFile=1            ; writes <data dir>/telemetry/state.json + nowplaying.txt
-WebSocketPort=8765          ; 0 disables; non-zero binds 127.0.0.1:<port>
+WebSocketPort=8765          ; 0 disables; non-zero binds the WebSocket server
+BindAddress=Loopback        ; Loopback (default, same machine only) or Lan (any host on the network)
 ```
 
-Both backends are off by default. The WebSocket server is bound to
-`127.0.0.1` only — telemetry is local-only and not exposed remotely.
+Both backends are off by default. The WebSocket server defaults to
+loopback only — telemetry is local-only out of the box and never exposed
+remotely without explicit opt-in.
+
+### Tournament / multi-machine setups
+
+For a streaming setup where OBS runs on a different PC than DeadSync
+(e.g. a tournament broadcast rig), set `BindAddress=Lan` on each game
+PC and point the broadcast PC's OBS Browser Source(s) at
+`ws://<game-pc>:8765/`. One Browser Source per game PC works fine for
+side-by-side overlays.
+
+> **There is no authentication.** Anyone who can reach the port can
+> read live game state. `Lan` is only safe on a private, trusted
+> tournament network — never expose telemetry to the open internet. A
+> warning is logged on startup whenever a non-loopback bind is in use.
 
 ### File backend
 

@@ -312,6 +312,10 @@ fn load_audio_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
         .get("Telemetry", "WebSocketPort")
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(default.telemetry_websocket_port);
+    cfg.telemetry_bind = conf
+        .get("Telemetry", "BindAddress")
+        .and_then(|v| TelemetryBind::from_str(&v).ok())
+        .unwrap_or(default.telemetry_bind);
 }
 
 fn load_select_music_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {

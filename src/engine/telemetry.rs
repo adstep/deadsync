@@ -56,8 +56,10 @@ const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// actually lands on.
 const DEFAULT_SONG_DEBOUNCE: Duration = Duration::from_millis(150);
 
-/// Bind address. Telemetry is local-only by design — never bind to 0.0.0.0.
-const BIND_ADDR: &str = "127.0.0.1";
+/// Bind address. Defaults to `127.0.0.1` (loopback only). Tournament
+/// setups that need cross-machine telemetry can override this via
+/// `[Telemetry] BindAddress=` — see the README for the security caveats.
+const DEFAULT_BIND_ADDR: &str = "127.0.0.1";
 
 /* ---------------- Public configuration ---------------- */
 
@@ -70,8 +72,13 @@ pub struct TelemetryConfig {
     /// data directory.
     pub write_state_file: bool,
     /// `0` disables the WebSocket backend; any other value binds
-    /// `127.0.0.1:<port>`.
+    /// `<bind_address>:<port>`.
     pub websocket_port: u16,
+    /// Address to bind the WebSocket listener to. `127.0.0.1` (default)
+    /// keeps telemetry loopback-only; `0.0.0.0` exposes it to anyone on
+    /// the network — only safe on a trusted LAN. There is no auth, so
+    /// never expose this to the open internet.
+    pub bind_address: String,
     /// Settle window for `Song` updates. `0` disables debouncing entirely
     /// and emits every focus change immediately.
     pub song_debounce: Duration,
@@ -83,6 +90,7 @@ impl Default for TelemetryConfig {
             enabled: false,
             write_state_file: true,
             websocket_port: 0,
+            bind_address: DEFAULT_BIND_ADDR.to_string(),
             song_debounce: DEFAULT_SONG_DEBOUNCE,
         }
     }
@@ -413,12 +421,16 @@ pub fn start(cfg: TelemetryConfig, dirs: &AppDirs) {
         // forwards new sockets via a channel to the main publisher thread.
         let (ws_client_tx, ws_client_rx) = if publisher_cfg.websocket_port != 0 {
             let (tx, rx) = sync_channel::<TcpStream>(8);
-            match spawn_ws_acceptor(publisher_cfg.websocket_port, tx.clone()) {
+            match spawn_ws_acceptor(
+                &publisher_cfg.bind_address,
+                publisher_cfg.websocket_port,
+                tx.clone(),
+            ) {
                 Ok(()) => (Some(tx), Some(rx)),
                 Err(err) => {
                     warn!(
                         "telemetry: failed to bind ws://{}:{} — websocket backend disabled: {err}",
-                        BIND_ADDR, publisher_cfg.websocket_port
+                        publisher_cfg.bind_address, publisher_cfg.websocket_port
                     );
                     (None, None)
                 }
@@ -637,14 +649,33 @@ fn format_now_playing(snapshot: &GameStateSnapshot) -> String {
 
 /* ---------------- WebSocket backend ---------------- */
 
-fn spawn_ws_acceptor(port: u16, sink: SyncSender<TcpStream>) -> std::io::Result<()> {
-    let listener = TcpListener::bind((BIND_ADDR, port))?;
+fn spawn_ws_acceptor(
+    bind_address: &str,
+    port: u16,
+    sink: SyncSender<TcpStream>,
+) -> std::io::Result<()> {
+    let listener = TcpListener::bind((bind_address, port))?;
     listener.set_nonblocking(true)?;
-    info!("telemetry: ws://{BIND_ADDR}:{port} listening");
+    info!("telemetry: ws://{bind_address}:{port} listening");
+    if !is_loopback_bind(bind_address) {
+        warn!(
+            "telemetry: WebSocket bound to non-loopback address {bind_address}:{port}. \
+             There is NO authentication — anyone who can reach this port can read live \
+             game state. Only enable on a trusted LAN; never expose to the open internet."
+        );
+    }
     thread::Builder::new()
         .name("telemetry-accept".into())
         .spawn(move || acceptor_loop(listener, sink))?;
     Ok(())
+}
+
+fn is_loopback_bind(addr: &str) -> bool {
+    // Match the obvious loopback spellings without pulling in a parser:
+    // numeric IPv4/IPv6 loopback or "localhost". `0.0.0.0`, `::`, LAN
+    // IPs, and hostnames all return false.
+    matches!(addr, "127.0.0.1" | "::1" | "localhost")
+        || addr.starts_with("127.")
 }
 
 fn acceptor_loop(listener: TcpListener, sink: SyncSender<TcpStream>) {
