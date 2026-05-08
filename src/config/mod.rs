@@ -265,6 +265,13 @@ pub struct Config {
     /// When true, gameplay arrow buttons (p*_up/down/left/right) are excluded from
     /// menu navigation. Only explicitly-bound menu buttons (p*_menu_*) work in menus.
     pub only_dedicated_menu_buttons: bool,
+    /// Live state telemetry: master switch. When off, no thread or files are created.
+    pub telemetry_enabled: bool,
+    /// Live state telemetry: write `<data dir>/telemetry/state.json` and `nowplaying.txt`.
+    pub telemetry_write_state_file: bool,
+    /// Live state telemetry: bind a local WebSocket server to `127.0.0.1:<port>`.
+    /// `0` disables the WebSocket backend.
+    pub telemetry_websocket_port: u16,
 }
 
 impl Default for Config {
@@ -385,6 +392,9 @@ impl Default for Config {
             three_key_navigation: false,
             use_fsrs: false,
             only_dedicated_menu_buttons: false,
+            telemetry_enabled: false,
+            telemetry_write_state_file: true,
+            telemetry_websocket_port: 0,
         }
     }
 }

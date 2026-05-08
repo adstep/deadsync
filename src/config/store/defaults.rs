@@ -260,6 +260,12 @@ fn push_default_options(content: &mut String, default: &Config) {
     push_bool(content, "Windowed", default.windowed);
     push_bool(content, "WriteCurrentScreen", default.write_current_screen);
     content.push('\n');
+
+    push_section(content, "[Telemetry]");
+    push_bool(content, "Enabled", default.telemetry_enabled);
+    push_bool(content, "WriteStateFile", default.telemetry_write_state_file);
+    push_line(content, "WebSocketPort", default.telemetry_websocket_port);
+    content.push('\n');
 }
 
 fn push_default_keymaps(content: &mut String) {

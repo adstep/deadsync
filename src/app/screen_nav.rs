@@ -149,6 +149,7 @@ impl App {
         let prev = self.state.screens.current_screen;
         self.state.screens.current_screen = target;
         write_current_screen_file(target);
+        crate::engine::telemetry::publish(crate::engine::telemetry::Update::Screen(target));
         if prev != target {
             self.ui_text_layout_cache.clear();
         }

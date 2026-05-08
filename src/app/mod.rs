@@ -4195,7 +4195,10 @@ impl App {
 
         let color_idx = self.state.screens.evaluation_state.active_color_index;
         let eval_snapshot = self.state.screens.evaluation_state.clone();
-        let _ = self.append_stage_results_from_eval(&eval_snapshot);
+        let stage_summary = self.append_stage_results_from_eval(&eval_snapshot);
+        if let Some(stage) = stage_summary.as_ref() {
+            crate::engine::telemetry::publish_stage_summary(stage);
+        }
         self.state.screens.evaluation_state.return_to_course =
             self.state.session.course_run.is_some();
         self.state.screens.evaluation_state.auto_advance_seconds = None;
@@ -7766,6 +7769,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let color_index = config.simply_love_color;
     let profile_data = profile::get();
     let event_loop: EventLoop<UserEvent> = EventLoop::<UserEvent>::with_user_event().build()?;
+    crate::engine::telemetry::start(
+        crate::engine::telemetry::TelemetryConfig {
+            enabled: config.telemetry_enabled,
+            write_state_file: config.telemetry_write_state_file,
+            websocket_port: config.telemetry_websocket_port,
+            ..Default::default()
+        },
+        dirs::app_dirs(),
+    );
     let mut app = App::new(
         backend_type,
         show_stats_mode,

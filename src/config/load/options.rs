@@ -300,6 +300,18 @@ fn load_audio_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
         .get("Options", "TabAcceleration")
         .and_then(|v| parse_bool_str(&v))
         .unwrap_or(default.tab_acceleration);
+    cfg.telemetry_enabled = conf
+        .get("Telemetry", "Enabled")
+        .and_then(|v| parse_bool_str(&v))
+        .unwrap_or(default.telemetry_enabled);
+    cfg.telemetry_write_state_file = conf
+        .get("Telemetry", "WriteStateFile")
+        .and_then(|v| parse_bool_str(&v))
+        .unwrap_or(default.telemetry_write_state_file);
+    cfg.telemetry_websocket_port = conf
+        .get("Telemetry", "WebSocketPort")
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(default.telemetry_websocket_port);
 }
 
 fn load_select_music_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {

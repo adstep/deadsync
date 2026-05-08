@@ -7969,6 +7969,18 @@ pub fn update(state: &mut State, dt: f32) -> ScreenAction {
         return ScreenAction::RequestCdTitle(new_cdtitle);
     }
 
+    {
+        let displayed_chart = state
+            .displayed_chart_p1
+            .as_ref()
+            .and_then(|d| selected_song.as_ref().and_then(|s| s.charts.get(d.chart_ix)));
+        crate::engine::telemetry::publish_song_focus(
+            selected_song.as_deref(),
+            displayed_chart,
+            None,
+        );
+    }
+
     if overlays_block_delayed_updates {
         return ScreenAction::None;
     }

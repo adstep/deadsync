@@ -7,6 +7,7 @@ pub mod logging;
 pub mod network;
 pub mod present;
 pub mod space;
+pub mod telemetry;
 pub mod video;
 #[cfg(windows)]
 pub mod windows_rt;

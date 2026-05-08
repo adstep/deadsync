@@ -328,6 +328,12 @@ fn push_saved_options(
     push_bool(content, "Windowed", cfg.windowed);
     push_bool(content, "WriteCurrentScreen", cfg.write_current_screen);
     content.push('\n');
+
+    push_section(content, "[Telemetry]");
+    push_bool(content, "Enabled", cfg.telemetry_enabled);
+    push_bool(content, "WriteStateFile", cfg.telemetry_write_state_file);
+    push_line(content, "WebSocketPort", cfg.telemetry_websocket_port);
+    content.push('\n');
 }
 
 fn push_saved_keymaps(content: &mut String, keymap: &Keymap) {
