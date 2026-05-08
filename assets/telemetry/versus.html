@@ -70,8 +70,8 @@
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 8px;
-      padding: 12px 14px;
+      gap: 10px;
+      padding: 14px 18px;
       background: var(--bg-card);
       backdrop-filter: blur(8px);
       max-height: 50vh;
@@ -80,7 +80,7 @@
     .panel.left { border-radius: 0 12px 12px 0; }
     .panel.right { border-radius: 12px 0 0 12px; text-align: right; align-items: flex-end; }
     .name {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
@@ -90,8 +90,8 @@
     .name.p1 { color: var(--p1); }
     .name.p2 { color: var(--p2); }
     .grade {
-      font-size: 12px;
-      letter-spacing: 0.12em;
+      font-size: 13px;
+      letter-spacing: 0.14em;
       color: var(--muted);
       text-transform: uppercase;
     }
@@ -101,21 +101,8 @@
       40%  { transform: scale(1.5); color: #fff; text-shadow: 0 0 14px var(--neutral); }
       100% { transform: scale(1); }
     }
-    .modifiers {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      font-size: 11px;
-    }
-    .panel.right .modifiers { justify-content: flex-end; }
-    .modifier-chip {
-      background: rgba(255, 215, 102, 0.15);
-      color: #ffd166;
-      border-radius: 4px;
-      padding: 1px 6px;
-    }
     .pb-delta {
-      font-size: 11px;
+      font-size: 12px;
       font-variant-numeric: tabular-nums;
       color: var(--muted);
     }
@@ -302,7 +289,6 @@
     <div id="p1" class="panel left empty">
       <div class="name p1" id="p1-name">P1</div>
       <div class="grade" id="p1-grade"></div>
-      <div class="modifiers" id="p1-modifiers"></div>
       <div class="pb-delta" id="p1-pb"></div>
     </div>
 
@@ -327,7 +313,6 @@
     <div id="p2" class="panel right empty">
       <div class="name p2" id="p2-name">P2</div>
       <div class="grade" id="p2-grade"></div>
-      <div class="modifiers" id="p2-modifiers"></div>
       <div class="pb-delta" id="p2-pb"></div>
     </div>
   </div>
@@ -398,14 +383,12 @@
       const panel = $(sideKey);
       const name = $(`${sideKey}-name`);
       const grade = $(`${sideKey}-grade`);
-      const mods = $(`${sideKey}-modifiers`);
       const pb = $(`${sideKey}-pb`);
 
       if (!player) {
         panel.classList.add('empty');
         name.textContent = sideKey.toUpperCase();
         grade.textContent = '';
-        mods.innerHTML = '';
         pb.innerHTML = '';
         return;
       }
@@ -422,7 +405,6 @@
       }
       grade.textContent = newGrade || '';
 
-      mods.innerHTML = modifierChips(player.modifiers);
       pb.innerHTML = pbLine(player);
     }
 
