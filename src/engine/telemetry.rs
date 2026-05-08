@@ -159,6 +159,12 @@ pub struct ChartInfo {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PlayerState {
     pub profile_name: String,
+    /// Standard 3-letter ITG arcade initials (`"AAA"` etc.). Empty
+    /// when unset on the profile.
+    pub initials: String,
+    /// Player's GrooveStats handle, when configured. Overlays can
+    /// deep-link to `https://groovestats.com/player.php?username=<…>`.
+    pub groovestats_username: Option<String>,
     pub score_percent: f64,
     pub ex_score_percent: f64,
     pub hard_ex_score_percent: f64,
@@ -317,6 +323,10 @@ fn chart_info_from(chart: &crate::game::chart::ChartData) -> ChartInfo {
 fn player_state_from(p: &crate::game::stage_stats::PlayerStageSummary) -> PlayerState {
     PlayerState {
         profile_name: p.profile_name.clone(),
+        // initials/groovestats_username aren't carried on the immutable
+        // stage summary; the live gameplay-tick path populates them.
+        initials: String::new(),
+        groovestats_username: None,
         score_percent: p.score_percent,
         ex_score_percent: p.ex_score_percent,
         hard_ex_score_percent: p.hard_ex_score_percent,
@@ -398,16 +408,16 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
         let side = if player_idx == 0 { PlayerSide::P1 } else { PlayerSide::P2 };
         let profile = crate::game::profile::get_for_side(side);
         let profile_name = profile.display_name.clone();
+        let initials = profile.player_initials.clone();
+        let gs_username = {
+            let trimmed = profile.groovestats_username.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+        };
         let score_fraction =
             crate::game::gameplay::display_itg_score_percent(state, player_idx);
         let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
         let hard_ex = crate::game::gameplay::display_hard_ex_score_percent(state, player_idx);
         let grade = crate::game::scores::score_to_grade(score_fraction * 10000.0);
-        // display_window_counts splits W0 (FA+ inner Fantastic) out of W1
-        // using the player's configured FA+ blue-window threshold, so the
-        // live counts here match what overlays need for FA+ broadcasts.
-        // Note: we always publish these regardless of the player's
-        // in-game show/hide settings — broadcasters need full data.
         let counts = crate::game::gameplay::display_window_counts(state, player_idx, None);
         let modifiers = build_modifiers(state, &profile);
         let personal_best = personal_best_from(
@@ -417,6 +427,8 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
             side: player_idx,
             state: Some(PlayerState {
                 profile_name,
+                initials,
+                groovestats_username: gs_username,
                 score_percent: score_fraction,
                 ex_score_percent: ex,
                 hard_ex_score_percent: hard_ex,

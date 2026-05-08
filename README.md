@@ -287,7 +287,10 @@ clients are dropped silently.
     "step_artist": "...", "stepstype": "dance-single"
   },
   "players": [                            // one entry per side; null when absent
-    { "profile_name": "...", "score_percent": 0.9512,
+    { "profile_name": "...",
+      "initials": "AAA",                  // 3-letter ITG arcade abbreviation
+      "groovestats_username": "pnn",      // null when not linked
+      "score_percent": 0.9512,
       "ex_score_percent": 0.91, "hard_ex_score_percent": 0.86,
       "grade": "Tier03", "disqualified": false,
       "combo": 412,
@@ -334,6 +337,28 @@ To use either overlay:
 > data for both sides. This is intentional so broadcasters can show
 > head-to-head scores even when individual players prefer a clean
 > in-game HUD.
+
+### Resolving rich player identity
+
+DeadSync's telemetry feed publishes only **identifiers** for each
+player (`initials`, `groovestats_username`, and a future
+`arrowcloud_user_id`). Overlays that want avatars, country flags,
+ranks, or PP figures should resolve them by calling the relevant
+community service directly — the same pattern Beat Saber overlays use
+against ScoreSaber/BeatLeader.
+
+For ArrowCloud:
+
+```
+GET https://api.arrowcloud.dance/user/<uuid>     # no auth required
+→ { "user": { "alias", "profileImageUrl", "country": { "code" }, ... } }
+```
+
+For GrooveStats: deep-link to
+`https://groovestats.com/index.php?page=profile&user=<groovestats_username>`.
+
+Overlays should fall back to `initials` when no community-service ID
+is available.
 
 ## Contributing
 
