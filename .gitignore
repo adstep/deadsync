@@ -8,3 +8,5 @@ prompt.txt
 AGENTS.md
 GEMINI.md
 .codex
+# Local debug background for telemetry overlays (drop your own here)
+assets/telemetry/_debug_bg.*
