@@ -350,7 +350,6 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
 
     use crate::game::profile::PlayerSide;
     for player_idx in 0..state.num_players.min(crate::game::gameplay::MAX_PLAYERS) {
-        let runtime = &state.players[player_idx];
         let side = if player_idx == 0 { PlayerSide::P1 } else { PlayerSide::P2 };
         let profile_name = crate::game::profile::get_for_side(side).display_name;
         let score_fraction =
@@ -358,7 +357,12 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
         let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
         let hard_ex = crate::game::gameplay::display_hard_ex_score_percent(state, player_idx);
         let grade = crate::game::scores::score_to_grade(score_fraction * 10000.0);
-        let counts = &runtime.scoring_counts;
+        // display_window_counts splits W0 (FA+ inner Fantastic) out of W1
+        // using the player's configured FA+ blue-window threshold, so the
+        // live counts here match what overlays need for FA+ broadcasts.
+        // Note: we always publish these regardless of the player's
+        // in-game show/hide settings — broadcasters need full data.
+        let counts = crate::game::gameplay::display_window_counts(state, player_idx, None);
         publish(Update::Player {
             side: player_idx,
             state: Some(PlayerState {
@@ -369,17 +373,13 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
                 grade: grade_name(grade),
                 disqualified: false,
                 judgments: JudgmentCounts {
-                    // JudgeCounts indices: 0=Fantastic 1=Excellent 2=Great
-                    // 3=Decent 4=WayOff 5=Miss. There is no live W0/W1 split
-                    // (FA+ inner) — that's a post-stage statistic and is
-                    // only filled in by `publish_stage_summary`.
-                    w0: 0,
-                    w1: counts[0],
-                    w2: counts[1],
-                    w3: counts[2],
-                    w4: counts[3],
-                    w5: counts[4],
-                    miss: counts[5],
+                    w0: counts.w0,
+                    w1: counts.w1,
+                    w2: counts.w2,
+                    w3: counts.w3,
+                    w4: counts.w4,
+                    w5: counts.w5,
+                    miss: counts.miss,
                 },
             }),
         });

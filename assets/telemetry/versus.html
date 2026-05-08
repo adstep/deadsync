@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<!--
+  DeadSync live state — VERSUS overlay.
+
+  Side-by-side score comparison overlay for tournament/versus broadcasts.
+  Connects to a single DeadSync telemetry WebSocket. Both players' state
+  is always published regardless of each player's in-game show/hide
+  preferences, so the broadcast can show full information either way.
+
+  URL parameters (append to the OBS Browser Source URL):
+    ?host=10.0.0.11   game-PC host (default 127.0.0.1)
+    ?port=8765        telemetry port (default 8765)
+    ?metric=itg       which score type to compare:
+                        itg     - ITG % (default)
+                        ex      - EX %
+                        hardex  - Hard EX %
+
+  Recommended OBS source size: 1280 x 200.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DeadSync — Versus</title>
+  <style>
+    :root {
+      --bg-card: rgba(0, 0, 0, 0.55);
+      --fg: #f5f5f5;
+      --muted: #9aa0a6;
+      --p1: #4ea8ff;
+      --p2: #ff6868;
+      --neutral: #888;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--fg);
+      font: 16px/1.2 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .stage {
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 1280px;
+      padding: 14px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 18px;
+      background: var(--bg-card);
+      border-radius: 14px;
+      backdrop-filter: blur(8px);
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .panel.right { text-align: right; align-items: flex-end; }
+    .name {
+      font-size: 20px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .name.p1 { color: var(--p1); }
+    .name.p2 { color: var(--p2); }
+    .score {
+      font-size: 38px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+    .judgments {
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      gap: 10px;
+    }
+    .panel.right .judgments { justify-content: flex-end; }
+    .judgments .miss { color: #ff7f7f; font-weight: 600; }
+    .judgments .w0 { color: #80e0ff; font-weight: 600; }
+    .center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 280px;
+    }
+    .delta {
+      font-size: 18px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 6px;
+      min-height: 22px;
+    }
+    .delta.p1 { color: var(--p1); }
+    .delta.p2 { color: var(--p2); }
+    .delta.tied { color: var(--neutral); }
+    /* Head-to-head bar: a horizontal track with two opposing fills.
+       Visual emphasis scales nonlinearly so small leads still read but
+       big leads dominate. */
+    .h2h {
+      width: 100%;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .h2h .fill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      transition: width 200ms ease-out;
+    }
+    .h2h .fill.p1 { left: 0; background: linear-gradient(90deg, transparent, var(--p1)); }
+    .h2h .fill.p2 { right: 0; background: linear-gradient(270deg, transparent, var(--p2)); }
+    .metric-label {
+      margin-top: 6px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .status {
+      position: fixed;
+      top: 4px;
+      right: 8px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+    .status.ok { color: #6cd36c; }
+    .status.bad { color: #ff7f7f; }
+    .empty .score { opacity: 0.35; }
+  </style>
+</head>
+<body>
+  <div id="status" class="status">connecting…</div>
+  <div class="stage">
+    <div id="p1" class="panel left empty">
+      <div class="name p1" id="p1-name">P1</div>
+      <div class="score" id="p1-score">--.--%</div>
+      <div class="judgments" id="p1-judgments"></div>
+    </div>
+    <div class="center">
+      <div id="delta" class="delta tied">tied</div>
+      <div class="h2h">
+        <div id="h2h-p1" class="fill p1" style="width: 50%;"></div>
+        <div id="h2h-p2" class="fill p2" style="width: 50%;"></div>
+      </div>
+      <div class="metric-label" id="metric-label">ITG %</div>
+    </div>
+    <div id="p2" class="panel right empty">
+      <div class="name p2" id="p2-name">P2</div>
+      <div class="score" id="p2-score">--.--%</div>
+      <div class="judgments" id="p2-judgments"></div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const host = params.get('host') || '127.0.0.1';
+    const port = parseInt(params.get('port') || '8765', 10);
+    const metric = (params.get('metric') || 'itg').toLowerCase();
+
+    const METRICS = {
+      itg:    { field: 'score_percent',         label: 'ITG %' },
+      ex:     { field: 'ex_score_percent',      label: 'EX %' },
+      hardex: { field: 'hard_ex_score_percent', label: 'HARD EX %' },
+    };
+    const cfg = METRICS[metric] || METRICS.itg;
+    document.getElementById('metric-label').textContent = cfg.label;
+
+    const url = `ws://${host}:${port}`;
+    const $ = (id) => document.getElementById(id);
+
+    function fmtPct(x) {
+      return (x * 100).toFixed(2) + '%';
+    }
+
+    function judgmentLine(j, isRight) {
+      if (!j) return '';
+      const parts = [];
+      if (j.w0) parts.push(`<span class="w0">${j.w0}</span>`);
+      parts.push(`${j.w1 || 0}`);
+      parts.push(`${j.w2 || 0}`);
+      parts.push(`${j.w3 || 0}`);
+      if (j.w4) parts.push(`${j.w4}`);
+      if (j.w5) parts.push(`${j.w5}`);
+      if (j.miss) parts.push(`<span class="miss">${j.miss} miss</span>`);
+      return parts.join(' / ');
+    }
+
+    function renderSide(sideKey, player) {
+      const panel = $(sideKey);
+      const name = $(`${sideKey}-name`);
+      const score = $(`${sideKey}-score`);
+      const jud = $(`${sideKey}-judgments`);
+      if (!player) {
+        panel.classList.add('empty');
+        score.textContent = '--.--%';
+        jud.innerHTML = '';
+        return null;
+      }
+      panel.classList.remove('empty');
+      name.textContent = player.profile_name || sideKey.toUpperCase();
+      const value = Number(player[cfg.field]) || 0;
+      score.textContent = fmtPct(value);
+      jud.innerHTML = judgmentLine(player.judgments, sideKey === 'p2');
+      return value;
+    }
+
+    // Map a raw lead delta to a 0..1 fill bias for the head-to-head bar.
+    // Small leads still register visually; very large leads saturate so
+    // a 5% lead doesn't fully drain the loser's bar.
+    function leadToBias(delta) {
+      const sign = Math.sign(delta);
+      const mag = Math.min(Math.abs(delta), 0.05) / 0.05; // saturate at 5%
+      // Cubic ease-out so tiny leads pop a little, big leads slow down.
+      const eased = 1 - Math.pow(1 - mag, 3);
+      return sign * eased;
+    }
+
+    function render(snapshot) {
+      const players = Array.isArray(snapshot.players) ? snapshot.players : [];
+      const v1 = renderSide('p1', players[0]);
+      const v2 = renderSide('p2', players[1]);
+
+      const delta = $('delta');
+      const fillP1 = $('h2h-p1');
+      const fillP2 = $('h2h-p2');
+
+      if (v1 == null || v2 == null) {
+        delta.textContent = '';
+        delta.className = 'delta tied';
+        fillP1.style.width = '50%';
+        fillP2.style.width = '50%';
+        return;
+      }
+      const diff = v1 - v2;
+      if (Math.abs(diff) < 1e-5) {
+        delta.textContent = 'tied';
+        delta.className = 'delta tied';
+      } else {
+        const sign = diff > 0 ? '+' : '−';
+        delta.textContent = `${sign}${(Math.abs(diff) * 100).toFixed(2)}%`;
+        delta.className = `delta ${diff > 0 ? 'p1' : 'p2'}`;
+      }
+      const bias = leadToBias(diff); // -1..1, positive = p1 leading
+      // Each fill sweeps from 50% toward 100% (own side) or 0% (other side).
+      const p1Pct = 50 + bias * 50;
+      const p2Pct = 50 - bias * 50;
+      fillP1.style.width = `${Math.max(0, Math.min(100, p1Pct))}%`;
+      fillP2.style.width = `${Math.max(0, Math.min(100, p2Pct))}%`;
+    }
+
+    let backoff = 500;
+    function connect() {
+      $('status').textContent = `connecting ${url}…`;
+      $('status').className = 'status';
+      let ws;
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        $('status').textContent = `error: ${err.message}`;
+        $('status').className = 'status bad';
+        scheduleReconnect();
+        return;
+      }
+      ws.onopen = () => {
+        $('status').textContent = `live · ${cfg.label}`;
+        $('status').className = 'status ok';
+        backoff = 500;
+      };
+      ws.onmessage = (ev) => {
+        try {
+          render(JSON.parse(ev.data));
+        } catch (err) {
+          console.warn('telemetry: bad payload', err);
+        }
+      };
+      ws.onerror = () => {
+        $('status').textContent = 'error';
+        $('status').className = 'status bad';
+      };
+      ws.onclose = () => {
+        $('status').textContent = 'disconnected — retrying';
+        $('status').className = 'status bad';
+        scheduleReconnect();
+      };
+    }
+
+    function scheduleReconnect() {
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 5000);
+    }
+
+    connect();
+  </script>
+</body>
+</html>

@@ -299,17 +299,31 @@ format has changed in a backwards-incompatible way.
 
 ### Example: OBS Browser Source overlay
 
-A minimal example overlay is bundled at
-[`assets/telemetry/overlay.html`](assets/telemetry/overlay.html). To use
-it:
+Two minimal example overlays are bundled:
+
+* [`assets/telemetry/overlay.html`](assets/telemetry/overlay.html) — a
+  single now-playing card. Recommended source size 640×180.
+* [`assets/telemetry/versus.html`](assets/telemetry/versus.html) — a
+  side-by-side versus overlay with a head-to-head bar that fills toward
+  the leading player. Useful for tournament broadcasts. Recommended
+  source size 1280×200. Configure via query parameters:
+    * `?host=10.0.0.11` — game-PC host (default `127.0.0.1`)
+    * `?port=8765` — telemetry port
+    * `?metric=itg|ex|hardex` — which score type to compare (default `itg`)
+
+To use either overlay:
 
 1. Set `WebSocketPort=8765` (or any free port) and restart DeadSync.
-2. In OBS, add a **Browser** source pointing at the local file. Width
-   `640`, height `180` is a good starting point.
-3. (Optional) override the port with a query string, e.g.
-   `?port=9000`.
+2. In OBS, add a **Browser** source pointing at the local file (or the
+   game-PC's address for tournament use).
+3. The overlay reconnects automatically if DeadSync isn't running yet.
 
-The overlay reconnects automatically if DeadSync isn't running yet.
+> **Per-player UI privacy does not apply to telemetry.** A player can
+> hide their score / judgments / FA+ pane on their own side in-game
+> (Player Options), but the telemetry feed always publishes complete
+> data for both sides. This is intentional so broadcasters can show
+> head-to-head scores even when individual players prefer a clean
+> in-game HUD.
 
 ## Contributing
 
