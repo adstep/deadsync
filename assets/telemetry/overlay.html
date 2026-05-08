@@ -4,11 +4,17 @@
 
   Connects to the local telemetry WebSocket published by DeadSync when
   [Telemetry] WebSocketPort is non-zero in deadsync.ini, and renders a
-  small now-playing card. Designed to be dropped straight into OBS:
+  now-playing card with modifier chips, song progress, and a personal-
+  best delta.
 
     Sources → + → Browser → Local file → this file
-    Width:  640    Height: 180
+    Width:  640    Height: 220
     Custom CSS:    body { background: rgba(0,0,0,0); }
+
+  URL parameters:
+    ?host=10.0.0.11      remote game-PC host (default 127.0.0.1)
+    ?port=8765           telemetry port (default 8765)
+    ?metric=itg|ex|hardex   which score type to compare against PB (default itg)
 
   This is one example consumer; the same JSON is also written to
   <data dir>/telemetry/state.json and any other tool can read it.
@@ -23,6 +29,8 @@
       --fg: #f5f5f5;
       --muted: #9aa0a6;
       --accent: #ff5c8a;
+      --good: #6cd36c;
+      --bad: #ff7f7f;
     }
     html, body {
       margin: 0;
@@ -35,7 +43,7 @@
       box-sizing: border-box;
       width: 100%;
       max-width: 640px;
-      padding: 16px 20px;
+      padding: 16px 20px 12px 20px;
       background: var(--bg);
       border-radius: 12px;
       backdrop-filter: blur(8px);
@@ -68,20 +76,42 @@
     .meta {
       margin-top: 10px;
       display: flex;
-      gap: 14px;
+      gap: 10px;
       flex-wrap: wrap;
+      align-items: center;
       font-size: 13px;
     }
-    .meta .chip {
+    .chip {
       background: rgba(255, 255, 255, 0.08);
       border-radius: 6px;
       padding: 2px 8px;
     }
-    .difficulty {
-      color: var(--accent);
-      font-weight: 600;
-    }
+    .chip.difficulty { color: var(--accent); font-weight: 600; }
+    .chip.modifier { color: #ffd166; }
+    .chip.pb-delta.positive { color: var(--good); font-weight: 600; }
+    .chip.pb-delta.negative { color: var(--bad); }
     .empty { color: var(--muted); }
+    .grade-pulse { animation: grade-pulse 600ms ease-out; }
+    @keyframes grade-pulse {
+      0%   { transform: scale(1); color: var(--accent); }
+      40%  { transform: scale(1.18); color: #fff; text-shadow: 0 0 12px var(--accent); }
+      100% { transform: scale(1); color: var(--accent); }
+    }
+    .progress {
+      margin-top: 10px;
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress.hidden { visibility: hidden; }
+    .progress > .fill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 250ms linear;
+    }
     .status {
       position: fixed;
       top: 4px;
@@ -90,8 +120,8 @@
       color: var(--muted);
       letter-spacing: 0.08em;
     }
-    .status.ok { color: #6cd36c; }
-    .status.bad { color: #ff7f7f; }
+    .status.ok { color: var(--good); }
+    .status.bad { color: var(--bad); }
   </style>
 </head>
 <body>
@@ -104,28 +134,48 @@
     </div>
     <div id="artist" class="artist"></div>
     <div id="meta" class="meta"></div>
+    <div id="progress" class="progress hidden"><div id="progress-fill" class="fill"></div></div>
   </div>
 
   <script>
-    // Default DeadSync telemetry port; override with ?port=NNNN in the
-    // browser source URL if you changed it in deadsync.ini.
     const params = new URLSearchParams(location.search);
+    const host = params.get('host') || '127.0.0.1';
     const port = parseInt(params.get('port') || '8765', 10);
-    const url = `ws://127.0.0.1:${port}`;
+    const url = `ws://${host}:${port}`;
+    const METRICS = {
+      itg:    { field: 'score_percent',         label: 'ITG' },
+      ex:     { field: 'ex_score_percent',      label: 'EX' },
+      hardex: { field: 'hard_ex_score_percent', label: 'HardEX' },
+    };
+    const PB_KEY = { itg: 'itg', ex: 'ex', hardex: 'hard_ex' };
+    const cfg = METRICS[(params.get('metric') || 'itg').toLowerCase()] || METRICS.itg;
+
+    // Grade ranking: lowest -> highest. Used to detect rank-ups.
+    const GRADE_ORDER = [
+      'Failed', 'Tier17', 'Tier16', 'Tier15', 'Tier14', 'Tier13', 'Tier12',
+      'Tier11', 'Tier10', 'Tier09', 'Tier08', 'Tier07', 'Tier06', 'Tier05',
+      'Tier04', 'Tier03', 'Tier02', 'Tier01', 'Quint',
+    ];
+    const gradeIdx = (g) => {
+      const i = GRADE_ORDER.indexOf(g || '');
+      return i < 0 ? -1 : i;
+    };
 
     const $ = (id) => document.getElementById(id);
     const set = (id, text, cls) => {
       const el = $(id);
       el.textContent = text || '';
-      if (cls !== undefined) {
-        el.className = cls;
-      }
+      if (cls !== undefined) el.className = cls;
     };
+
+    let prev = { grade: null };
 
     function render(snapshot) {
       set('screen', snapshot.screen || '—');
       const song = snapshot.song;
       const chart = snapshot.chart;
+      const player = (snapshot.players || [])[0] || null;
+
       if (song) {
         set('title', song.title || '(untitled)', 'title');
         set('subtitle', song.subtitle || '');
@@ -135,12 +185,18 @@
         set('subtitle', '');
         set('artist', '');
       }
+
       const meta = $('meta');
       meta.innerHTML = '';
+
       if (chart) {
         const diff = document.createElement('span');
         diff.className = 'chip difficulty';
+        diff.id = 'diff-chip';
         diff.textContent = `${chart.difficulty} ${chart.meter}`;
+        if (player && player.grade && prev.grade && gradeIdx(player.grade) > gradeIdx(prev.grade)) {
+          diff.classList.add('grade-pulse');
+        }
         meta.appendChild(diff);
         if (chart.step_artist) {
           const sa = document.createElement('span');
@@ -155,48 +211,64 @@
         pk.textContent = song.pack;
         meta.appendChild(pk);
       }
-      if (snapshot.music_rate && snapshot.music_rate !== 1.0) {
-        const r = document.createElement('span');
-        r.className = 'chip';
-        r.textContent = `${snapshot.music_rate.toFixed(2)}x`;
-        meta.appendChild(r);
+      // Modifier chips: gameplay player's active modifiers (mirror, music_rate, etc.)
+      if (player && Array.isArray(player.modifiers)) {
+        player.modifiers.forEach((m) => {
+          const c = document.createElement('span');
+          c.className = 'chip modifier';
+          c.textContent = m;
+          meta.appendChild(c);
+        });
       }
+      // PB delta: live score vs the player's personal best on the chosen metric.
+      if (player && player.personal_best) {
+        const pb = player.personal_best[PB_KEY[Object.keys(METRICS).find((k) => METRICS[k] === cfg)]];
+        const live = Number(player[cfg.field]);
+        if (Number.isFinite(pb) && Number.isFinite(live)) {
+          const delta = live - pb;
+          const chip = document.createElement('span');
+          chip.className = `chip pb-delta ${delta >= 0 ? 'positive' : 'negative'}`;
+          const sign = delta >= 0 ? '+' : '−';
+          chip.textContent = `${cfg.label} PB ${sign}${(Math.abs(delta) * 100).toFixed(2)}%`;
+          meta.appendChild(chip);
+        }
+      }
+
+      // Progress bar: prefer chart_length_seconds (notes end), fall back to music length.
+      const denom =
+        (song && Number(song.chart_length_seconds)) ||
+        (song && Number(song.music_length_seconds)) || 0;
+      const elapsed = Number(snapshot.elapsed_seconds);
+      const progress = $('progress');
+      if (denom > 0 && Number.isFinite(elapsed) && elapsed >= 0) {
+        progress.classList.remove('hidden');
+        $('progress-fill').style.width = `${Math.max(0, Math.min(100, (elapsed / denom) * 100))}%`;
+      } else {
+        progress.classList.add('hidden');
+        $('progress-fill').style.width = '0%';
+      }
+
+      prev.grade = player ? player.grade || null : null;
     }
 
     let backoff = 500;
     function connect() {
       set('status', `connecting ${url}…`, 'status');
       let ws;
-      try {
-        ws = new WebSocket(url);
-      } catch (err) {
-        set('status', `error: ${err.message}`, 'status bad');
-        scheduleReconnect();
-        return;
-      }
-      ws.onopen = () => {
-        set('status', 'live', 'status ok');
-        backoff = 500;
-      };
+      try { ws = new WebSocket(url); }
+      catch (err) { set('status', `error: ${err.message}`, 'status bad'); scheduleReconnect(); return; }
+      ws.onopen = () => { set('status', 'live', 'status ok'); backoff = 500; };
       ws.onmessage = (ev) => {
-        try {
-          render(JSON.parse(ev.data));
-        } catch (err) {
-          console.warn('telemetry: bad payload', err);
-        }
+        try { render(JSON.parse(ev.data)); }
+        catch (err) { console.warn('telemetry: bad payload', err); }
       };
       ws.onerror = () => set('status', 'error', 'status bad');
-      ws.onclose = () => {
-        set('status', `disconnected — retrying`, 'status bad');
-        scheduleReconnect();
-      };
+      ws.onclose = () => { set('status', 'disconnected — retrying', 'status bad'); scheduleReconnect(); };
     }
-
     function scheduleReconnect() {
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 5000);
     }
-
     connect();
   </script>
 </body>
