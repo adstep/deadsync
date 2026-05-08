@@ -339,24 +339,24 @@ format has changed in a backwards-incompatible way.
 
 ### Example: OBS Browser Source overlay
 
-Two minimal example overlays are bundled:
+Three minimal example overlays are bundled, each suited to a different
+broadcast composition:
 
-* [`assets/telemetry/overlay.html`](assets/telemetry/overlay.html) — a
-  single now-playing card. Recommended source size 640×180.
-* [`assets/telemetry/versus.html`](assets/telemetry/versus.html) — a
-  side-by-side versus overlay with a head-to-head bar that fills toward
-  the leading player. Useful for tournament broadcasts. Recommended
-  source size 1280×200. Configure via query parameters:
-    * `?host=10.0.0.11` — game-PC host (default `127.0.0.1`)
-    * `?port=8765` — telemetry port
-    * `?metric=itg|ex|hardex` — which score type to compare (default `itg`)
+| Overlay | Use when | Recommended size |
+|---|---|---|
+| [`overlay.html`](assets/telemetry/overlay.html) | Single-player streams. Now-playing card + live score + judgment counts. | 640 × 220 |
+| [`versus_chyron.html`](assets/telemetry/versus_chyron.html) | Tournament composition with **one** in-game versus capture in the middle and player webcams on the sides. The in-game HUD already shows scores + judgments in the center column; this overlay only adds a top song-title chyron and a bottom identity / lead strip. | Full screen (e.g. 1920 × 1080) |
+| [`versus.html`](assets/telemetry/versus.html) | Tournament composition with **two separate** game captures side-by-side and no in-game versus column. Renders a synthetic opaque center column with both players' scores + judgments + head-to-head bar. | Full screen (e.g. 1920 × 1080) |
 
-To use either overlay:
+Common URL parameters across all three:
 
-1. Set `WebSocketPort=8765` (or any free port) and restart DeadSync.
-2. In OBS, add a **Browser** source pointing at the local file (or the
-   game-PC's address for tournament use).
-3. The overlay reconnects automatically if DeadSync isn't running yet.
+* `?host=10.0.0.11` — game-PC host (default `127.0.0.1`)
+* `?port=8765` — telemetry port
+* `?token=…` — required when `[Telemetry] Token` is set on the game PC
+* `?metric=itg|ex|hardex` — which score type to compare (default `itg`)
+
+`versus_chyron.html` also accepts `?bottom=0` to hide the bottom identity strip
+when you want the song-title chyron only.
 
 > **Per-player UI privacy does not apply to telemetry.** A player can
 > hide their score / judgments / FA+ pane on their own side in-game
