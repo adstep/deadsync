@@ -210,6 +210,92 @@ Course files follow the same pattern: DeadSync scans the data-directory `courses
 
 On first run in non-portable mode, if DeadSync finds a `deadsync.ini` next to the executable but not in the data directory, it will automatically copy `deadsync.ini`, `save/`, and legacy cache subdirectories into the new data/cache locations. Install-folder `songs/` and `courses/` are **not** copied; they remain in place and are still scanned in non-portable mode. The originals are **not** deleted — you can clean them up manually after verifying everything works.
 
+## Live state export
+
+DeadSync can publish a live snapshot of the current screen, song, chart,
+and per-player state to local consumers — stream overlays (OBS Browser
+Source / Text source), companion apps, scoreboards, bots, second-screen
+dashboards, etc. The schema is generic; OBS is one example consumer, not
+a special case.
+
+Enable it in `deadsync.ini`:
+
+```ini
+[Telemetry]
+Enabled=1
+WriteStateFile=1            ; writes <data dir>/telemetry/state.json + nowplaying.txt
+WebSocketPort=8765          ; 0 disables; non-zero binds 127.0.0.1:<port>
+```
+
+Both backends are off by default. The WebSocket server is bound to
+`127.0.0.1` only — telemetry is local-only and not exposed remotely.
+
+### File backend
+
+When `WriteStateFile=1`, two files under `<data dir>/telemetry/` are
+updated atomically (write-to-`.tmp` + rename) on every change:
+
+| File             | Contents                                                  |
+|------------------|-----------------------------------------------------------|
+| `state.json`     | Full snapshot — schema below.                             |
+| `nowplaying.txt` | Flat `Artist - Title [Difficulty Meter]` line.            |
+
+`nowplaying.txt` is convenient for an OBS Text (GDI+) source set to "Read
+from file". Anything that can `tail -f` a file works the same way.
+
+### WebSocket backend
+
+When `WebSocketPort` is non-zero, a WebSocket server accepts local
+connections at `ws://127.0.0.1:<port>` and broadcasts each snapshot as a
+JSON text frame. Every connected client receives the same payload; dead
+clients are dropped silently.
+
+### Snapshot schema
+
+```jsonc
+{
+  "schema_version": 1,
+  "timestamp_ms": 1731110400123,
+  "screen": "ScreenSelectMusic",          // matches save/current_screen.txt
+  "song": {
+    "title": "...", "subtitle": "...", "artist": "...", "pack": "...",
+    "display_bpm": "150", "music_length_seconds": 124.5,
+    "banner_path": null, "background_path": null
+  },
+  "chart": {
+    "id": "abc123",                       // canonical short hash
+    "difficulty": "Challenge", "meter": 11,
+    "step_artist": "...", "stepstype": "dance-single"
+  },
+  "players": [                            // one entry per side; null when absent
+    { "profile_name": "...", "score_percent": 0.9512,
+      "ex_score_percent": 0.91, "hard_ex_score_percent": 0.86,
+      "grade": "Tier03", "disqualified": false,
+      "judgments": { "w0": 0, "w1": 412, "w2": 19, "w3": 4, "w4": 1, "w5": 0, "miss": 2 } }
+  ],
+  "music_rate": 1.0
+}
+```
+
+`screen` strings are stable and match the `Screen` enum's
+`current_screen_file_name` (e.g. `ScreenTitleMenu`, `ScreenGameplay`,
+`ScreenEvaluationStage`). When `schema_version` is bumped, the wire
+format has changed in a backwards-incompatible way.
+
+### Example: OBS Browser Source overlay
+
+A minimal example overlay is bundled at
+[`assets/telemetry/overlay.html`](assets/telemetry/overlay.html). To use
+it:
+
+1. Set `WebSocketPort=8765` (or any free port) and restart DeadSync.
+2. In OBS, add a **Browser** source pointing at the local file. Width
+   `640`, height `180` is a good starting point.
+3. (Optional) override the port with a query string, e.g.
+   `?port=9000`.
+
+The overlay reconnects automatically if DeadSync isn't running yet.
+
 ## Contributing
 
 We welcome contributions of all sizes. These notes are directional, not law—open a discussion or draft PR if you are unsure.
