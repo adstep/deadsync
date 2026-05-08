@@ -648,6 +648,7 @@ pub fn update(state: &mut State, delta_time: f32) -> ScreenAction {
         previous_song_lua_time,
         state.current_music_time_display,
     );
+    crate::engine::telemetry::publish_gameplay_tick(&state.gameplay);
     map_gameplay_action(action)
 }
 

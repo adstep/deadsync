@@ -326,6 +326,64 @@ fn pack_name_from_path(simfile_path: &std::path::Path) -> String {
         .unwrap_or_default()
 }
 
+/// Emit live in-gameplay state for all active players. Internally
+/// throttled to ~`GAMEPLAY_TICK_THROTTLE` so callers can safely call
+/// this every frame; only the first call inside each window actually
+/// queues updates.
+pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
+    let now = Instant::now();
+    {
+        let mut last = LAST_GAMEPLAY_TICK.lock().unwrap();
+        if last.is_some_and(|t| now.duration_since(t) < GAMEPLAY_TICK_THROTTLE) {
+            return;
+        }
+        *last = Some(now);
+    }
+
+    use crate::game::profile::PlayerSide;
+    for player_idx in 0..state.num_players.min(crate::game::gameplay::MAX_PLAYERS) {
+        let runtime = &state.players[player_idx];
+        let side = if player_idx == 0 { PlayerSide::P1 } else { PlayerSide::P2 };
+        let profile_name = crate::game::profile::get_for_side(side).display_name;
+        let score_fraction =
+            crate::game::gameplay::display_itg_score_percent(state, player_idx);
+        let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
+        let hard_ex = crate::game::gameplay::display_hard_ex_score_percent(state, player_idx);
+        let grade = crate::game::scores::score_to_grade(score_fraction * 10000.0);
+        let counts = &runtime.scoring_counts;
+        publish(Update::Player {
+            side: player_idx,
+            state: Some(PlayerState {
+                profile_name,
+                score_percent: score_fraction,
+                ex_score_percent: ex,
+                hard_ex_score_percent: hard_ex,
+                grade: grade_name(grade),
+                disqualified: false,
+                judgments: JudgmentCounts {
+                    // JudgeCounts indices: 0=Fantastic 1=Excellent 2=Great
+                    // 3=Decent 4=WayOff 5=Miss. There is no live W0/W1 split
+                    // (FA+ inner) — that's a post-stage statistic and is
+                    // only filled in by `publish_stage_summary`.
+                    w0: 0,
+                    w1: counts[0],
+                    w2: counts[1],
+                    w3: counts[2],
+                    w4: counts[3],
+                    w5: counts[4],
+                    miss: counts[5],
+                },
+            }),
+        });
+    }
+}
+
+/// Throttle for [`publish_gameplay_tick`]. Live overlays don't need more
+/// than ~4 Hz of updates and going faster would just waste serialization.
+const GAMEPLAY_TICK_THROTTLE: Duration = Duration::from_millis(250);
+
+static LAST_GAMEPLAY_TICK: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
 /* ---------------- Publisher singleton ---------------- */
 
 struct Publisher {
