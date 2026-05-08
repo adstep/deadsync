@@ -241,6 +241,8 @@
     const params = new URLSearchParams(location.search);
     const host = params.get('host') || '127.0.0.1';
     const port = parseInt(params.get('port') || '8765', 10);
+    const token = params.get('token') || '';
+    const tokenSuffix = token ? `?token=${encodeURIComponent(token)}` : '';
     const metric = (params.get('metric') || 'itg').toLowerCase();
 
     const METRICS = {
@@ -262,7 +264,7 @@
       return i < 0 ? -1 : i;
     };
 
-    const url = `ws://${host}:${port}`;
+    const url = `ws://${host}:${port}${tokenSuffix}`;
     const $ = (id) => document.getElementById(id);
     const fmtPct = (x) => (x * 100).toFixed(2) + '%';
 

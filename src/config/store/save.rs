@@ -335,6 +335,7 @@ fn push_saved_options(
     push_line(content, "WebSocketPort", cfg.telemetry_websocket_port);
     push_line(content, "BindAddress", cfg.telemetry_bind.as_str());
     push_line(content, "MachineId", super::super::telemetry_machine_id());
+    push_line(content, "Token", super::super::telemetry_token());
     content.push('\n');
 }
 

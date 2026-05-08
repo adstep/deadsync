@@ -227,7 +227,33 @@ WriteStateFile=1            ; writes <data dir>/telemetry/state.json + nowplayin
 WebSocketPort=8765          ; 0 disables; non-zero binds the WebSocket server
 BindAddress=Loopback        ; Loopback (default, same machine only) or Lan (any host on the network)
 MachineId=                  ; optional; identifies this PC in aggregated multi-cab feeds
+Token=                      ; optional shared-secret; when set, clients must supply it
 ```
+
+Both backends are off by default. The WebSocket server defaults to
+loopback only — telemetry is local-only out of the box and never exposed
+remotely without explicit opt-in.
+
+#### Authentication
+
+When `Token` is non-empty, every WebSocket client must supply it on the
+upgrade request. Two ways are accepted:
+
+* **Header**: `Authorization: Bearer <token>` (preferred for non-browser
+  clients).
+* **Query string**: `?token=<token>` (used by browsers and OBS Browser
+  Source, which can't set custom headers on WebSocket connections).
+
+The server responds `401 Unauthorized` to bad/missing tokens. Empty
+`Token` keeps the previous no-auth behaviour.
+
+#### Heartbeat / reconnect contract
+
+The server sends a WebSocket Ping every 10 seconds; well-behaved
+clients reply with Pong automatically and stay connected indefinitely.
+Dead clients are reaped on the next failed write. Clients should
+reconnect on socket close (the bundled overlays do this with
+exponential backoff up to 5 s).
 
 Both backends are off by default. The WebSocket server defaults to
 loopback only — telemetry is local-only out of the box and never exposed

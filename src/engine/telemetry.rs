@@ -85,6 +85,10 @@ pub struct TelemetryConfig {
     /// Settle window for `Song` updates. `0` disables debouncing entirely
     /// and emits every focus change immediately.
     pub song_debounce: Duration,
+    /// Optional shared-secret token. When non-empty, clients must
+    /// supply it via either `Authorization: Bearer <token>` or
+    /// `?token=<token>` query string on the WebSocket upgrade.
+    pub token: String,
 }
 
 impl Default for TelemetryConfig {
@@ -96,9 +100,15 @@ impl Default for TelemetryConfig {
             bind_address: DEFAULT_BIND_ADDR.to_string(),
             machine_id: String::new(),
             song_debounce: DEFAULT_SONG_DEBOUNCE,
+            token: String::new(),
         }
     }
 }
+
+/// How often the publisher pings idle WebSocket clients to keep the
+/// connection healthy and detect silently-dropped peers. Browsers reply
+/// to pings automatically.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 /* ---------------- Snapshot schema ---------------- */
 
@@ -622,28 +632,39 @@ fn publisher_loop(
     // deadline so bursts of focus changes only emit the final, settled
     // value (typical wheel scrolling).
     let mut pending_song: Option<(Update, Instant)> = None;
+    let mut last_heartbeat = Instant::now();
 
     loop {
         // Drain any pending new clients first so the very next emission
         // includes them.
         if let Some(rx) = ws_clients.as_ref() {
             while let Ok(stream) = rx.try_recv() {
-                match handshake_blocking(stream) {
+                match handshake_blocking(stream, &cfg.token) {
                     Ok(ws) => {
                         debug!("telemetry: ws client connected (now {})", sockets.len() + 1);
                         sockets.push(ws);
                     }
-                    Err(err) => warn!("telemetry: ws handshake failed: {err}"),
+                    Err(err) => debug!("telemetry: ws handshake failed: {err}"),
                 }
             }
         }
 
-        // Wait long enough to also catch the next pending-song deadline.
+        // Heartbeat: ping silent clients periodically to detect dead
+        // peers and keep intermediaries from closing the connection.
+        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL && !sockets.is_empty() {
+            heartbeat(&mut sockets);
+            last_heartbeat = Instant::now();
+        }
+
+        // Wait long enough to also catch the next pending-song or
+        // heartbeat deadline.
+        let next_heartbeat = HEARTBEAT_INTERVAL.saturating_sub(last_heartbeat.elapsed());
         let timeout = match pending_song.as_ref() {
             Some((_, deadline)) => deadline
                 .saturating_duration_since(Instant::now())
-                .min(ACCEPT_POLL_INTERVAL),
-            None => ACCEPT_POLL_INTERVAL,
+                .min(ACCEPT_POLL_INTERVAL)
+                .min(next_heartbeat),
+            None => ACCEPT_POLL_INTERVAL.min(next_heartbeat),
         };
 
         let mut emit = false;
@@ -838,11 +859,27 @@ fn acceptor_loop(listener: TcpListener, sink: SyncSender<TcpStream>) {
     }
 }
 
-fn handshake_blocking(stream: TcpStream) -> Result<WebSocket<TcpStream>, tungstenite::Error> {
+fn handshake_blocking(
+    stream: TcpStream,
+    expected_token: &str,
+) -> Result<WebSocket<TcpStream>, tungstenite::Error> {
+    use tungstenite::handshake::server::{ErrorResponse, Request, Response};
     // Sockets produced by the listener inherit blocking mode (the default),
     // which is what tungstenite::accept needs for a one-shot handshake.
     stream.set_nonblocking(false).ok();
-    let ws = tungstenite::accept(stream).map_err(|e| match e {
+    let token = expected_token.to_string();
+    let ws = tungstenite::accept_hdr(stream, |req: &Request, resp: Response| {
+        if token.is_empty() || request_token_matches(req, &token) {
+            return Ok(resp);
+        }
+        let body: Option<String> = Some("missing or invalid telemetry token".into());
+        let err: ErrorResponse = tungstenite::http::Response::builder()
+            .status(tungstenite::http::StatusCode::UNAUTHORIZED)
+            .body(body)
+            .expect("build unauthorized response");
+        Err(err)
+    })
+    .map_err(|e| match e {
         tungstenite::HandshakeError::Failure(err) => err,
         tungstenite::HandshakeError::Interrupted(_) => tungstenite::Error::Io(
             std::io::Error::new(ErrorKind::WouldBlock, "handshake interrupted"),
@@ -852,6 +889,67 @@ fn handshake_blocking(stream: TcpStream) -> Result<WebSocket<TcpStream>, tungste
     // can't stall the publisher thread.
     ws.get_ref().set_nonblocking(true).ok();
     Ok(ws)
+}
+
+fn request_token_matches(
+    req: &tungstenite::handshake::server::Request,
+    expected: &str,
+) -> bool {
+    if let Some(value) = req.headers().get(tungstenite::http::header::AUTHORIZATION) {
+        if let Ok(s) = value.to_str() {
+            // Match "Bearer <token>" or a bare token, both case-sensitively.
+            let supplied = s.strip_prefix("Bearer ").unwrap_or(s).trim();
+            if supplied == expected {
+                return true;
+            }
+        }
+    }
+    // Browser WebSocket clients can't set custom headers; fall back to
+    // ?token=<token> in the query string.
+    if let Some(query) = req.uri().query() {
+        for pair in query.split('&') {
+            let mut it = pair.splitn(2, '=');
+            if it.next() == Some("token") {
+                if let Some(v) = it.next() {
+                    let decoded = url_decode_token(v);
+                    if decoded == expected {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn url_decode_token(s: &str) -> String {
+    // Minimal percent-decoder for the common cases (`%20`, `%2F`, etc.)
+    // and `+` -> space. Tokens are usually opaque ASCII so this is
+    // belt-and-braces.
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'+' {
+            out.push(' ');
+            i += 1;
+        } else if b == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push(((h * 16 + l) as u8) as char);
+                i += 3;
+                continue;
+            }
+            out.push(b as char);
+            i += 1;
+        } else {
+            out.push(b as char);
+            i += 1;
+        }
+    }
+    out
 }
 
 fn broadcast(sockets: &mut Vec<WebSocket<TcpStream>>, payload: &[u8]) {
@@ -879,6 +977,34 @@ fn broadcast(sockets: &mut Vec<WebSocket<TcpStream>>, payload: &[u8]) {
         } else {
             // Also flush; ignore would-block / errors (will be retried or
             // detected on next send).
+            let _ = sockets[idx].flush();
+            idx += 1;
+        }
+    }
+}
+
+/// Send a WebSocket Ping to every connected client. Browsers and
+/// well-behaved consumers reply with Pong automatically; sockets that
+/// have died silently get reaped here on the next failed write.
+fn heartbeat(sockets: &mut Vec<WebSocket<TcpStream>>) {
+    let mut idx = 0;
+    while idx < sockets.len() {
+        let drop = match sockets[idx].send(Message::Ping(Default::default())) {
+            Ok(()) => false,
+            Err(tungstenite::Error::Io(e))
+                if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted =>
+            {
+                false
+            }
+            Err(err) => {
+                debug!("telemetry: heartbeat dropping ws client: {err}");
+                true
+            }
+        };
+        if drop {
+            let _ = sockets[idx].get_ref().shutdown(Shutdown::Both);
+            sockets.swap_remove(idx);
+        } else {
             let _ = sockets[idx].flush();
             idx += 1;
         }

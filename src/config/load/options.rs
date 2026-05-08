@@ -321,6 +321,11 @@ fn load_audio_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
         .map(|v| v.trim().to_string())
         .unwrap_or_default();
     super::runtime::set_telemetry_machine_id(machine_id);
+    let token = conf
+        .get("Telemetry", "Token")
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    super::runtime::set_telemetry_token(token);
 }
 
 fn load_select_music_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {

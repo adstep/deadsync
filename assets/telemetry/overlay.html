@@ -141,7 +141,9 @@
     const params = new URLSearchParams(location.search);
     const host = params.get('host') || '127.0.0.1';
     const port = parseInt(params.get('port') || '8765', 10);
-    const url = `ws://${host}:${port}`;
+    const token = params.get('token') || '';
+    const tokenSuffix = token ? `?token=${encodeURIComponent(token)}` : '';
+    const url = `ws://${host}:${port}${tokenSuffix}`;
     const METRICS = {
       itg:    { field: 'score_percent',         label: 'ITG' },
       ex:     { field: 'ex_score_percent',      label: 'EX' },

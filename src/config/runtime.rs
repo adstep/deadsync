@@ -25,6 +25,8 @@ pub(super) static ADDITIONAL_SONG_FOLDERS: std::sync::LazyLock<Mutex<String>> =
     std::sync::LazyLock::new(|| Mutex::new(String::new()));
 pub(super) static TELEMETRY_MACHINE_ID: std::sync::LazyLock<Mutex<String>> =
     std::sync::LazyLock::new(|| Mutex::new(String::new()));
+pub(super) static TELEMETRY_TOKEN: std::sync::LazyLock<Mutex<String>> =
+    std::sync::LazyLock::new(|| Mutex::new(String::new()));
 static SAVE_TX: std::sync::LazyLock<Option<mpsc::Sender<SaveReq>>> =
     std::sync::LazyLock::new(start_save_worker);
 
@@ -227,4 +229,12 @@ pub fn telemetry_machine_id() -> String {
 
 pub(super) fn set_telemetry_machine_id(value: String) {
     *TELEMETRY_MACHINE_ID.lock().unwrap() = value;
+}
+
+pub fn telemetry_token() -> String {
+    TELEMETRY_TOKEN.lock().unwrap().clone()
+}
+
+pub(super) fn set_telemetry_token(value: String) {
+    *TELEMETRY_TOKEN.lock().unwrap() = value;
 }
