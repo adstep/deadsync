@@ -7,6 +7,75 @@ use super::{
     judge_a_tap, player_note_range, refresh_roll_life_on_step,
 };
 
+/// Standard deviation (in seconds) of the autoplay timing-jitter
+/// distribution. The bot adds a per-note offset drawn from a normal
+/// distribution centred on perfect timing with this σ. 18 ms keeps the
+/// vast majority of hits inside the W1 / Fantastic window (`±21.5 ms`)
+/// while the tails reach W2 / Excellent and beyond.
+const AUTOPLAY_JITTER_STDDEV_S: f64 = 0.018;
+
+/// Per-note probability that we replace the tight Gaussian draw with a
+/// wide-tailed "shank" so the run produces the occasional W3 / miss.
+/// Without this the σ alone is too narrow to ever push past 102 ms.
+const AUTOPLAY_SHANK_PROBABILITY: f64 = 0.012;
+const AUTOPLAY_SHANK_STDDEV_S: f64 = 0.075;
+
+/// Deterministic xorshift64* — same input note index always produces
+/// the same offset, so replays of the same chart under autoplay stay
+/// reproducible. We mix the engine's `autoplay_jitter_seed` into the
+/// note index so different sessions can produce different (but each
+/// internally consistent) runs.
+#[inline(always)]
+fn xorshift64(mut state: u64) -> u64 {
+    state ^= state >> 12;
+    state ^= state << 25;
+    state ^= state >> 27;
+    state.wrapping_mul(0x2545_F491_4F6C_DD1D)
+}
+
+#[inline(always)]
+fn unit_random_pair(seed: u64) -> (f64, f64) {
+    // Two consecutive xorshift outputs converted to (0, 1] floats.
+    let a = xorshift64(seed.wrapping_add(0xA341_316C_C8C8_E537));
+    let b = xorshift64(seed.wrapping_add(0xB231_C7B5_8888_AAAA));
+    let to_unit = |bits: u64| (bits >> 11) as f64 / ((1u64 << 53) as f64);
+    // Clamp away from exactly 0 so ln() is well-defined in Box-Muller.
+    let u1 = to_unit(a).max(f64::MIN_POSITIVE);
+    let u2 = to_unit(b);
+    (u1, u2)
+}
+
+/// Box-Muller transform: produces one standard-normal sample from two
+/// uniform draws. We discard the second normal and accept the doubled
+/// cost — this is per-note autoplay code, not a hot inner loop.
+#[inline(always)]
+fn normal_sample(seed: u64) -> f64 {
+    let (u1, u2) = unit_random_pair(seed);
+    let r = (-2.0 * u1.ln()).sqrt();
+    let theta = 2.0 * std::f64::consts::PI * u2;
+    r * theta.cos()
+}
+
+/// Returns the timing offset (seconds) the bot should add to a note's
+/// nominal row time. Negative = press early, positive = press late.
+/// Mixes a tight inner Gaussian with a rare wider-σ "shank" so the
+/// distribution stays centred on perfect-timing-with-some-jitter while
+/// still occasionally reaching past the Great window into a miss.
+/// Deterministic per `note_index` so replays of the same chart stay
+/// reproducible.
+#[inline(always)]
+fn autoplay_jitter_offset_s(note_index: usize) -> f64 {
+    let seed = (note_index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let pick = xorshift64(seed.wrapping_add(0xDEAD_BEEF_CAFE_BABE));
+    let pick_unit = (pick >> 11) as f64 / ((1u64 << 53) as f64);
+    let sigma = if pick_unit < AUTOPLAY_SHANK_PROBABILITY {
+        AUTOPLAY_SHANK_STDDEV_S
+    } else {
+        AUTOPLAY_JITTER_STDDEV_S
+    };
+    normal_sample(seed) * sigma
+}
+
 #[inline(always)]
 pub(super) fn autoplay_blocks_scoring(state: &State) -> bool {
     live_autoplay_enabled(state)
@@ -101,12 +170,20 @@ pub(super) fn run_autoplay(state: &mut State, now_music_time_ns: SongTimeNs) {
                 }
 
                 state.autoplay_used = true;
+                // Apply per-note timing jitter so the bot's judgments
+                // form a normal distribution centred on perfect
+                // timing instead of being a flat stream of W0s.
+                // Offset is deterministic per `note_index` so the
+                // same chart always produces the same distribution.
+                let jitter_s = autoplay_jitter_offset_s(idx);
+                let jitter_ns = (jitter_s * 1.0e9) as i64;
+                let press_time_ns = row_time_ns.saturating_add(jitter_ns);
                 match note_type {
                     NoteType::Lift => {
-                        let _ = judge_a_lift(state, col, row_time_ns);
+                        let _ = judge_a_lift(state, col, press_time_ns);
                     }
                     NoteType::Tap | NoteType::Hold | NoteType::Roll => {
-                        let _ = judge_a_tap(state, col, row_time_ns);
+                        let _ = judge_a_tap(state, col, press_time_ns);
                     }
                     NoteType::Mine | NoteType::Fake => {}
                 }

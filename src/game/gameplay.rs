@@ -3287,6 +3287,16 @@ pub struct PlayerRuntime {
     pub error_bar_avg_next: usize,
     pub error_bar_avg_bar_started_at: Option<f32>,
     pub error_bar_avg_samples: VecDeque<(f32, f32)>,
+    /// Dedicated tap-error ring used by the telemetry publisher.
+    /// Always populated on every judged tap (regardless of the
+    /// player's in-game error-bar profile setting and regardless of
+    /// `autoplay_blocks_scoring`) so live overlays can render hit-
+    /// error meters even for autoplay demos and players who hide the
+    /// in-game error bar. Each entry is `(started_at_s, offset_ms)`;
+    /// `started_at` is monotonic per screen-entry and is used by
+    /// consumers as a stable de-duplication key across publishes.
+    pub telemetry_offsets: [Option<(f32, f32)>; 32],
+    pub telemetry_offsets_next: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -3391,6 +3401,8 @@ fn init_player_runtime() -> PlayerRuntime {
         error_bar_avg_next: 0,
         error_bar_avg_bar_started_at: None,
         error_bar_avg_samples: VecDeque::with_capacity(64),
+        telemetry_offsets: [None; 32],
+        telemetry_offsets_next: 0,
     }
 }
 

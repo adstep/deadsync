@@ -15,13 +15,34 @@
     ?host=10.0.0.11   game-PC host (default 127.0.0.1)
     ?port=8765        telemetry port (default 8765)
     ?token=...        when [Telemetry] Token is set on the game PC
-    ?metric=itg|ex|hardex   compare metric (default itg)
+    ?metric=itg|ex|hardex   compare metric (default ex)
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>DeadSync — Versus</title>
   <style>
+    /* The actual in-game Wendy font, served locally so OBS Browser
+       Source doesn't need internet. Used for the score percentages
+       and judgment digits to keep the overlay's typography pixel-
+       faithful to the engine's StepStatistics column. */
+    @font-face {
+      font-family: 'Wendy';
+      src: url('./fonts/wendy.ttf') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+    /* Teko (Google Fonts, OFL). Variable font, weight 300\u2013700. Used
+       for the lead-block prose to give the scoreboard a broadcast /
+       esports look that matches what BS / SS overlays do. */
+    @font-face {
+      font-family: 'Teko';
+      src: url('./fonts/Teko.ttf') format('truetype');
+      font-weight: 300 700;
+      font-style: normal;
+      font-display: block;
+    }
     :root {
       --bg-card: rgba(0, 0, 0, 0.62);
       --bg-center: #000000;
@@ -33,10 +54,14 @@
       --good: #6cd36c;
       --bad: #ff7f7f;
       /* Engine judgment palette — matches src/engine/present/color.rs
-         JUDGMENT_RGBA / JUDGMENT_DIM_RGBA. W0 is the FA+ inner-Fantastic
-         white, the rest follow the StepMania Simply Love convention. */
-      --w0:        #FFFFFF; --w0-dim:        #595959;
-      --w1:        #21CCE8; --w1-dim:        #0C4E59;
+         JUDGMENT_RGBA / JUDGMENT_DIM_RGBA, with W0 / W1 swapped so
+         the FA+ inner window reads cyan and the regular Fantastic
+         window reads white. This is a deliberate overlay-only
+         override (in-game W0 is white, W1 is cyan via
+         JUDGMENT_FA_PLUS_WHITE_RGBA); broadcasters preferred the
+         inverse for stream legibility. */
+      --w0:        #21CCE8; --w0-dim:        #0C4E59;
+      --w1:        #FFFFFF; --w1-dim:        #595959;
       --w2:        #E29C18; --w2-dim:        #593D09;
       --w3:        #66C955; --w3-dim:        #2D5925;
       --w4:        #B45CFF; --w4-dim:        #3F2059;
@@ -46,35 +71,164 @@
     html, body {
       margin: 0;
       padding: 0;
+      width: 100%;
       height: 100%;
+      overflow: hidden;
       background: transparent;
       color: var(--fg);
       font: 16px/1.2 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
+    /* Fixed-size canvas. All overlay coordinates are authored in this
+       1920x1080 space; the JS shim at the end of the document scales
+       this element uniformly to fit the actual viewport, preserving
+       aspect. Lets the overlay stay portable across stream resolutions
+       (1920x1080, 1280x720, 2560x1440 …) while keeping the math simple
+       for content positioning. */
+    .canvas {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      transform-origin: 0 0;
+      overflow: hidden;
+    }
     /* Debug background — only shown when ?bg=1 is set so you can preview
        the overlay over a captured frame of an actual stream. Drop your
-       own image at assets/telemetry/_debug_bg.png (gitignored). */
-    body.debug-bg {
-      background: #000 url('./_debug_bg.png') center/contain no-repeat;
+       own image at assets/telemetry/_debug_bg.png (gitignored). The
+       image is locked to the 1920x1080 canvas so in-game arrow positions
+       stay consistent with the overlay's coordinate system. */
+    body.debug-bg .canvas {
+      background: #000 url('./_debug_bg.png') 0 0 / 1920px 1080px no-repeat;
     }
     body {
-      display: flex;
-      align-items: stretch;
-      justify-content: center;
+      display: block;
     }
     .stage {
-      display: grid;
-      /* Center column sized to roughly match the in-game StepStatistics
-         column proportion (~22% of a typical 16:9 capture). Side panels
-         sit just outside it so the layout stays compact even when laid
-         over a full-screen game capture. */
-      grid-template-columns: 240px 1fr 240px;
-      align-items: start;
-      width: 100%;
-      max-width: 100vw;
-      height: 100vh;
+      /* Three-zone layout in canvas coordinates: identity panels pinned
+         to the canvas's left/right edges via absolute positioning on
+         the panels themselves, score/judgment column anchored at
+         x=960 (canvas center). The .stage element just provides a
+         positioning context that fills the canvas. */
+      position: absolute;
+      inset: 0;
       pointer-events: none;
     }
+    /* osu!-style hit-error sync bar (BarHitErrorMeter port).
+       Horizontal orientation since we're laying it over the
+       in-game lifebars, but the visual logic mirrors osu's
+       implementation (osu.Game/Screens/Play/HUD/HitErrorMeters/
+       BarHitErrorMeter.cs):
+         - Layered colored zones (outer-to-inner), with the outer
+           edge of the widest window fading to transparent.
+         - Per-hit capsule ticks with a CSS-animated 100ms fade-in /
+           5000ms fade-out lifecycle. Additive blending so stacked
+           ticks accumulate brightness like osu's.
+         - Single arrow indicator that smoothly tracks an
+           exponential moving average of recent offsets
+           (`avg = avg*0.9 + new*0.1`, slid over 800ms).
+         - Small circular centre marker in the innermost-window
+           colour (FA+ cyan for EX scoring).
+         - Misses excluded from ticks (osu only renders judgements
+           with `IsHit()` true). */
+    .sync-bar {
+      position: absolute;
+      top: 14px;
+      width: 350px;
+      height: 60px;
+      background: #000;
+      z-index: 1;
+      overflow: hidden;
+      box-sizing: border-box;
+      padding: 0;
+      border: none;
+    }
+    .sync-bar-l { left: 140px; }
+    .sync-bar-r { right: 130px; }
+    .sync-zones {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 8px;
+      transform: translateY(-50%);
+    }
+    /* Zones use absolute-positioned boxes that overlay each other
+       with the widest band underneath; narrower bands sit on top
+       (matching osu's layered approach). The outermost band has a
+       horizontal gradient fade on each end so the bar's edges
+       don't terminate abruptly. */
+    .sync-zones .zone {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      transform: translateX(-50%);
+    }
+    .sync-zones .zone-outer {
+      left: 50%;
+      width: 100%;
+    }
+    .sync-ticks {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 10px;
+      bottom: 10px;
+      pointer-events: none;
+      mix-blend-mode: lighter;
+    }
+    .sync-tick {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      transform: translateX(-50%) scaleX(0);
+      transform-origin: center center;
+      border-radius: 999px;
+      opacity: 0;
+      animation: sync-tick-life 5100ms linear forwards;
+      will-change: opacity, transform;
+    }
+    @keyframes sync-tick-life {
+      0%   { opacity: 0;   transform: translateX(-50%) scaleX(0); }
+      2%   { opacity: 0.6; transform: translateX(-50%) scaleX(1); }
+      100% { opacity: 0;   transform: translateX(-50%) scaleX(0.05); }
+    }
+    .sync-arrow {
+      position: absolute;
+      top: 1px;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #ffffff;
+      transform: translateX(-50%);
+      transition: left 0.8s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s linear;
+      opacity: 0;
+      filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+      z-index: 3;
+    }
+    .sync-center {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 2;
+    }
+    .sync-center::before,
+    .sync-center::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: var(--w0);
+    }
+    .sync-center::before { width: 8px; height: 8px; opacity: 0.85; }
+    .sync-center::after  { width: 4px; height: 4px; background: #ffffff; opacity: 0.85; }
     .center {
       display: flex;
       flex-direction: column;
@@ -86,36 +240,64 @@
       justify-self: center;
       width: 100%;
     }
-    /* Side panels: identity only, transparent except the small card. */
+    /* Identity panels: pinned to the bottom corners of the canvas
+       (where the in-game watermark / "EVENT" footer would otherwise
+       be visible), opaque black so they cleanly cover the engine's
+       footer. Avatar sits above the name so the text content can hug
+       the screen edge. */
     .panel {
+      position: absolute;
+      bottom: 0;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      gap: 10px;
-      padding: 14px 18px;
-      background: var(--bg-card);
-      backdrop-filter: blur(8px);
-      max-height: 50vh;
-      /* Visually align with the center column's score row. */
-      margin-top: 18vh;
+      align-items: flex-start;
+      gap: 6px;
+      width: 190px;
+      padding: 12px 18px;
+      box-sizing: border-box;
+      background: #000;
     }
-    .panel.left { border-radius: 0 12px 12px 0; }
-    .panel.right { border-radius: 12px 0 0 12px; text-align: right; align-items: flex-end; }
+    .panel.left { left: 0; border-radius: 0 12px 0 0; }
+    .panel.right { right: 0; border-radius: 12px 0 0 0; align-items: flex-end; text-align: right; }
+    .panel .avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex: 0 0 56px;
+      background: #111;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+    }
+    .panel .panel-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+    }
+    .panel.right .panel-text { align-items: flex-end; }
     .name {
-      font-size: 24px;
-      font-weight: 800;
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      color: var(--fg);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 100%;
     }
-    .name.p1 { color: var(--p1); }
-    .name.p2 { color: var(--p2); }
+    /* Player-side classes kept for backward compat (e.g. status
+       strings) but the name itself is white now \u2014 the colour
+       coding lives only on the score/h2h elements. */
+    .name.p1, .name.p2 { color: var(--fg); }
     .grade {
-      font-size: 13px;
-      letter-spacing: 0.14em;
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.18em;
       color: var(--muted);
       text-transform: uppercase;
+      line-height: 1;
     }
     .grade.pulse { animation: grade-pulse 700ms ease-out; }
     @keyframes grade-pulse {
@@ -124,15 +306,99 @@
       100% { transform: scale(1); }
     }
     .pb-delta {
-      font-size: 12px;
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 18px;
       font-variant-numeric: tabular-nums;
       color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      letter-spacing: 0.04em;
+      line-height: 1;
     }
+    .pb-delta .pb-top {
+      display: flex;
+      align-items: baseline;
+      gap: 3px;
+      flex-wrap: wrap;
+    }
+    .pb-delta .pb-key { color: var(--muted); font-weight: 500; }
+    .pb-delta .pb-top .pb-key,
+    .pb-delta .pb-breakdown .pb-key { min-width: 2.4em; display: inline-block; }
+    .panel.right .pb-delta .pb-top .pb-key,
+    .panel.right .pb-delta .pb-breakdown .pb-key { text-align: right; }
+    .pb-delta .pb-val { color: var(--fg); font-weight: 600; }
+    .pb-delta .pb-formula {
+      color: var(--muted);
+      font-size: 0.9em;
+      letter-spacing: 0.06em;
+    }
+    .pb-delta .pb-sep {
+      display: inline-block;
+      padding: 0;
+      color: var(--muted);
+      opacity: 0.7;
+      font-weight: 400;
+    }
+    .pb-delta .pb-breakdown {
+      display: flex;
+      align-items: baseline;
+      gap: 3px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .pb-delta .pb-ranks {
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      align-items: baseline;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .pb-delta .pb-ranks .pb-row {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .pb-delta .pb-num { font-weight: 600; }
+    .pb-delta .pb-letter { margin-left: 1px; margin-right: 1px; font-weight: 600; }
+    /* Per-judgment colours for both the count and the letter, same
+       palette as the score column so the eye can pair them at a
+       glance. */
+    .pb-delta .pb-w0   { color: var(--w0); }
+    .pb-delta .pb-w1   { color: var(--w1); }
+    .pb-delta .pb-w2   { color: var(--w2); }
+    .pb-delta .pb-w3   { color: var(--w3); }
+    .pb-delta .pb-miss { color: var(--miss); }
+    /* Right panel: flip the PB row so values read first (closest to
+       the player's name / centre) and labels trail on the screen-
+       outer side. Mirror image of the left panel's layout. */
+    .panel.right .pb-delta .pb-top { flex-direction: row-reverse; justify-content: flex-start; }
+    .panel.right .pb-delta .pb-breakdown { flex-direction: row-reverse; justify-content: flex-start; }
+    .panel.right .pb-delta .pb-ranks { flex-direction: row-reverse; }
+    .panel.right .pb-delta .pb-ranks .pb-row { flex-direction: row-reverse; }
+    .panel.right .pb-delta { align-items: flex-end; }
     .pb-delta .positive { color: var(--good); font-weight: 600; }
     .pb-delta .negative { color: var(--bad); }
 
-    /* Center column: opaque, full height, covers the in-game center column. */
+    /* Center column: opaque, covers the in-game center column. Anchored
+       at canvas-coordinate x=960px (the horizontal midpoint of the
+       1920x1080 canvas, which corresponds to the in-game arrow gap
+       center). The canvas itself is uniformly scaled to fit the
+       browser viewport, so this anchor point translates correctly to
+       every window size. Vertically the column starts just under the
+       in-game SongMeter / progress bar (which lives at y≈9..31 in the
+       engine's 854x480 logical space, i.e. y≈20..70 in this 1080
+       canvas) and extends to the bottom of the screen so there is
+       plenty of room for the score, judgment stack, and head-to-head
+       bar without anything spilling outside. */
     .center {
+      position: absolute;
+      left: 960px;
+      transform: translateX(-50%);
+      top: 200px;
+      bottom: 0;
       display: flex;
       flex-direction: column;
       align-items: stretch;
@@ -141,43 +407,309 @@
          on a 1080p capture). The block is shrink-wrapped vertically so
          the in-game song banners and "EVENT" label below the judgment
          column remain visible. */
-      padding: 16px 14px 12px 14px;
+      padding: 0 14px 12px 14px;
       box-shadow: 0 0 24px rgba(0, 0, 0, 0.6);
-      max-width: 420px;
-      justify-self: center;
+      /* Width tuned to match the gap between notefields in DeadSync's
+         versus mode capture. Measured against a real 1602x932 versus
+         capture: the inner-arrow-edge gap is 333px (20.8% of the
+         frame), which projects to ~399px in a 1920px-wide stream.
+         We render the column noticeably narrower so neither player's
+         inner grey receptor is touched even with a few pixels of
+         anti-aliased outline. */
+      max-width: 320px;
       width: 100%;
-      /* Push down past the in-game top chrome (song title / progress). */
-      margin-top: 4vh;
+      box-sizing: border-box;
     }
     .scores-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      column-gap: 12px;
       align-items: end;
-      margin-bottom: 4px;
+      /* Breathing space around the score row so the digits don't
+         crowd the h2h bar above or the judgment block below. */
+      margin-top: 14px;
+      margin-bottom: 0;
     }
     .score {
-      /* Match the in-game live score size — the engine renders these
-         around 60–70px on a 1080p stream using the Wendy bitmap. */
-      font-family: Impact, "Arial Narrow Bold", "Helvetica Neue Condensed Bold",
-                   "Liberation Sans Narrow", sans-serif;
-      font-size: 60px;
-      font-weight: 400;
-      font-variant-numeric: tabular-nums;
+      /* Teko at the same dynamic size as the judgment rows (set by
+         fitJudgmentFont) so the score reads as the top row of the
+         same scoreboard \u2014 just in Teko instead of Wendy for a
+         broadcast-headline feel. Per-character `.d` cells wrapped by
+         monoText() force tabular alignment. */
+      font-family: 'Teko', Impact, "Arial Narrow Bold",
+                   "Helvetica Neue Condensed Bold", "Liberation Sans Narrow",
+                   sans-serif;
+      font-weight: 500;
       letter-spacing: 0.02em;
       line-height: 0.9;
     }
+    /* Period sits at the bottom-left of its advance box in Teko, so a
+       centered cell leaves visible space on its right. Anchor the
+       period to the left of a tight cell to butt it against the
+       previous digit and pull the next digit close. */
     .score.p1 { text-align: right; color: var(--w1); }
     .score.p2 { text-align: left;  color: var(--w1); }
-    .metric-label {
-      grid-column: 1 / span 2;
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      font-size: 11px;
+    /* When one side is leading, scale the loser down so the eye reads
+       the leader as the headline number. Smooth transitions on every
+       property so the scores morph between leader/loser states
+       instead of snapping when the lead changes \u2014 matches the
+       ScoreSaber tournament-overlay convention. */
+    .score {
+      transition: transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                  opacity 350ms ease-out,
+                  filter 350ms ease-out;
+      transform-origin: top center;
+      will-change: transform;
+    }
+    .score.losing {
+      transform: scale(0.72);
+      opacity: 0.55;
+      filter: saturate(0.4);
+    }
+    .score.leading { transform: scale(1.0); }
+    /* Anchor each side's transform-origin to its outer edge so the
+       leader appears to grow from the centre column outward, and the
+       loser collapses toward the centre. */
+    .score.p1.losing,  .score.p1.leading { transform-origin: top right; }
+    .score.p2.losing,  .score.p2.leading { transform-origin: top left; }
+    /* Pop animation on the moment of takeover \u2014 added by JS for
+       ~600ms whenever a side transitions from losing -> leading. */
+    @keyframes leader-pop {
+      0%   { transform: scale(1.0); }
+      40%  { transform: scale(1.12); }
+      100% { transform: scale(1.0); }
+    }
+    .score.leading.pop { animation: leader-pop 500ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+    /* Window legend: colour swatch + label, ms window underneath,
+       with a proportional bar at the bottom showing relative
+       window widths. Helps first-time viewers decode the colour-
+       only number columns above. */
+    /* DeadSync wordmark footer for the center column. SVG is sized
+       to the column width and sits below the EX-EQ block with a
+       small top margin so it doesn't crowd the equivalency lines. */
+    .ds-logo {
+      margin-top: auto;
+      padding-top: 8px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .ds-logo .ds-logo-text {
+      width: 60%;
+      max-width: 180px;
+      height: auto;
+      display: block;
+    }
+    .ds-logo-arrows {
+      width: 60%;
+      max-width: 180px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0;
+      margin: 2px 0;
+    }
+    .ds-logo-arrows img {
+      flex: 1 1 0;
+      max-width: 12.5%;
+      height: auto;
+      display: block;
+      transform-origin: 50% 50%;
+      animation: ds-arrow-pulse 2s ease-in-out infinite;
+      animation-delay: var(--d, 0s);
+      will-change: transform, filter;
+    }
+    .ds-logo-arrows img:nth-child(1) { --d: 0s;     }
+    .ds-logo-arrows img:nth-child(2) { --d: 0.125s; }
+    .ds-logo-arrows img:nth-child(3) { --d: 0.25s;  }
+    .ds-logo-arrows img:nth-child(4) { --d: 0.375s; }
+    .ds-logo-arrows img:nth-child(5) { --d: 0.5s;   }
+    .ds-logo-arrows img:nth-child(6) { --d: 0.625s; }
+    .ds-logo-arrows img:nth-child(7) { --d: 0.75s;  }
+    .ds-logo-arrows img:nth-child(8) { --d: 0.875s; }
+    @keyframes ds-arrow-pulse {
+      0%, 70%, 100% {
+        transform: scale(1);
+        filter: brightness(1) drop-shadow(0 0 0 transparent);
+      }
+      10% {
+        transform: scale(1.25);
+        filter: brightness(1.6) drop-shadow(0 0 4px rgba(255, 255, 255, 0.7));
+      }
+      30% {
+        transform: scale(1);
+        filter: brightness(1) drop-shadow(0 0 0 transparent);
+      }
+    }
+    /* Shared divider line for the center column. Used between
+       judgments → legend, legend chips → equiv block, and any
+       other section break so they all read with the same weight. */
+    .center-divider {
+      width: 100%;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.18);
+      border: 0;
+      margin: 10px 0;
+    }
+    .legend {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.18);
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--fg);
+      letter-spacing: 0.04em;
+    }
+    .legend .row {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: stretch;
+      gap: 6px;
+    }
+    .legend .chip {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      line-height: 1;
+    }
+    .legend .chip .swatch {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 26px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .legend .chip .swatch i {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      vertical-align: middle;
+      /* Teko's line box biases low (descent ~12px vs ascent ~25px),
+         so a `vertical-align: middle` swatch lands beneath the
+         glyph centre. Lift it ~12% of its size to land on the
+         glyph's optical centre. */
+      transform: translateY(-0.09em);
+    }
+    .legend .chip .ms {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    /* Equivalencies block: LHS heading "<METRIC> EQ" gives the
+       section context (and the active scoring metric), RHS lists
+       each non-perfect judgment in terms of the cheapest one,
+       e.g. "1 GR = 5 F ≈ 1.7 EX". */
+    .legend .equiv {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: stretch;
+      column-gap: 12px;
+      /* Center the whole equiv block (heading + lines) horizontally
+         in the column so it doesn't visually skew left when the
+         lines are short. `width: max-content` shrinks the grid to
+         just its contents; `margin: auto` centres it. The divider
+         above it is rendered as a separate full-width element so
+         it lines up with the other section dividers regardless of
+         how narrow the equiv content is. */
+      width: max-content;
+      max-width: 100%;
+      margin: 0 auto;
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--fg);
+      letter-spacing: 0.04em;
+    }
+    .legend .equiv .heading {
+      align-self: center;
+      padding: 4px 10px 4px 0;
+      font-size: 22px;
+      font-weight: 700;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: var(--muted);
-      text-align: center;
-      margin-top: 4px;
+      color: var(--fg);
+      border-right: 1px solid rgba(255, 255, 255, 0.18);
+      white-space: nowrap;
+    }
+    .legend .equiv .lines {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 18px;
+      font-weight: 500;
+    }
+    .legend .equiv .line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+    /* The chip swatches, qty numbers, and equality glyphs all need
+       to align on the same visual mid-line so the row reads as a
+       single sentence. `align-items: center` on .line handles the
+       major elements; the i swatch and inline glyphs get
+       vertical-align: middle so they sit in the same band. */
+    .legend .equiv .line .ref {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .legend .equiv .line .ref i {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      vertical-align: middle;
+      /* Same Teko line-box compensation as the chip swatches. */
+      transform: translateY(-0.09em);
+    }
+    .legend .equiv .line .eq,
+    .legend .equiv .line .qty {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+    .legend .equiv .line .ref {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 600;
+    }
+    .legend .equiv .line i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+    .legend .equiv .line .eq { color: var(--muted); margin: 0 2px; }
+    .legend .equiv .line .qty { font-variant-numeric: tabular-nums; }
+    /* Proportional window-width bar: each segment's flex-grow is
+       set to the window's ms span so wider judgments take more
+       horizontal space, mirroring the timing reality. The Miss
+       segment is capped so the bar doesn't get dominated by it. */
+    .legend .bar {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+      height: 12px;
+      margin-top: 8px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .legend .bar > span {
+      display: block;
+      height: 100%;
     }
 
     /* Judgment stack: P1 count | LABEL | P2 count, one row per window.
@@ -193,42 +725,76 @@
     .judgments {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      margin-top: 14px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      /* Rows have a fixed pixel height (see .jrow) so removing
+         windows from ROWS shrinks the column rather than stretching
+         the remaining rows. Container height auto-fits its rows. */
+      gap: 0;
+      overflow: visible;
+      clip-path: inset(0 -100vmax);
+      padding-top: 0;
+      padding-bottom: 24px;
+      box-sizing: content-box;
+      border-top: 1px solid rgba(255, 255, 255, 0.18);
     }
     .jrow {
       display: grid;
-      /* Tiny center column for the row label — small enough that the
-         digits dominate (matching the in-game column where there are no
-         labels at all, only color coding). */
-      grid-template-columns: 1fr 22px 1fr;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 30px;
       align-items: center;
-      font-family: Impact, "Arial Narrow Bold", "Helvetica Neue Condensed Bold",
-                   "Liberation Sans Narrow", sans-serif;
+      /* Fixed per-row height so adding / removing windows changes
+         the column's overall height instead of stretching each row. */
+      flex: 0 0 52px;
+      min-height: 0;
+      font-family: 'Wendy', Impact, "Arial Narrow Bold",
+                   "Helvetica Neue Condensed Bold", "Liberation Sans Narrow",
+                   sans-serif;
       font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
       font-size: 52px;
       font-weight: 400;
-      line-height: 0.95;
-      letter-spacing: 0.04em;
+      line-height: 1;
+      letter-spacing: 0;
     }
-    .jrow .lbl {
+    .jrow .lbl { display: none; }
+    .jrow .p1c { text-align: right; line-height: 1; align-self: center; }
+    .jrow .p2c { text-align: left;  line-height: 1; align-self: center; }
+    /* Pull the line box's half-leading off the top so the visible
+       glyphs sit centred vertically in the row instead of hanging
+       from the line's baseline. The 0.85em offset matches Wendy's
+       cap-height + descent ratio in this TTF. */
+    .jrow .digits { display: inline-block; vertical-align: middle; line-height: 0.85; }
+    /* Tweak per-row label colour rules to apply only to .lbl when
+       it's visible; .p1c/.p2c still get the per-row dim/bright
+       colours unchanged. */
+    /* Wendy TTF lacks a tnum/tabular table, so '1' is narrower than the
+       other digits. Wrap each digit in a fixed-width inline-block so
+       columns line up vertically across rows like the engine's bitmap
+       font does. Cell width is just wide enough for the broadest
+       glyph at the current size; tighter cells overlap glyphs. */
+    .digits {
+      /* per-cell spacing handled on .d via margin-right */
+    }
+    /* Fixed-width digit cells used by both the judgment rows and the
+       score row. The score's period flows inline (`.d-p` below) so
+       it doesn't get an extra cell of padding. */
+    .digits .d, .score .d {
+      display: inline-block;
+      width: 0.32em;
+      margin-right: 4px;
       text-align: center;
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      text-transform: uppercase;
-      align-self: center;
-      opacity: 0.6;
     }
-    .jrow .p1c { text-align: right; padding-right: 4px; }
-    .jrow .p2c { text-align: left;  padding-left: 4px; }
-    /* Per-row colors. Bright = engine JUDGMENT_RGBA, dim = engine
-       JUDGMENT_DIM_RGBA (proper darker per-row hue, not just an
-       opacity drop — matches the in-game Wendy column rendering). */
+    .digits .bright .d:last-child,
+    .score .d:last-child { margin-right: 0; }
+    /* Period: inline so its rendered width is just the glyph advance,
+       and zero-width left margin so it hugs the previous digit. */
+    .score .d-p {
+      display: inline-block;
+      margin-left: 0;
+      margin-right: 0;
+    }
+    /* The '1' glyph sits left-biased in its narrower advance box;
+       nudge to centre. */
+    .digits .d-1, .score .d-1 { transform: translateX(0.10em); }
     .digits .bright { opacity: 1; }
     .jrow.w0  .digits .dim    { color: var(--w0-dim); }
     .jrow.w1  .digits .dim    { color: var(--w1-dim); }
@@ -237,17 +803,27 @@
     .jrow.w4  .digits .dim    { color: var(--w4-dim); }
     .jrow.w5  .digits .dim    { color: var(--w5-dim); }
     .jrow.miss .digits .dim   { color: var(--miss-dim); }
-    .jrow.w0 .lbl, .jrow.w0 .p1c .bright, .jrow.w0 .p2c .bright { color: var(--w0); }
-    .jrow.w1 .lbl, .jrow.w1 .p1c .bright, .jrow.w1 .p2c .bright { color: var(--w1); }
-    .jrow.w2 .lbl, .jrow.w2 .p1c .bright, .jrow.w2 .p2c .bright { color: var(--w2); }
-    .jrow.w3 .lbl, .jrow.w3 .p1c .bright, .jrow.w3 .p2c .bright { color: var(--w3); }
-    .jrow.w4 .lbl, .jrow.w4 .p1c .bright, .jrow.w4 .p2c .bright { color: var(--w4); }
-    .jrow.w5 .lbl, .jrow.w5 .p1c .bright, .jrow.w5 .p2c .bright { color: var(--w5); }
-    .jrow.miss .lbl, .jrow.miss .p1c .bright, .jrow.miss .p2c .bright { color: var(--miss); }
-    .jrow .flash { animation: miss-flash 800ms ease-out; }
-    @keyframes miss-flash {
+    .jrow.w0 .p1c .bright, .jrow.w0 .p2c .bright { color: var(--w0); }
+    .jrow.w1 .p1c .bright, .jrow.w1 .p2c .bright { color: var(--w1); }
+    .jrow.w2 .p1c .bright, .jrow.w2 .p2c .bright { color: var(--w2); }
+    .jrow.w3 .p1c .bright, .jrow.w3 .p2c .bright { color: var(--w3); }
+    .jrow.w4 .p1c .bright, .jrow.w4 .p2c .bright { color: var(--w4); }
+    .jrow.w5 .p1c .bright, .jrow.w5 .p2c .bright { color: var(--w5); }
+    .jrow.miss .p1c .bright, .jrow.miss .p2c .bright { color: var(--miss); }
+    .jrow .flash { animation: row-flash 800ms ease-out; }
+    /* Combo-break flash: pop + bright glow in the row's own colour.
+       Use a per-row CSS variable so the shadow picks up the right
+       hue (the cell itself has no `color` set, so `currentColor`
+       resolves to the body's off-white \u2014 hence the explicit
+       --flash-color per row below). */
+    .jrow.w3   { --flash-color: var(--w3); }
+    .jrow.miss { --flash-color: var(--miss); }
+    @keyframes row-flash {
       0%   { transform: scale(1); }
-      30%  { transform: scale(1.35); color: #fff; text-shadow: 0 0 14px var(--miss); }
+      30%  {
+        transform: scale(1.26);
+        text-shadow: 0 0 14px var(--flash-color), 0 0 28px var(--flash-color);
+      }
       100% { transform: scale(1); }
     }
 
@@ -256,13 +832,18 @@
       margin-top: 12px;
       padding-top: 10px;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
+      /* Teko gives the lead block a broadcast / esports feel. Wendy
+         numerics are still picked up by the inline `.num` spans below
+         so the digits stay consistent with the score / judgment
+         column above. */
+      font-family: 'Teko', -apple-system, "Segoe UI", Roboto, sans-serif;
+      letter-spacing: 0.02em;
     }
     .lead-change {
-      font-size: 11px;
-      min-height: 14px;
-      margin-bottom: 4px;
+      font-size: 22px;
+      min-height: 28px;
+      margin-bottom: 8px;
       color: var(--muted);
-      font-variant-numeric: tabular-nums;
       text-align: center;
       transition: opacity 400ms ease-out;
     }
@@ -270,32 +851,71 @@
     .lead-change.p2 { color: var(--p2); }
     .lead-change.fade { opacity: 0; }
     .delta {
-      font-size: 14px;
+      font-size: 32px;
       font-weight: 700;
-      font-variant-numeric: tabular-nums;
       text-align: center;
-      min-height: 18px;
-      margin-bottom: 4px;
+      min-height: 40px;
+      margin-bottom: 8px;
+    }
+    /* Inline numeric run inside the lead block. The whole block uses
+       Teko so this just normalises figure spacing and adds a touch
+       of weight to the percentages so they read as the focal point
+       against the surrounding prose. */
+    .lead-block .num {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+      font-weight: 600;
     }
     .delta.p1 { color: var(--p1); }
     .delta.p2 { color: var(--p2); }
     .delta.tied { color: var(--neutral); }
+    /* Head-to-head bar (ScoreSaber duel-style): a narrow track with a
+       single white fill that grows from the centre toward whichever
+       side is winning. The fill is anchored at 50% via translateX
+       and scaleX-ed by a CSS variable set from JS. A subtle centre
+       tick marks the neutral position so viewers can read the
+       direction at a glance. Sits directly under the score row so
+       the bar visually completes the headline number. */
     .h2h {
-      width: 100%;
-      height: 10px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
       position: relative;
+      width: 100%;
+      height: 18px;
+      /* Sits just above the score row so the percentages visually
+         "rest" on top of the bar. Negative bottom margin pulls the
+         scores up so they overlap the bar's top edge slightly,
+         creating the seated look. */
+      margin: 8px 0 -4px 0;
       overflow: hidden;
     }
+    .h2h .track { display: none; }
     .h2h .fill {
       position: absolute;
-      top: 0;
-      bottom: 0;
-      transition: width 200ms ease-out;
+      top: 2px;
+      bottom: 2px;
+      left: 50%;
+      width: 50%;
+      transform-origin: left center;
+      transform: scaleX(0);
+      background: #ffffff;
+      box-shadow: 0 0 14px rgba(255, 255, 255, 0.45);
+      transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
     }
-    .h2h .fill.p1 { left: 0; background: linear-gradient(90deg, transparent, var(--p1)); }
-    .h2h .fill.p2 { right: 0; background: linear-gradient(270deg, transparent, var(--p2)); }
+    /* Direction is set by toggling a class; keeping the fill anchored
+       at the centre, we either flip its origin to grow rightward (P2
+       leading) or leftward (P1 leading). The inner edge (the one
+       touching the centre) stays square so the bar reads as a clean
+       arrow extending out from the score. */
+    .h2h .fill.p1 {
+      transform-origin: right center;
+      left: 0;
+      border-radius: 4px 0 0 4px;
+    }
+    .h2h .fill.p2 {
+      transform-origin: left center;
+      left: 50%;
+      border-radius: 0 4px 4px 0;
+    }
+    .h2h .center-mark { display: none; }
     .progress {
       margin-top: 6px;
       width: 100%;
@@ -311,52 +931,129 @@
       width: 0%;
       transition: width 250ms linear;
     }
-    .status {
-      position: fixed;
-      top: 4px;
-      right: 8px;
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-    }
-    .status.ok { color: var(--good); }
-    .status.bad { color: var(--bad); }
+    .status { display: none; }
     .empty .score { opacity: 0.35; }
   </style>
 </head>
 <body>
   <div id="status" class="status">connecting…</div>
+  <div class="canvas" id="canvas">
+  <div class="sync-bar sync-bar-l" data-pi="0">
+    <div class="sync-zones"></div>
+    <div class="sync-ticks" id="sync-ticks-0"></div>
+    <div class="sync-arrow" id="sync-arrow-0"></div>
+    <div class="sync-center"></div>
+  </div>
+  <div class="sync-bar sync-bar-r" data-pi="1">
+    <div class="sync-zones"></div>
+    <div class="sync-ticks" id="sync-ticks-1"></div>
+    <div class="sync-arrow" id="sync-arrow-1"></div>
+    <div class="sync-center"></div>
+  </div>
   <div class="stage">
     <div id="p1" class="panel left empty">
-      <div class="name p1" id="p1-name">P1</div>
-      <div class="grade" id="p1-grade"></div>
-      <div class="pb-delta" id="p1-pb"></div>
+      <img id="p1-avatar" class="avatar" alt="">
+      <div class="panel-text">
+        <div class="name p1" id="p1-name">P1</div>
+        <div class="pb-delta" id="p1-pb"></div>
+      </div>
     </div>
 
     <div class="center">
+      <div class="h2h">
+        <div class="track"></div>
+        <div id="h2h-fill" class="fill"></div>
+        <div class="center-mark"></div>
+      </div>
       <div class="scores-row">
-        <div class="score p1" id="p1-score">--.--%</div>
-        <div class="score p2" id="p2-score">--.--%</div>
-        <div class="metric-label" id="metric-label">ITG %</div>
+        <div class="score p1" id="p1-score">--.--</div>
+        <div class="score p2" id="p2-score">--.--</div>
       </div>
       <div class="judgments" id="judgments"></div>
-      <div class="lead-block">
-        <div id="lead-change" class="lead-change fade"></div>
-        <div id="delta" class="delta tied">tied</div>
-        <div class="h2h">
-          <div id="h2h-p1" class="fill p1" style="width: 50%;"></div>
-          <div id="h2h-p2" class="fill p2" style="width: 50%;"></div>
+      <!-- Legend: colour, label, ms timing window per judgment, with
+           a proportional bar at the bottom showing relative window
+           widths. Mirrors the engine's ITG timing config (W1=21.5,
+           W2=43, W3=102 ms; W4/W5 disabled, so anything past W3 is
+           Miss). FA+ inner window W0 = 13.5 ms. -->
+      <div class="legend">
+        <div class="row">
+          <span class="chip"><span class="swatch"><i style="background:var(--w0)"></i>F+</span><span class="ms">13.5 ms</span></span>
+          <span class="chip"><span class="swatch"><i style="background:var(--w1)"></i>F</span><span class="ms">21.5 ms</span></span>
+          <span class="chip"><span class="swatch"><i style="background:var(--w2)"></i>EX</span><span class="ms">43 ms</span></span>
+          <span class="chip"><span class="swatch"><i style="background:var(--w3)"></i>GR</span><span class="ms">102 ms</span></span>
+          <span class="chip"><span class="swatch"><i style="background:var(--miss)"></i>M</span><span class="ms">102+ ms</span></span>
         </div>
-        <div id="progress" class="progress hidden"><div id="progress-fill" class="fill"></div></div>
+        <div class="bar">
+          <span style="background:var(--w0); flex-grow:13.5"></span>
+          <span style="background:var(--w1); flex-grow:8"></span>
+          <span style="background:var(--w2); flex-grow:21.5"></span>
+          <span style="background:var(--w3); flex-grow:59"></span>
+          <span style="background:var(--miss); flex-grow:25"></span>
+        </div>
+        <!-- Cost equivalencies: LHS heading shows the active scoring
+             metric short label + "EQ" (e.g. "EX EQ"), RHS lines like
+             "1 GR = 5 F ≈ 1.7 EX". Filled in by JS based on the
+             active metric (ITG / EX / HardEX). -->
+        <div class="center-divider"></div>
+        <div class="equiv">
+          <div class="heading" id="equiv-heading">EQ</div>
+          <div class="lines" id="equiv"></div>
+        </div>
+      </div>
+      <!-- DeadSync wordmark image (DEAD ◀▼▲▶ SYNC). Lives as a
+           direct child of `.center` (rather than inside `.legend`)
+           so `margin-top: auto` pushes it all the way to the
+           bottom of the column instead of stopping at the end of
+           the legend block. Sliced into the two text strips and
+           8 individual arrow cells so the arrows can be animated
+           independently while preserving the source art. -->
+      <div class="ds-logo" aria-label="DeadSync">
+        <img class="ds-logo-text" src="./logo/dead.png" alt="DEAD">
+        <div class="ds-logo-arrows">
+          <img src="./logo/arrow1.png" alt="">
+          <img src="./logo/arrow2.png" alt="">
+          <img src="./logo/arrow3.png" alt="">
+          <img src="./logo/arrow4.png" alt="">
+          <img src="./logo/arrow5.png" alt="">
+          <img src="./logo/arrow6.png" alt="">
+          <img src="./logo/arrow7.png" alt="">
+          <img src="./logo/arrow8.png" alt="">
+        </div>
+        <img class="ds-logo-text" src="./logo/sync.png" alt="SYNC">
       </div>
     </div>
 
     <div id="p2" class="panel right empty">
-      <div class="name p2" id="p2-name">P2</div>
-      <div class="grade" id="p2-grade"></div>
-      <div class="pb-delta" id="p2-pb"></div>
+      <img id="p2-avatar" class="avatar" alt="">
+      <div class="panel-text">
+        <div class="name p2" id="p2-name">P2</div>
+        <div class="pb-delta" id="p2-pb"></div>
+      </div>
     </div>
   </div>
+  </div>
+
+  <script>
+    /* ----- Canvas-fit shim -----------------------------------------
+       The overlay is authored in a fixed 1920x1080 coordinate system so
+       absolute positions (e.g. the center column at x=960) stay aligned
+       with the in-game arrow gap regardless of the actual browser /
+       OBS Browser Source size. This shim uniformly scales the .canvas
+       element to fit the viewport while preserving aspect ratio. */
+    (function fitCanvas() {
+      const canvas = document.getElementById('canvas');
+      function fit() {
+        const sx = window.innerWidth / 1920;
+        const sy = window.innerHeight / 1080;
+        const s = Math.min(sx, sy);
+        const dx = (window.innerWidth - 1920 * s) / 2;
+        const dy = (window.innerHeight - 1080 * s) / 2;
+        canvas.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+      }
+      fit();
+      window.addEventListener('resize', fit);
+    })();
+  </script>
 
   <script>
     const params = new URLSearchParams(location.search);
@@ -364,15 +1061,127 @@
     const port = parseInt(params.get('port') || '8765', 10);
     const token = params.get('token') || '';
     const tokenSuffix = token ? `?token=${encodeURIComponent(token)}` : '';
-    const metric = (params.get('metric') || 'itg').toLowerCase();
+    const metric = (params.get('metric') || 'ex').toLowerCase();
 
     const METRICS = {
-      itg:    { field: 'score_percent',         label: 'ITG %',     pb: 'itg' },
-      ex:     { field: 'ex_score_percent',      label: 'EX %',      pb: 'ex' },
-      hardex: { field: 'hard_ex_score_percent', label: 'HARD EX %', pb: 'hard_ex' },
+      itg: {
+        field: 'score_percent', label: 'ITG %', shortLabel: 'ITG', pb: 'itg',
+        // ITG dance-points (engine constants src/game/scores.rs DP_W*).
+        // FA+ shares the W1 weight in this metric; the inner window
+        // is purely visual on the scoreboard.
+        weights: { w0: 5, w1: 5, w2: 4, w3: 2, miss: -12 },
+      },
+      ex: {
+        field: 'ex_score_percent', label: 'EX %', shortLabel: 'EX', pb: 'ex',
+        // EX scoring (src/game/judgment.rs EX_WEIGHT_*) treats FA+
+        // as worth more than regular Fantastic.
+        weights: { w0: 3.5, w1: 3, w2: 2, w3: 1, miss: 0 },
+      },
+      hardex: {
+        field: 'hard_ex_score_percent', label: 'HARD EX %', shortLabel: 'HARD', pb: 'hard_ex',
+        // HardEX (src/game/judgment.rs HARD_EX_WEIGHT_*) has the
+        // same W0/W1 split as EX but no W3 credit.
+        weights: { w0: 3.5, w1: 3, w2: 1, w3: 0, miss: 0 },
+      },
     };
-    const cfg = METRICS[metric] || METRICS.itg;
-    document.getElementById('metric-label').textContent = cfg.label;
+    const cfg = METRICS[metric] || METRICS.ex;
+    // Metric label removed from the scoreboard chrome; cfg.label kept
+    // for any future chyron / status surfacing.
+
+    /* Fixed identity overrides applied to every player snapshot,
+       live or demo. Locks the visible profile name / avatar /
+       PB summary / leaderboard ranks to the Spongebob & Patrick
+       broadcast pair the overlay was branded with so the same
+       chrome appears regardless of which DeadSync profile is
+       actually playing on the cab. Set to `null` to disable and
+       fall back to live telemetry profile data. */
+    const PROFILE_OVERRIDES = [
+      {
+        name: 'Spongebob',
+        initials: 'SBP',
+        avatar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/SpongeBob_SquarePants_character.png/250px-SpongeBob_SquarePants_character.png',
+        personalBest: { itg: 97.12, ex: 93.04, hard_ex: 88.21 },
+        pbSummary: { f: 8, ex: 4, g: 1, m: 0 },
+        ranks: { gs: { rank: 7,  of: 312 }, ac: { rank: 12, of: 478 } },
+      },
+      {
+        name: 'Patrick',
+        initials: 'PAT',
+        avatar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Patrick_Star_character.png/250px-Patrick_Star_character.png',
+        personalBest: { itg: 95.68, ex: 91.17, hard_ex: 84.75 },
+        pbSummary: { f: 14, ex: 9, g: 3, m: 1 },
+        ranks: { gs: { rank: 18, of: 312 }, ac: { rank: 24, of: 478 } },
+      },
+    ];
+
+    /* Build the equivalencies block under the legend.
+     *
+     * Cost-of-judgment is `max_weight - actual_weight`, so e.g. in
+     * ITG (max W1 = +5) a Great's cost is 5-2 = 3 points. Each
+     * non-perfect judgment is then expressed as a multiple of the
+     * cheapest non-perfect, plus optionally as a multiple of any
+     * intermediate non-perfects.
+     */
+    (function fillEquivalencies() {
+      const el = document.getElementById('equiv');
+      if (!el) return;
+      const heading = document.getElementById('equiv-heading');
+      if (heading) heading.textContent = `${cfg.shortLabel} EQ`;
+      const w = cfg.weights;
+      const order = ['w0', 'w1', 'w2', 'w3', 'miss'];
+      const labels = { w0: 'F+', w1: 'F', w2: 'EX', w3: 'GR', miss: 'M' };
+      const colorVar = { w0: '--w0', w1: '--w1', w2: '--w2', w3: '--w3', miss: '--miss' };
+      const maxW = Math.max(...order.map((k) => w[k]));
+      const cost = (k) => maxW - w[k];
+
+      // Cheapest non-perfect judgment: the unit everything else is
+      // expressed in.
+      const nonPerfect = order.filter((k) => cost(k) > 0);
+      if (nonPerfect.length < 2) {
+        el.innerHTML = '';
+        return;
+      }
+      const unitKey = nonPerfect[0];
+      const unitCost = cost(unitKey);
+
+      // For each judgment costlier than the unit, render a line:
+      //   [chip] = N [unit chip]   (= ~M [intermediate chip])
+      const chip = (k) =>
+        `<span class="ref"><i style="background:var(--${colorVar[k].slice(2)})"></i></span>`;
+      const fmt = (n) => {
+        // Whole numbers shown bare; otherwise round to 1 decimal.
+        if (Math.abs(n - Math.round(n)) < 0.05) return String(Math.round(n));
+        return n.toFixed(1);
+      };
+
+      const lines = [];
+      for (let i = 1; i < nonPerfect.length; i++) {
+        const k = nonPerfect[i];
+        const c = cost(k);
+        // Each segment in the chain picks its own separator: `=` when
+        // the ratio is a whole number, `≈` when rounded.
+        const segs = [];
+        const inUnits = c / unitCost;
+        const unitApprox = Math.abs(inUnits - Math.round(inUnits)) > 0.05;
+        segs.push({ qty: fmt(inUnits), key: unitKey, approx: unitApprox });
+        for (let j = i - 1; j >= 1; j--) {
+          const m = nonPerfect[j];
+          const ratio = c / cost(m);
+          if (ratio < 1.5) continue;
+          const a = Math.abs(ratio - Math.round(ratio)) > 0.05;
+          segs.push({ qty: fmt(ratio), key: m, approx: a });
+        }
+        let html = `<div class="line">${chip(k)}`;
+        for (const s of segs) {
+          const sep = s.approx ? '\u2248' : '=';
+          html += `<span class="eq">${sep}</span>` +
+                  `<span class="qty">${s.qty}</span>${chip(s.key)}`;
+        }
+        html += `</div>`;
+        lines.push(html);
+      }
+      el.innerHTML = lines.join('');
+    })();
 
     // ?bg=1 layers a captured stream frame behind the overlay so you
     // can preview alignment without running a real DeadSync. The image
@@ -382,16 +1191,16 @@
       document.body.classList.add('debug-bg');
     }
 
-    // Match the in-game judgment stack ordering: W0..W5 + Miss.
-    // W0 only renders when at least one player has FA+ counts > 0; the row
-    // is hidden otherwise to match what most casts show.
+    // Match the in-game judgment stack ordering. The engine config
+    // disables the Decent (W4, purple) and Way Off (W5, orange)
+    // windows, so those rows are intentionally omitted from the
+    // overlay too \u2014 a hit that would have been a Decent under
+    // a stock config falls into Miss here.
     const ROWS = [
       { key: 'w0', label: 'F+' },
       { key: 'w1', label: 'F'  },
       { key: 'w2', label: 'EX' },
       { key: 'w3', label: 'GR' },
-      { key: 'w4', label: 'DC' },
-      { key: 'w5', label: 'WO' },
       { key: 'miss', label: 'M' },
     ];
 
@@ -407,67 +1216,143 @@
 
     const url = `ws://${host}:${port}${tokenSuffix}`;
     const $ = (id) => document.getElementById(id);
-    const fmtPct = (x) => (x * 100).toFixed(2) + '%';
+    /* Match the in-game StepStatistics score format: just the two
+       percentages side by side, no `%` suffix. The `%` is implied by
+       the metric label below. Score values arrive as 0..100 percents
+       directly from the telemetry feed, so we just trim to 2 dp. */
+    const fmtPct = (x) => Number(x).toFixed(2);
 
     function modifierChips(mods) {
       if (!mods || !mods.length) return '';
       return mods.map((m) => `<span class="modifier-chip">${m}</span>`).join('');
     }
 
+    /* Player PB row in the bottom panels: top score on this chart
+       plus a compact judgment-breakdown formula like
+       "(1042F+12W+3G)" that summarises the PB in the symbols
+       players actually use in conversation. Order is F (FA+) ->
+       W (white Fantastic) -> EX -> G -> M; zero buckets are
+       omitted to keep the line short. The data lives in the
+       demo's `_pb_summary` field; an overlay frontend backed by
+       ArrowCloud can fetch it from `/chart/{hash}/leaderboards`
+       \u2192 `/play/{playId}` and inject the same shape. */
     function pbLine(player) {
-      if (!player || !player.personal_best) return '';
-      const pb = player.personal_best[cfg.pb];
-      const live = Number(player[cfg.field]);
-      if (!Number.isFinite(pb) || !Number.isFinite(live)) return '';
-      const delta = live - pb;
-      const cls = delta >= 0 ? 'positive' : 'negative';
-      const sign = delta >= 0 ? '+' : '−';
-      return `${cfg.label} PB <span class="${cls}">${sign}${(Math.abs(delta) * 100).toFixed(2)}%</span>`;
+      if (!player) return '';
+      const pct = player.personal_best && Number.isFinite(player.personal_best[cfg.pb])
+        ? `${Number(player.personal_best[cfg.pb]).toFixed(2)}%`
+        : '\u2014';
+      const summary = player._pb_summary || {};
+      // Compact formula: only show buckets that are "low enough to
+      // talk about" \u2014 a quad / quint cast cares about a couple
+      // F's, a handful of EX, and the rare green / miss. Whites
+      // are rolled into the implicit majority and never shown.
+      // Both digits and letter pick up the judgment colour.
+      const parts = [];
+      const pushBounded = (key, label, palette, max) => {
+        const v = summary[key];
+        if (!Number.isFinite(v) || v <= 0) return;
+        if (max != null && v >= max) return;
+        parts.push(
+          `<span class="pb-num pb-${palette}">${v.toLocaleString()}</span>` +
+          `<span class="pb-letter pb-${palette}">${label}</span>`
+        );
+      };
+      pushBounded('f',  'F',  'w1', 20);
+      pushBounded('ex', 'EX', 'w2', 12);
+      pushBounded('g',  'G',  'w3', null);
+      pushBounded('m',  'M',  'miss', null);
+      const top = `<div class="pb-top"><span class="pb-key">${cfg.shortLabel} PB</span> <span class="pb-val">${pct}</span></div>`;
+      const breakdown = parts.length
+        ? `<div class="pb-breakdown"><span class="pb-key">JDGE</span> <span class="pb-formula">${parts.join('<span class="pb-sep">/</span>')}</span></div>`
+        : '';
+
+      // Per-service leaderboard rank rows. Both come in as
+      // `_ranks: { gs: { rank, of }, ac: { rank, of } }` from a
+      // future overlay-side fetch (GrooveStats getLeaderboard +
+      // ArrowCloud `/chart/{hash}/leaderboards`). Hidden when no
+      // value is available so the panel stays compact.
+      const ranks = player._ranks || {};
+      const rankLine = (key, label) => {
+        const r = ranks[key];
+        const value = r && Number.isFinite(r.rank) ? `#${r.rank.toLocaleString()}` : 'N/A';
+        return `<span class="pb-row"><span class="pb-key">${label}</span> <span class="pb-val">${value}</span></span>`;
+      };
+      const ranksHtml = `<div class="pb-ranks">${rankLine('gs', 'GS')}${rankLine('ac', 'AC')}</div>`;
+
+      return top + breakdown + ranksHtml;
     }
 
     // Per-side previous values for combo-break / grade-up detection.
-    const prev = { p1: { miss: 0, grade: null }, p2: { miss: 0, grade: null } };
+    const prev = { p1: { miss: 0, w3: 0, grade: null }, p2: { miss: 0, w3: 0, grade: null } };
 
     function renderSidePanel(sideKey, player) {
       const panel = $(sideKey);
       const name = $(`${sideKey}-name`);
-      const grade = $(`${sideKey}-grade`);
       const pb = $(`${sideKey}-pb`);
+      const avatar = $(`${sideKey}-avatar`);
 
       if (!player) {
         panel.classList.add('empty');
         name.textContent = sideKey.toUpperCase();
-        grade.textContent = '';
         pb.innerHTML = '';
+        if (avatar) avatar.removeAttribute('src');
         return;
       }
       panel.classList.remove('empty');
-      name.textContent = player.profile_name || sideKey.toUpperCase();
-
-      const pState = prev[sideKey];
-      const newGrade = player.grade || null;
-      if (pState.grade && newGrade && gradeIdx(newGrade) > gradeIdx(pState.grade)) {
-        grade.classList.remove('pulse');
-        // eslint-disable-next-line no-void
-        void grade.offsetWidth;
-        grade.classList.add('pulse');
+      // Fixed-profile override: when PROFILE_OVERRIDES[i] is set we
+      // pin the displayed name / avatar / PB / ranks to that
+      // identity, regardless of who's logged in on the cab. Live
+      // telemetry still drives score / judgments / combo via the
+      // rest of the player snapshot.
+      const sideIdx = sideKey === 'p1' ? 0 : 1;
+      const ovr = PROFILE_OVERRIDES && PROFILE_OVERRIDES[sideIdx];
+      const displayName = ovr ? ovr.name : (player.profile_name || sideKey.toUpperCase());
+      const avatarUrl = ovr ? ovr.avatar : player._avatar_url;
+      const pbSummary = ovr ? ovr.pbSummary : player._pb_summary;
+      const ranks = ovr ? ovr.ranks : player._ranks;
+      name.textContent = displayName;
+      // Telemetry doesn't expose avatar URLs directly; an override
+      // (or, in the live case, a future ArrowCloud lookup) supplies
+      // one. Hide the slot when neither is available.
+      if (avatar) {
+        if (avatarUrl) {
+          avatar.src = avatarUrl;
+          avatar.style.display = '';
+        } else {
+          avatar.removeAttribute('src');
+          avatar.style.display = 'none';
+        }
       }
-      grade.textContent = newGrade || '';
 
-      pb.innerHTML = pbLine(player);
+      pb.innerHTML = pbLine({
+        ...player,
+        _pb_summary: pbSummary,
+        _ranks: ranks,
+        personal_best: ovr ? ovr.personalBest : player.personal_best,
+      });
     }
 
     function renderScore(sideKey, player) {
       const el = $(`${sideKey}-score`);
       if (!player) {
-        el.textContent = '--.--%';
+        el.innerHTML = monoText('--.--');
         el.classList.add('faded');
         return null;
       }
       el.classList.remove('faded');
       const value = Number(player[cfg.field]) || 0;
-      el.textContent = fmtPct(value);
+      el.innerHTML = monoText(fmtPct(value));
       return value;
+    }
+
+    /* Wrap each digit in a fixed-width cell so the score stays a
+       constant width as digits change. Period flows inline so it
+       doesn't add visible padding around itself. */
+    function monoText(str) {
+      return Array.from(String(str)).map((c) => {
+        if (c === '.') return `<span class="d-p">.</span>`;
+        return `<span class="d d-${c}">${c}</span>`;
+      }).join('');
     }
 
     // Build / update the judgment stack centered between the two players.
@@ -479,11 +1364,44 @@
     function digitsHtml(value) {
       const n = Math.max(0, value | 0);
       const s = String(n).padStart(PAD_DIGITS, '0');
-      // Number of leading characters that should be dimmed.
       const dimLen = n === 0 ? PAD_DIGITS - 1 : Math.max(0, PAD_DIGITS - String(n).length);
       const dim = s.slice(0, dimLen);
       const bright = s.slice(dimLen);
-      return `<span class="digits"><span class="dim">${dim}</span><span class="bright">${bright}</span></span>`;
+      const wrap = (str) => Array.from(str).map((c) => `<span class="d d-${c}">${c}</span>`).join('');
+      return `<span class="digits"><span class="dim">${wrap(dim)}</span><span class="bright">${wrap(bright)}</span></span>`;
+    }
+
+    /* Set the judgment-row font-size to match each row's allocated
+       height so digits fill their row regardless of how many rows are
+       visible. The judgments container is a fixed 360px tall flex
+       column with 10px gaps; row count varies (6 normally, 7 when
+       FA+ casts include the W0 row), so a fixed font-size can't cover
+       both cases.
+
+       Wendy's glyph occupies less than its full em-box, so naively
+       setting font-size = row height leaves visible whitespace above
+       and below each digit. Oversize modestly so glyphs reach near
+       the row edges without clipping descenders. */
+    /* ...above the score row or below the lead block. Individual rows
+       allow overflow so adjacent glyphs can visually nestle close
+       together without each row clipping its own digits. */
+    const GLYPH_SCALE = 1.6;
+    function fitJudgmentFont(container) {
+      // Rows are fixed-height (52px via .jrow flex-basis), so the
+      // font-size doesn't depend on row count. Set a constant
+      // matching the row height * GLYPH_SCALE so adding / removing
+      // windows from ROWS doesn't change digit size.
+      if (container.childElementCount === 0) return;
+      const rowH = 52;
+      const px = Math.floor(rowH * GLYPH_SCALE);
+      for (const r of container.children) {
+        r.style.fontSize = `${px}px`;
+      }
+      const scoreSize = Math.floor(rowH * 1.45);
+      const p1Score = document.getElementById('p1-score');
+      const p2Score = document.getElementById('p2-score');
+      if (p1Score) p1Score.style.fontSize = `${scoreSize}px`;
+      if (p2Score) p2Score.style.fontSize = `${scoreSize}px`;
     }
 
     function renderJudgments(p1, p2) {
@@ -491,9 +1409,10 @@
       const p1j = (p1 && p1.judgments) || {};
       const p2j = (p2 && p2.judgments) || {};
 
-      // Hide the W0 row unless someone has a count there (only relevant
-      // for FA+ casts).
-      const showW0 = (p1j.w0 || 0) > 0 || (p2j.w0 || 0) > 0;
+      // Always show the W0 (FA+) row, even when both players have 0
+      // hits. Keeping it visible avoids a layout shift mid-song when
+      // someone lands their first FA+, and tournament casts always
+      // want the FA+ count visible up-front.
 
       // Lazy-build the rows once.
       if (container.childElementCount !== ROWS.length) {
@@ -511,7 +1430,6 @@
 
       for (const row of ROWS) {
         const rowEl = container.querySelector(`.jrow.${row.key}`);
-        rowEl.style.display = (row.key === 'w0' && !showW0) ? 'none' : '';
         const p1c = rowEl.querySelector('.p1c');
         const p2c = rowEl.querySelector('.p2c');
         const p1v = (p1j[row.key] || 0);
@@ -520,20 +1438,32 @@
         p2c.innerHTML = digitsHtml(p2v);
       }
 
-      // Combo-break flash on miss going 0 -> n, both sides.
+      // Resize the digits to fill each row's height. Rows are flex
+      // distributed so their height changes with how many rows are
+      // visible (W0 hidden when both players have 0 FA+ counts).
+      fitJudgmentFont(container);
+
+      // Combo-break flash on miss OR green (W3, "Great") going up
+      // \u2014 in this engine config a Great breaks combo just like a
+      // miss does. Flash uses the same animation key, applied to the
+      // matching row (.miss or .w3) on the side that broke.
       ['p1', 'p2'].forEach((sideKey) => {
-        const newMiss = (sideKey === 'p1' ? p1j.miss : p2j.miss) || 0;
+        const j = sideKey === 'p1' ? p1j : p2j;
         const pState = prev[sideKey];
-        if (pState.miss === 0 && newMiss > 0) {
-          const cell = container.querySelector(`.jrow.miss .${sideKey}c`);
-          if (cell) {
-            cell.classList.remove('flash');
-            // eslint-disable-next-line no-void
-            void cell.offsetWidth;
-            cell.classList.add('flash');
-          }
-        }
+        const newMiss = j.miss || 0;
+        const newW3 = j.w3 || 0;
+        const flashRow = (rowKey) => {
+          const cell = container.querySelector(`.jrow.${rowKey} .${sideKey}c`);
+          if (!cell) return;
+          cell.classList.remove('flash');
+          // eslint-disable-next-line no-void
+          void cell.offsetWidth;
+          cell.classList.add('flash');
+        };
+        if (newMiss > pState.miss) flashRow('miss');
+        if (newW3 > pState.w3) flashRow('w3');
         pState.miss = newMiss;
+        pState.w3 = newW3;
       });
     }
 
@@ -542,12 +1472,13 @@
     const leadSamples = [];
     let leadFadeTimer = 0;
     function updateLeadChange(diff) {
+      const el = $('lead-change');
+      if (!el) return;
       const t = Date.now();
       leadSamples.push([t, diff]);
       while (leadSamples.length > 0 && t - leadSamples[0][0] > LEAD_WINDOW_MS) {
         leadSamples.shift();
       }
-      const el = $('lead-change');
       if (leadSamples.length < 2) return;
       const oldest = leadSamples[0][1];
       const swing = diff - oldest;
@@ -556,7 +1487,8 @@
         return;
       }
       const sign = swing > 0 ? '+' : '−';
-      el.textContent = `${sign}${(Math.abs(swing) * 100).toFixed(2)}% in last ${Math.round(LEAD_WINDOW_MS / 1000)}s`;
+      const num = `${sign}${(Math.abs(swing) * 100).toFixed(2)}%`;
+      el.innerHTML = `<span class="num">${num}</span> in last <span class="num">${Math.round(LEAD_WINDOW_MS / 1000)}</span>s`;
       el.classList.remove('p1', 'p2', 'fade');
       el.classList.add(swing > 0 ? 'p1' : 'p2');
       clearTimeout(leadFadeTimer);
@@ -564,11 +1496,173 @@
     }
 
     function leadToBias(delta) {
+      // Saturate the H2H bar at a 5-percentage-point gap. Score
+      // values are 0..100 percents, so the cap is `5.0` here, not
+      // the 0.05 fraction it would be on a 0..1 score.
       const sign = Math.sign(delta);
-      const mag = Math.min(Math.abs(delta), 0.05) / 0.05;
+      const mag = Math.min(Math.abs(delta), 5.0) / 5.0;
       const eased = 1 - Math.pow(1 - mag, 3);
       return sign * eased;
     }
+
+    /* Sync-bar state mirrors osu's BarHitErrorMeter: per-player
+       rolling buffer of recent hit offsets in milliseconds, plus
+       a single exponential-moving-average tracking the arrow. */
+    const SYNC_RANGE_MS = 60;
+    const SYNC_TICK_LIFETIME_MS = 5100;  // matches osu's 100ms in + 5000ms out
+    const SYNC_MAX_TICKS = 50;            // matches osu's pool cap
+    const SYNC_EMA_WEIGHT = 0.1;          // matches osu's `avg = avg*0.9 + new*0.1`
+    /* Hit-window boundaries (ms) for the active scoring metric.
+       Painted as layered colored bands at the bottom of each sync
+       widget — outermost first (W3 green), narrowest last (W0 cyan
+       in the centre). The outermost band has a horizontal gradient
+       fade on each end so the bar's edges blend out softly. */
+    const SYNC_WINDOWS = [
+      { ms: 13.5, color: getComputedStyle(document.documentElement).getPropertyValue('--w0').trim() || '#21CCE8' },
+      { ms: 21.5, color: getComputedStyle(document.documentElement).getPropertyValue('--w1').trim() || '#FFFFFF' },
+      { ms: 43,   color: getComputedStyle(document.documentElement).getPropertyValue('--w2').trim() || '#E29C18' },
+      { ms: 102,  color: getComputedStyle(document.documentElement).getPropertyValue('--w3').trim() || '#66C955' },
+    ];
+    const _syncState = [
+      { ema: null, lastTickMs: -Infinity },
+      { ema: null, lastTickMs: -Infinity },
+    ];
+
+    /* Build the layered colored zones strip once per bar. Each
+       window contributes a horizontally-centered box whose width
+       equals the fraction of SYNC_RANGE_MS that the window covers
+       on each side; widest is z-bottom, narrowest is z-top, so
+       only the visible band shows for any given offset. The
+       outermost band gets a gradient fade on each outer edge. */
+    function _initSyncZones() {
+      const sortedDesc = [...SYNC_WINDOWS].sort((a, b) => b.ms - a.ms);
+      const halfRange = SYNC_RANGE_MS;
+      for (let i = 0; i < 2; i++) {
+        const bar = document.querySelector(`.sync-bar[data-pi="${i}"]`);
+        if (!bar) continue;
+        const zones = bar.querySelector('.sync-zones');
+        if (!zones || zones.dataset.built === '1') continue;
+        zones.innerHTML = '';
+        sortedDesc.forEach((w, idx) => {
+          const widthPct = Math.min(1, w.ms / halfRange) * 100;
+          const box = document.createElement('div');
+          box.className = 'zone';
+          box.style.left = '50%';
+          box.style.width = widthPct + '%';
+          box.style.zIndex = String(idx);
+          if (idx === 0) {
+            // Outermost: gradient fade at each outer edge so the bar
+            // doesn't terminate abruptly. Inner 60% is solid.
+            const c = w.color;
+            box.style.background =
+              `linear-gradient(to right, transparent 0%, ${c} 20%, ${c} 80%, transparent 100%)`;
+          } else {
+            box.style.background = w.color;
+          }
+          zones.appendChild(box);
+        });
+        zones.dataset.built = '1';
+      }
+    }
+
+    function _judgmentColorFromOffset(absMs) {
+      const sortedAsc = [...SYNC_WINDOWS].sort((a, b) => a.ms - b.ms);
+      for (const w of sortedAsc) {
+        if (absMs <= w.ms) return w.color;
+      }
+      return null; // miss — caller filters these out
+    }
+
+    /* Spawn one tick DOM node per hit. The tick has a CSS animation
+       that handles its full lifecycle (fade-in, hold, fade-out
+       with width-shrink), and self-removes once the animation
+       ends — no per-frame work needed for ticks. */
+    function _spawnTick(playerIndex, offsetMs) {
+      const ticksEl = document.getElementById(`sync-ticks-${playerIndex}`);
+      if (!ticksEl) return;
+      const color = _judgmentColorFromOffset(Math.abs(offsetMs));
+      if (!color) return; // miss — osu excludes these from the meter
+      // Cap the live tick count to match osu's pool size of 50.
+      while (ticksEl.children.length >= SYNC_MAX_TICKS) {
+        ticksEl.removeChild(ticksEl.firstChild);
+      }
+      const t = document.createElement('span');
+      t.className = 'sync-tick';
+      const clamped = Math.max(-SYNC_RANGE_MS, Math.min(SYNC_RANGE_MS, offsetMs));
+      const pct = 50 + (clamped / SYNC_RANGE_MS) * 50;
+      t.style.left = pct + '%';
+      t.style.background = color;
+      t.addEventListener('animationend', () => t.remove(), { once: true });
+      ticksEl.appendChild(t);
+    }
+
+    /* Accept either:
+         - a list of plain numbers (legacy / demo path; each entry is
+           a brand-new offset in ms — every call appends every entry)
+         - a list of `{ offset_ms, t_ms }` objects (live engine feed;
+           the engine re-publishes the same ring buffer on every
+           gameplay tick, so we dedupe by `t_ms` and only spawn ticks
+           strictly newer than `_syncState[i].lastTickMs`).
+       Either way each new offset spawns one capsule tick and folds
+       into the player's exponential-moving-average for the arrow. */
+    function pushSyncOffsets(playerIndex, offsets) {
+      if (!Array.isArray(offsets) || offsets.length === 0) return;
+      const st = _syncState[playerIndex];
+      let any = false;
+      for (const entry of offsets) {
+        let off;
+        let t = null;
+        if (typeof entry === 'number' && isFinite(entry)) {
+          off = entry;
+        } else if (entry && typeof entry === 'object' && Number.isFinite(entry.offset_ms)) {
+          off = entry.offset_ms;
+          t = Number.isFinite(entry.t_ms) ? entry.t_ms : null;
+        } else {
+          continue;
+        }
+        // Engine-feed dedupe: skip ticks whose timestamp the bar has
+        // already seen on a previous publish.
+        if (t != null) {
+          if (t <= st.lastTickMs) continue;
+          st.lastTickMs = t;
+        }
+        _spawnTick(playerIndex, off);
+        // 10% blending EMA, identical to osu:
+        //   floatingAverage = floatingAverage * 0.9 + judgement.TimeOffset * 0.1
+        st.ema = st.ema == null ? off : st.ema * (1 - SYNC_EMA_WEIGHT) + off * SYNC_EMA_WEIGHT;
+        any = true;
+      }
+      if (any) _updateArrow(playerIndex);
+    }
+
+    function _updateArrow(playerIndex) {
+      const st = _syncState[playerIndex];
+      const arrowEl = document.getElementById(`sync-arrow-${playerIndex}`);
+      if (!arrowEl) return;
+      if (st.ema == null) {
+        arrowEl.style.opacity = '0';
+        return;
+      }
+      const clamped = Math.max(-SYNC_RANGE_MS, Math.min(SYNC_RANGE_MS, st.ema));
+      arrowEl.style.left = (50 + (clamped / SYNC_RANGE_MS) * 50) + '%';
+      arrowEl.style.opacity = '1';
+    }
+
+    function renderSyncBars(p1, p2) {
+      _initSyncZones();
+      // Player snapshot may carry an `_hit_errors` array (demo) or
+      // `recent_offsets_ms` (future engine field). Both are treated
+      // as "new offsets since last frame" — push semantics, not
+      // a full replacement.
+      [p1, p2].forEach((p, i) => {
+        if (!p) return;
+        const offs = p._hit_errors || p.recent_offsets_ms;
+        if (offs) pushSyncOffsets(i, offs);
+      });
+    }
+
+    // Ticks self-animate via CSS keyframes; arrow position updates
+    // only when new offsets arrive, so no per-frame loop needed.
 
     function render(snapshot) {
       const players = Array.isArray(snapshot.players) ? snapshot.players : [];
@@ -580,31 +1674,72 @@
       const v1 = renderScore('p1', p1);
       const v2 = renderScore('p2', p2);
       renderJudgments(p1, p2);
+      renderSyncBars(p1, p2);
 
       const delta = $('delta');
-      const fillP1 = $('h2h-p1');
-      const fillP2 = $('h2h-p2');
+      const fill = $('h2h-fill');
+
+      // Lead/lose styling on the score elements so the leading score
+      // reads as the headline number (BS / ScoreSaber broadcast
+      // convention). When the lead flips, briefly add a `pop` class
+      // to the new leader so it visually asserts the takeover.
+      const p1ScoreEl = $('p1-score');
+      const p2ScoreEl = $('p2-score');
+      const wasP1Leading = p1ScoreEl.classList.contains('leading');
+      const wasP2Leading = p2ScoreEl.classList.contains('leading');
+      p1ScoreEl.classList.remove('leading', 'losing', 'pop');
+      p2ScoreEl.classList.remove('leading', 'losing', 'pop');
 
       if (v1 == null || v2 == null) {
-        delta.textContent = '';
-        delta.className = 'delta tied';
-        fillP1.style.width = '50%';
-        fillP2.style.width = '50%';
+        if (delta) {
+          delta.textContent = '';
+          delta.className = 'delta tied';
+        }
+        if (fill) {
+          fill.className = 'fill';
+          fill.style.transform = 'scaleX(0)';
+        }
       } else {
         const diff = v1 - v2;
         if (Math.abs(diff) < 1e-5) {
-          delta.textContent = 'tied';
-          delta.className = 'delta tied';
+          if (delta) {
+            delta.textContent = 'tied';
+            delta.className = 'delta tied';
+          }
         } else {
           const sign = diff > 0 ? '+' : '−';
-          delta.textContent = `${sign}${(Math.abs(diff) * 100).toFixed(2)}%`;
-          delta.className = `delta ${diff > 0 ? 'p1' : 'p2'}`;
+          if (delta) {
+            delta.innerHTML = `<span class="num">${sign}${(Math.abs(diff) * 100).toFixed(2)}%</span>`;
+            delta.className = `delta ${diff > 0 ? 'p1' : 'p2'}`;
+          }
+          if (diff > 0) {
+            p1ScoreEl.classList.add('leading');
+            p2ScoreEl.classList.add('losing');
+            if (!wasP1Leading) {
+              // eslint-disable-next-line no-void
+              void p1ScoreEl.offsetWidth;
+              p1ScoreEl.classList.add('pop');
+            }
+          } else {
+            p1ScoreEl.classList.add('losing');
+            p2ScoreEl.classList.add('leading');
+            if (!wasP2Leading) {
+              // eslint-disable-next-line no-void
+              void p2ScoreEl.offsetWidth;
+              p2ScoreEl.classList.add('pop');
+            }
+          }
         }
         const bias = leadToBias(diff);
-        const p1Pct = 50 + bias * 50;
-        const p2Pct = 50 - bias * 50;
-        fillP1.style.width = `${Math.max(0, Math.min(100, p1Pct))}%`;
-        fillP2.style.width = `${Math.max(0, Math.min(100, p2Pct))}%`;
+        if (fill) {
+          fill.classList.remove('p1', 'p2');
+          if (Math.abs(diff) >= 1e-5) {
+            fill.classList.add(diff > 0 ? 'p1' : 'p2');
+            fill.style.transform = `scaleX(${Math.abs(bias)})`;
+          } else {
+            fill.style.transform = 'scaleX(0)';
+          }
+        }
         updateLeadChange(diff);
       }
 
@@ -614,12 +1749,14 @@
         (song && Number(song.music_length_seconds)) || 0;
       const elapsed = Number(snapshot.elapsed_seconds);
       const progress = $('progress');
-      if (denom > 0 && Number.isFinite(elapsed) && elapsed >= 0) {
-        progress.classList.remove('hidden');
-        $('progress-fill').style.width = `${Math.max(0, Math.min(100, (elapsed / denom) * 100))}%`;
-      } else {
-        progress.classList.add('hidden');
-        $('progress-fill').style.width = '0%';
+      if (progress) {
+        if (denom > 0 && Number.isFinite(elapsed) && elapsed >= 0) {
+          progress.classList.remove('hidden');
+          $('progress-fill').style.width = `${Math.max(0, Math.min(100, (elapsed / denom) * 100))}%`;
+        } else {
+          progress.classList.add('hidden');
+          $('progress-fill').style.width = '0%';
+        }
       }
     }
 
@@ -692,12 +1829,16 @@
         step_artist: 'demo',
         stepstype: 'dance-single',
       };
+      // Demo scores are kept in 0..100 percent units so the same
+      // values flow through `score_percent` etc. exactly as the live
+      // telemetry feed does. TIER_BREAKS thresholds and per-player
+      // accuracy targets are likewise scaled to that range.
       const TIER_BREAKS = [
-        ['Quint', 1.001], ['Tier01', 1.0],   ['Tier02', 0.99], ['Tier03', 0.98],
-        ['Tier04', 0.96], ['Tier05', 0.94],  ['Tier06', 0.92], ['Tier07', 0.89],
-        ['Tier08', 0.86], ['Tier09', 0.83],  ['Tier10', 0.80], ['Tier11', 0.76],
-        ['Tier12', 0.72], ['Tier13', 0.68],  ['Tier14', 0.64], ['Tier15', 0.60],
-        ['Tier16', 0.55], ['Tier17', 0.0],
+        ['Quint', 100.1], ['Tier01', 100],   ['Tier02', 99], ['Tier03', 98],
+        ['Tier04', 96],   ['Tier05', 94],    ['Tier06', 92], ['Tier07', 89],
+        ['Tier08', 86],   ['Tier09', 83],    ['Tier10', 80], ['Tier11', 76],
+        ['Tier12', 72],   ['Tier13', 68],    ['Tier14', 64], ['Tier15', 60],
+        ['Tier16', 55],   ['Tier17', 0],
       ];
       function gradeFor(score) {
         for (const [g, threshold] of TIER_BREAKS) {
@@ -707,8 +1848,22 @@
       }
 
       const players = [
-        { name: 'Tony',   ini: 'TNY', mods: ['Mirror'], target: 0.972 },
-        { name: 'Rynker', ini: 'RNK', mods: ['1.05x'],  target: 0.968 },
+        {
+          name: 'Spongebob', ini: 'SBP', mods: ['Mirror'], target: 97.2,
+          avatar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/SpongeBob_SquarePants_character.png/250px-SpongeBob_SquarePants_character.png',
+          pbSummary: { f: 8, ex: 4, g: 1, m: 0 },
+          // Synthetic per-service leaderboard rank for the chart.
+          // A real overlay would resolve via GrooveStats (`new-session.php`
+          // returns per-chart rank) and ArrowCloud
+          // (`/chart/{hash}/leaderboards`).
+          ranks: { gs: { rank: 7,  of: 312 }, ac: { rank: 12, of: 478 } },
+        },
+        {
+          name: 'Patrick',   ini: 'PAT', mods: ['1.05x'],  target: 96.8,
+          avatar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Patrick_Star_character.png/250px-Patrick_Star_character.png',
+          pbSummary: { f: 14, ex: 9, g: 3, m: 1 },
+          ranks: { gs: { rank: 18, of: 312 }, ac: { rank: 24, of: 478 } },
+        },
       ];
 
       let elapsed = 0;
@@ -716,6 +1871,7 @@
         { w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, miss: 0 },
         { w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, miss: 0 },
       ];
+      const hitErrors = [[], []];
       let totalNotes = 1100; // pretend chart has ~1100 notes
 
       function step() {
@@ -732,29 +1888,46 @@
         for (let i = 0; i < 2; i++) {
           // Tick a few notes per step, mostly Fantastic, occasionally drift.
           const tick = 2 + Math.floor(Math.random() * 4);
-          for (let n = 0; n < tick; n++) {
+            for (let n = 0; n < tick; n++) {
             const r = Math.random();
             // Player target accuracy biases the random distribution.
-            const acc = players[i].target + (Math.random() - 0.5) * 0.04;
-            if (acc > 0.985 && r < 0.2)        judgments[i].w0  += 1;
-            else if (acc > 0.96 && r < 0.78)   judgments[i].w1  += 1;
-            else if (r < 0.90)                 judgments[i].w2  += 1;
-            else if (r < 0.97)                 judgments[i].w3  += 1;
-            else if (r < 0.99)                 judgments[i].w4  += 1;
-            else                               judgments[i].w5  += 1;
-          }
-          // Occasional miss — drives combo-break flash.
+            // The engine config disables Decent (W4, purple) and
+            // Way Off (W5, orange) windows, so the demo only emits
+            // FA+ / F / Ex / Gr / Miss to match what'd actually
+            // appear in a tournament-config gameplay. Targets are in
+            // 0..100 percent units so thresholds use the same scale.
+            const acc = players[i].target + (Math.random() - 0.5) * 4;
+              // Pick a judgment window, then a random offset that
+              // lands strictly inside that window so the tick on the
+              // sync bar always reads as the same colour as the
+              // judgment it incremented in the column.
+              let lo, hi;
+              if (acc > 98.5 && r < 0.2)        { judgments[i].w0  += 1; lo = 0;    hi = 13.5; }
+              else if (acc > 96 && r < 0.78)    { judgments[i].w1  += 1; lo = 13.5; hi = 21.5; }
+              else if (r < 0.92)                { judgments[i].w2  += 1; lo = 21.5; hi = 43; }
+              else                              { judgments[i].w3  += 1; lo = 43;   hi = 80; }
+              const absMs = lo + Math.random() * (hi - lo);
+              // Sign distribution biases the long-run EMA without
+              // ever pushing an offset out of its judgment band.
+              // P1 plays slightly early (negative-leaning), P2 late.
+              const earlyChance = i === 0 ? 0.65 : 0.35;
+              const sign = Math.random() < earlyChance ? -1 : 1;
+              const off = sign * absMs;
+              (hitErrors[i] = hitErrors[i] || []).push(off);
+            }
+          // Occasional miss \u2014 drives combo-break flash.
           if (Math.random() < 0.012) judgments[i].miss += 1;
         }
 
         const players_state = [0, 1].map((i) => {
           const j = judgments[i];
           const judged = j.w0 + j.w1 + j.w2 + j.w3 + j.w4 + j.w5 + j.miss;
-          // Crude ITG % approximation: weighted average of windows.
+          // Crude ITG % approximation: weighted average of windows,
+          // expressed in 0..100 percent units to match telemetry.
           const weighted =
             j.w0 * 1.0 + j.w1 * 1.0 + j.w2 * 0.98 + j.w3 * 0.6 +
             j.w4 * 0.2 + j.w5 * (-0.4) + j.miss * (-0.8);
-          const score = judged > 0 ? Math.max(0, weighted / judged) : 0;
+          const score = judged > 0 ? Math.max(0, weighted / judged) * 100 : 0;
           // Slow swap: nudge each player toward their target.
           const blended = score * 0.6 + players[i].target * 0.4;
           return {
@@ -762,6 +1935,9 @@
             initials: players[i].ini,
             groovestats_username: players[i].name.toLowerCase(),
             arrowcloud_user_id: null,
+            _avatar_url: players[i].avatar,
+            _pb_summary: players[i].pbSummary,
+            _ranks: players[i].ranks,
             score_percent: blended,
             ex_score_percent: blended * 0.96,
             hard_ex_score_percent: blended * 0.91,
@@ -769,8 +1945,9 @@
             disqualified: false,
             combo: judged - j.miss,
             modifiers: players[i].mods,
-            personal_best: { itg: 0.965, ex: 0.92, hard_ex: 0.85 },
+            personal_best: { itg: 96.5, ex: 92, hard_ex: 85 },
             judgments: { ...j },
+            _hit_errors: (hitErrors[i] || []).splice(0),
           };
         });
 
@@ -817,6 +1994,18 @@
         realScheduleReconnect();
       };
       connect();
+    }
+
+    /* Re-fit the judgment / score font sizes once the webfonts have
+       loaded. Without this, the first render measures row heights
+       against the fallback font (Impact / system sans), which has
+       different metrics from Wendy/Teko, so the scores end up sized
+       a few pixels off until the webfonts swap in. */
+    if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+      document.fonts.ready.then(() => {
+        const container = document.getElementById('judgments');
+        if (container) fitJudgmentFont(container);
+      });
     }
   </script>
 </body>

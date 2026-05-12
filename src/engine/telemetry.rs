@@ -195,6 +195,24 @@ pub struct PlayerState {
     /// hasn't been populated yet.
     pub personal_best: PersonalBest,
     pub judgments: JudgmentCounts,
+    /// Most recent hit offsets in milliseconds for this player, oldest
+    /// first. Negative = early tap, positive = late tap. Each entry
+    /// also carries a monotonic `t_ms` timestamp so consumers can
+    /// dedupe across ticks (the engine re-publishes the same ring
+    /// buffer each ~250 ms snapshot). Drives stream overlay
+    /// "sync bar" / hit-error meter widgets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_offsets_ms: Vec<HitOffset>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct HitOffset {
+    /// Tap timing offset in milliseconds; negative = early, positive = late.
+    pub offset_ms: f64,
+    /// `started_at` seconds-since-screen-entry from the engine's error
+    /// bar buffer. Stable across re-publishes of the same tap; rolls
+    /// over only when a new song / screen begins.
+    pub t_ms: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -364,6 +382,9 @@ fn player_state_from(p: &crate::game::stage_stats::PlayerStageSummary) -> Player
             w5: p.window_counts.w5,
             miss: p.window_counts.miss,
         },
+        // Stage summary doesn't retain per-tap offsets; they're a
+        // live gameplay-only feed populated by the gameplay-tick path.
+        recent_offsets_ms: Vec::new(),
     }
 }
 
@@ -433,6 +454,12 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
         let ac_user_id = crate::game::scores::cached_arrowcloud_user_id_for_side(side);
         let score_fraction =
             crate::game::gameplay::display_itg_score_percent(state, player_idx);
+        // Publish all score fields uniformly as 0..100 percent values.
+        // `display_itg_score_percent` is the only helper that returns a
+        // 0..1 fraction (a historical port quirk); the EX / HardEX
+        // helpers already return percent values, so we just multiply
+        // ITG by 100 to match.
+        let score_pct = score_fraction * 100.0;
         let ex = crate::game::gameplay::display_ex_score_percent(state, player_idx);
         let hard_ex = crate::game::gameplay::display_hard_ex_score_percent(state, player_idx);
         let grade = crate::game::scores::score_to_grade(score_fraction * 10000.0);
@@ -448,11 +475,18 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
                 initials,
                 groovestats_username: gs_username,
                 arrowcloud_user_id: ac_user_id,
-                score_percent: score_fraction,
+                score_percent: score_pct,
                 ex_score_percent: ex,
                 hard_ex_score_percent: hard_ex,
                 grade: grade_name(grade),
-                disqualified: false,
+                // Mark the run as disqualified whenever autoplay or
+                // a replay is in effect, matching the evaluation
+                // screen's logic. Score percentages keep updating
+                // (the display path credits autoplay's perfect
+                // hold/roll completion) so overlays can show live
+                // progress; the flag tells consumers it's a non-
+                // submittable run.
+                disqualified: state.autoplay_used || state.is_replay(),
                 combo: runtime.combo,
                 modifiers,
                 personal_best,
@@ -465,9 +499,36 @@ pub fn publish_gameplay_tick(state: &crate::game::gameplay::State) {
                     w5: counts.w5,
                     miss: counts.miss,
                 },
+                recent_offsets_ms: collect_recent_offsets(runtime),
             }),
         });
     }
+}
+
+/// Snapshot the player's always-on telemetry offset ring as a flat
+/// list of hit offsets in milliseconds, ordered oldest-first. Each
+/// entry's `started_at` (screen-time seconds) is preserved as `t_ms`
+/// so a consumer can dedupe across re-publishes — the engine emits
+/// the same ring contents on every gameplay tick until new taps push
+/// the older ones out.
+fn collect_recent_offsets(runtime: &crate::game::gameplay::PlayerRuntime) -> Vec<HitOffset> {
+    let ring = &runtime.telemetry_offsets;
+    let cap = ring.len();
+    if cap == 0 {
+        return Vec::new();
+    }
+    let next = runtime.telemetry_offsets_next % cap;
+    let mut out = Vec::with_capacity(cap);
+    for i in 0..cap {
+        let ix = (next + i) % cap;
+        if let Some((started_at, offset_ms)) = ring[ix] {
+            out.push(HitOffset {
+                offset_ms: f64::from(offset_ms),
+                t_ms: f64::from(started_at) * 1000.0,
+            });
+        }
+    }
+    out
 }
 
 /// Build the modifier badge list for a player. Kept intentionally small:
@@ -513,7 +574,12 @@ fn personal_best_from(
     };
     let mut out = PersonalBest::default();
     for pane in &data.panes {
-        let self_score = pane.entries.iter().find(|e| e.is_self).map(|e| e.score / 10000.0);
+        // Engine stores `score` as a 0..1_000_000 integer (× 10000 of
+        // a 0..100 percent). Publish as a plain percent value so the
+        // PersonalBest fields match the `score_percent` /
+        // `ex_score_percent` / `hard_ex_score_percent` fields, which
+        // are also 0..100.
+        let self_score = pane.entries.iter().find(|e| e.is_self).map(|e| e.score / 100.0);
         let Some(score) = self_score else { continue };
         if pane.is_groovestats() {
             if pane.is_ex {

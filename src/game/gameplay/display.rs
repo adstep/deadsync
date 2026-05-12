@@ -1,6 +1,8 @@
 use crate::game::judgment::{self, JudgeGrade, Judgment};
+use crate::game::note::{HoldResult, NoteType};
 use crate::game::timing::{self, WindowCounts};
 
+use super::autoplay::live_autoplay_enabled;
 use super::{
     CourseDisplayCarry, CourseDisplayTotals, ExScoreInputs, MAX_PLAYERS, PlayerRuntime, State,
     display_judge_ix, player_blue_window_ms,
@@ -83,15 +85,64 @@ pub(super) fn scored_hold_totals_with_carry(
 #[inline(always)]
 fn live_ex_score_inputs(state: &State, player_idx: usize) -> ExScoreInputs {
     let player = &state.players[player_idx];
+    // While autoplay is engaged, the per-score hold/roll counters in
+    // PlayerRuntime are deliberately frozen so the bot's run can't
+    // submit scores. For *display* purposes we still want a usable
+    // EX percentage — autoplay always succeeds at holds/rolls, so
+    // we walk the chart and count every hold/roll the engine has
+    // already marked as Held to synthesise the same totals the
+    // scoring path would have produced for a perfect human run.
+    // This is a display-only override; the official scoring fields
+    // remain zeroed and the run still stays disqualified at submit.
+    let autoplay = live_autoplay_enabled(state);
+    let (holds_held_for_score, rolls_held_for_score, mines_hit_for_score) = if autoplay {
+        let (holds_held, rolls_held) = autoplay_held_counts(state, player_idx);
+        // Mines are never auto-hit by the bot, so the score formula
+        // gets a clean zero subtraction for them.
+        (holds_held, rolls_held, 0)
+    } else {
+        (
+            player.holds_held_for_score,
+            player.rolls_held_for_score,
+            player.mines_hit_for_score,
+        )
+    };
     ExScoreInputs {
         counts: display_window_counts(state, player_idx, None),
         counts_10ms: display_window_counts_10ms(state, player_idx),
-        holds_held_for_score: player.holds_held_for_score,
+        holds_held_for_score,
         holds_let_go_for_score: player.holds_let_go_for_score,
-        rolls_held_for_score: player.rolls_held_for_score,
+        rolls_held_for_score,
         rolls_let_go_for_score: player.rolls_let_go_for_score,
-        mines_hit_for_score: player.mines_hit_for_score,
+        mines_hit_for_score,
     }
+}
+
+/// Counts every hold and roll in the player's note range whose
+/// engine-side `hold.result == Some(HoldResult::Held)`. Used for the
+/// autoplay-credit display path so the EX % readout stays accurate
+/// even when the official `*_for_score` counters are frozen.
+fn autoplay_held_counts(state: &State, player_idx: usize) -> (u32, u32) {
+    if player_idx >= MAX_PLAYERS || player_idx >= state.note_ranges.len() {
+        return (0, 0);
+    }
+    let (start, end) = state.note_ranges[player_idx];
+    let mut holds_held: u32 = 0;
+    let mut rolls_held: u32 = 0;
+    for note in &state.notes[start..end] {
+        let Some(hold) = note.hold.as_ref() else {
+            continue;
+        };
+        if hold.result != Some(HoldResult::Held) {
+            continue;
+        }
+        match note.note_type {
+            NoteType::Hold => holds_held = holds_held.saturating_add(1),
+            NoteType::Roll => rolls_held = rolls_held.saturating_add(1),
+            _ => {}
+        }
+    }
+    (holds_held, rolls_held)
 }
 
 #[inline(always)]
@@ -167,6 +218,31 @@ pub(super) fn record_display_window_counts(
         judgment,
         display_window_ms,
     );
+    record_telemetry_offset(state, player_idx, judgment);
+}
+
+/// Always-on tap-error capture for the telemetry feed. Records the
+/// current judgment's signed timing offset (ms) plus a screen-time
+/// timestamp into the player's `telemetry_offsets` ring buffer so
+/// stream overlays can render hit-error meters regardless of the
+/// player's in-game error-bar visibility setting and regardless of
+/// `autoplay_blocks_scoring`.
+fn record_telemetry_offset(state: &mut State, player_idx: usize, judgment: &Judgment) {
+    if !judgment.time_error_ms.is_finite() {
+        return;
+    }
+    if judgment.window.is_none() {
+        return;
+    }
+    let now = state.total_elapsed_in_screen;
+    let p = &mut state.players[player_idx];
+    let cap = p.telemetry_offsets.len();
+    if cap == 0 {
+        return;
+    }
+    let ix = p.telemetry_offsets_next % cap;
+    p.telemetry_offsets[ix] = Some((now, judgment.time_error_ms));
+    p.telemetry_offsets_next = (ix + 1) % cap;
 }
 
 #[inline(always)]
