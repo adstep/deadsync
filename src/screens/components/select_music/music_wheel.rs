@@ -66,7 +66,10 @@ const STR_REF_CACHE_LIMIT: usize = 4096;
 const ITL_SCORE_ZOOM: f32 = 0.2;
 const ITL_POINTS_SCORE_ZOOM: f32 = 0.13;
 const LOCAL_SCORE_ZOOM: f32 = 0.2;
-const LOCAL_SCORE_DATE_ZOOM: f32 = 0.13;
+const LOCAL_SCORE_DATE_ZOOM: f32 = 0.18;
+// Date right-edge sits this far left of the EX number's right edge so the
+// two read as columns on the same line ("MM/DD/YY  XX.XX").
+const LOCAL_SCORE_DATE_X_OFFSET: f32 = -52.0;
 const SONG_NULL_SYNC_RIGHT_EDGE: [f32; 4] = [80.0 / 255.0, 20.0 / 255.0, 27.0 / 255.0, 1.0];
 
 thread_local! {
@@ -1122,26 +1125,31 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                                 (ex_percent.clamp(0.0, 100.0) * 100.0).round() as u32;
                             let color = local_ex_grade_color(grade);
                             let show_date = want_date && played_at_ms != 0;
+                            let row_y = y_center_item + itl_score_y(side, joined_sides);
                             if show_date {
-                                let (date_y, ex_y) = itl_score_line_y(side, joined_sides);
-                                actors.push(act!(text:
-                                    font(current_machine_font_key(FontRole::Numbers)):
-                                    settext(cached_local_date_text(played_at_ms)):
-                                    align(1.0, 0.5):
-                                    horizalign(right):
-                                    xy(highlight_left_world + itl_ex_x, y_center_item + date_y):
-                                    zoom(LOCAL_SCORE_DATE_ZOOM):
-                                    diffuse(1.0, 1.0, 1.0, 1.0):
-                                    z(53)
-                                ));
+                                // Date sits to the left of the EX number on
+                                // the same line. The score column right edge
+                                // stays at `itl_ex_x`; the date right-aligns
+                                // far enough left to clear the widest "100.00"
+                                // EX readout at LOCAL_SCORE_ZOOM.
                                 actors.push(act!(text:
                                     font(current_machine_font_key(FontRole::Numbers)):
                                     settext(cached_local_ex_text(ex_hundredths)):
                                     align(1.0, 0.5):
                                     horizalign(right):
-                                    xy(highlight_left_world + itl_ex_x, y_center_item + ex_y):
-                                    zoom(LOCAL_SCORE_DATE_ZOOM):
+                                    xy(highlight_left_world + itl_ex_x, row_y):
+                                    zoom(LOCAL_SCORE_ZOOM):
                                     diffuse(color[0], color[1], color[2], color[3]):
+                                    z(53)
+                                ));
+                                actors.push(act!(text:
+                                    font(current_machine_font_key(FontRole::Numbers)):
+                                    settext(cached_local_date_text(played_at_ms)):
+                                    align(1.0, 0.5):
+                                    horizalign(right):
+                                    xy(highlight_left_world + itl_ex_x + LOCAL_SCORE_DATE_X_OFFSET, row_y):
+                                    zoom(LOCAL_SCORE_DATE_ZOOM):
+                                    diffuse(1.0, 1.0, 1.0, 1.0):
                                     z(53)
                                 ));
                             } else {
@@ -1150,7 +1158,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                                     settext(cached_local_ex_text(ex_hundredths)):
                                     align(1.0, 0.5):
                                     horizalign(right):
-                                    xy(highlight_left_world + itl_ex_x, y_center_item + itl_score_y(side, joined_sides)):
+                                    xy(highlight_left_world + itl_ex_x, row_y):
                                     zoom(LOCAL_SCORE_ZOOM):
                                     diffuse(color[0], color[1], color[2], color[3]):
                                     z(53)

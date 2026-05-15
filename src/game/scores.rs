@@ -1381,7 +1381,7 @@ pub fn short_local_date_string(played_at_ms: i64) -> String {
     let Some(dt) = Local.timestamp_millis_opt(played_at_ms).single() else {
         return String::new();
     };
-    dt.format("%Y-%m-%d").to_string()
+    dt.format("%m/%d/%y").to_string()
 }
 
 #[inline(always)]
