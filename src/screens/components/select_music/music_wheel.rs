@@ -1149,7 +1149,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                                     horizalign(right):
                                     xy(highlight_left_world + itl_ex_x + LOCAL_SCORE_DATE_X_OFFSET, row_y):
                                     zoom(LOCAL_SCORE_DATE_ZOOM):
-                                    diffuse(1.0, 1.0, 1.0, 1.0):
+                                    diffuse(color[0], color[1], color[2], color[3]):
                                     z(53)
                                 ));
                             } else {
