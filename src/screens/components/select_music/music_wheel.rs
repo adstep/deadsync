@@ -66,10 +66,10 @@ const STR_REF_CACHE_LIMIT: usize = 4096;
 const ITL_SCORE_ZOOM: f32 = 0.2;
 const ITL_POINTS_SCORE_ZOOM: f32 = 0.13;
 const LOCAL_SCORE_ZOOM: f32 = 0.2;
-const LOCAL_SCORE_DATE_ZOOM: f32 = 0.18;
+const LOCAL_SCORE_DATE_ZOOM: f32 = 0.2;
 // Date right-edge sits this far left of the EX number's right edge so the
 // two read as columns on the same line ("MM/DD/YY  XX.XX").
-const LOCAL_SCORE_DATE_X_OFFSET: f32 = -52.0;
+const LOCAL_SCORE_DATE_X_OFFSET: f32 = -58.0;
 const SONG_NULL_SYNC_RIGHT_EDGE: [f32; 4] = [80.0 / 255.0, 20.0 / 255.0, 27.0 / 255.0, 1.0];
 
 thread_local! {
