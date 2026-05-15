@@ -120,6 +120,16 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ROWS: &[SubRow] = &[
         inline: true,
     },
     SubRow {
+        id: SubRowId::WheelScoreData,
+        label: lookup_key("OptionsSelectMusic", "WheelScoreData"),
+        choices: &[
+            localized_choice("Common", "Off"),
+            localized_choice("OptionsSelectMusic", "WheelScoreScore"),
+            localized_choice("OptionsSelectMusic", "WheelScoreScoreDate"),
+        ],
+        inline: true,
+    },
+    SubRow {
         id: SubRowId::NewPackBadge,
         label: lookup_key("OptionsSelectMusic", "NewPackBadge"),
         choices: &[
@@ -328,6 +338,14 @@ pub(in crate::screens::options) const SELECT_MUSIC_OPTIONS_ITEMS: &[Item] = &[
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSelectMusicHelp",
             "ItlWheelDataHelp",
+        ))],
+    },
+    Item {
+        id: ItemId::SmWheelScore,
+        name: lookup_key("OptionsSelectMusic", "WheelScoreData"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsSelectMusicHelp",
+            "WheelScoreDataHelp",
         ))],
     },
     Item {
@@ -722,6 +740,11 @@ pub(in crate::screens::options) fn select_music_chart_info_enabled_mask() -> u8 
 
 impl ChoiceEnum for SelectMusicItlWheelMode {
     const ALL: &'static [Self] = &[Self::Off, Self::Score, Self::PointsAndScore];
+    const DEFAULT: Self = Self::Off;
+}
+
+impl ChoiceEnum for SelectMusicWheelScoreMode {
+    const ALL: &'static [Self] = &[Self::Off, Self::Score, Self::ScoreAndDate];
     const DEFAULT: Self = Self::Off;
 }
 

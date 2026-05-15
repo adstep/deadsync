@@ -9886,6 +9886,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
         show_music_wheel_lamps: cfg.show_music_wheel_lamps,
         itl_rank_mode: cfg.select_music_itl_rank_mode,
         itl_wheel_mode: cfg.select_music_itl_wheel_mode,
+        wheel_score_mode: cfg.select_music_wheel_score_mode,
         allow_online_fetch: allow_gs_fetch,
         new_pack_names: (state.sort_mode == WheelSortMode::Group).then_some(&state.new_pack_names),
         pack_sync_prefs: cfg

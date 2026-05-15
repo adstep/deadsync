@@ -151,6 +151,11 @@ fn push_default_options(content: &mut String, default: &Config) {
     );
     push_line(
         content,
+        "SelectMusicWheelScore",
+        default.select_music_wheel_score_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicWheelStyle",
         default.select_music_wheel_style.as_str(),
     );

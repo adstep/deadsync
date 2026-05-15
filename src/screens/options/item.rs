@@ -126,6 +126,7 @@ pub enum ItemId {
     SmWheelLamps,
     SmWheelItlRank,
     SmWheelItl,
+    SmWheelScore,
     SmNewPackBadge,
     SmPatternInfo,
     SmChartInfo,

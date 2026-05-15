@@ -557,6 +557,10 @@ pub(super) fn apply_submenu_choice_delta(
             config::update_select_music_itl_wheel_mode(SelectMusicItlWheelMode::from_choice(
                 new_index,
             ));
+        } else if row.id == SubRowId::WheelScoreData {
+            config::update_select_music_wheel_score_mode(SelectMusicWheelScoreMode::from_choice(
+                new_index,
+            ));
         } else if row.id == SubRowId::NewPackBadge {
             config::update_select_music_new_pack_mode(NewPackMode::from_choice(new_index));
         } else if row.id == SubRowId::ShowPatternInfo {

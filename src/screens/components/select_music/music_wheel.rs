@@ -2,7 +2,7 @@ use crate::act;
 use crate::assets::{FontRole, current_machine_font_key};
 use crate::config::{
     self, DefaultSyncOffset, MachineBarColor, SelectMusicItlRankMode, SelectMusicItlWheelMode,
-    VisualStyle,
+    SelectMusicWheelScoreMode, VisualStyle,
 };
 use crate::engine::present::actors::Actor;
 use crate::engine::present::cache::{SharedStrCache, cached_shared_str};
@@ -57,12 +57,16 @@ const ITL_RANK_TEXT_CACHE_LIMIT: usize = 1024;
 const ITL_EX_TEXT_CACHE_LIMIT: usize = 1024;
 const ITL_POINTS_TEXT_CACHE_LIMIT: usize = 1024;
 const PACK_COUNT_TEXT_CACHE_LIMIT: usize = 1024;
+const LOCAL_EX_TEXT_CACHE_LIMIT: usize = 2048;
+const LOCAL_DATE_TEXT_CACHE_LIMIT: usize = 2048;
 const STR_REF_CACHE_LIMIT: usize = 4096;
 // Simply Love and Arrow Cloud both use zoom(0.2) for the single-line ITL wheel value.
 // Our stacked Points+Score mode is deadsync-only, so it needs a smaller zoom to
 // keep both lines within that same visual footprint.
 const ITL_SCORE_ZOOM: f32 = 0.2;
 const ITL_POINTS_SCORE_ZOOM: f32 = 0.13;
+const LOCAL_SCORE_ZOOM: f32 = 0.2;
+const LOCAL_SCORE_DATE_ZOOM: f32 = 0.13;
 const SONG_NULL_SYNC_RIGHT_EDGE: [f32; 4] = [80.0 / 255.0, 20.0 / 255.0, 27.0 / 255.0, 1.0];
 
 thread_local! {
@@ -73,6 +77,10 @@ thread_local! {
     static ITL_POINTS_TEXT_CACHE: RefCell<HashMap<u32, Arc<str>>> =
         RefCell::new(HashMap::with_capacity(256));
     static PACK_COUNT_TEXT_CACHE: RefCell<HashMap<usize, Arc<str>>> =
+        RefCell::new(HashMap::with_capacity(256));
+    static LOCAL_EX_TEXT_CACHE: RefCell<HashMap<u32, Arc<str>>> =
+        RefCell::new(HashMap::with_capacity(256));
+    static LOCAL_DATE_TEXT_CACHE: RefCell<HashMap<i64, Arc<str>>> =
         RefCell::new(HashMap::with_capacity(256));
     static STR_REF_CACHE: RefCell<SharedStrCache> =
         RefCell::new(HashMap::with_capacity(1024));
@@ -157,6 +165,68 @@ fn cached_itl_points_text(points: u32) -> Arc<str> {
         }
         text
     })
+}
+
+#[inline(always)]
+fn cached_local_ex_text(ex_hundredths: u32) -> Arc<str> {
+    LOCAL_EX_TEXT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(text) = cache.get(&ex_hundredths) {
+            return text.clone();
+        }
+        let text: Arc<str> = Arc::<str>::from(format!(
+            "{}.{:02}",
+            ex_hundredths / 100,
+            ex_hundredths % 100
+        ));
+        if cache.len() < LOCAL_EX_TEXT_CACHE_LIMIT {
+            cache.insert(ex_hundredths, text.clone());
+        }
+        text
+    })
+}
+
+#[inline(always)]
+fn cached_local_date_text(played_at_ms: i64) -> Arc<str> {
+    LOCAL_DATE_TEXT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(text) = cache.get(&played_at_ms) {
+            return text.clone();
+        }
+        let text: Arc<str> = Arc::<str>::from(scores::short_local_date_string(played_at_ms));
+        if cache.len() < LOCAL_DATE_TEXT_CACHE_LIMIT {
+            cache.insert(played_at_ms, text.clone());
+        }
+        text
+    })
+}
+
+/// Gradient color for the local wheel EX text. Mirrors the zmod "red→W0"
+/// gradient idea: failed plays render red, with progressively brighter
+/// judgment hues as the tier improves, capping at the bright Fantastic (W0)
+/// cyan at Tier01 and the quint pink at Quint.
+fn local_ex_grade_color(grade: scores::Grade) -> [f32; 4] {
+    match grade {
+        scores::Grade::Quint => col_quint_lamp(),
+        scores::Grade::Tier01 => color::JUDGMENT_RGBA[0], // W0/Fantastic cyan
+        scores::Grade::Tier02 | scores::Grade::Tier03 | scores::Grade::Tier04 => {
+            color::JUDGMENT_RGBA[1] // Excellent gold
+        }
+        scores::Grade::Tier05 | scores::Grade::Tier06 | scores::Grade::Tier07 => {
+            color::JUDGMENT_RGBA[2] // Great green
+        }
+        scores::Grade::Tier08 | scores::Grade::Tier09 | scores::Grade::Tier10 => {
+            color::JUDGMENT_RGBA[3] // Decent purple
+        }
+        scores::Grade::Tier11
+        | scores::Grade::Tier12
+        | scores::Grade::Tier13
+        | scores::Grade::Tier14
+        | scores::Grade::Tier15
+        | scores::Grade::Tier16
+        | scores::Grade::Tier17 => color::JUDGMENT_RGBA[4], // Way Off brown/orange
+        scores::Grade::Failed => color::JUDGMENT_RGBA[5], // Red
+    }
 }
 
 #[inline(always)]
@@ -333,6 +403,14 @@ const fn steps_slot_for_side(play_style: profile::PlayStyle, side: profile::Play
     }
 }
 
+#[inline(always)]
+const fn side_to_index(side: profile::PlayerSide) -> usize {
+    match side {
+        profile::PlayerSide::P1 => 0,
+        profile::PlayerSide::P2 => 1,
+    }
+}
+
 pub struct MusicWheelParams<'a> {
     pub entries: &'a [MusicWheelEntry],
     pub selected_index: usize,
@@ -350,6 +428,7 @@ pub struct MusicWheelParams<'a> {
     pub show_music_wheel_lamps: bool,
     pub itl_rank_mode: SelectMusicItlRankMode,
     pub itl_wheel_mode: SelectMusicItlWheelMode,
+    pub wheel_score_mode: SelectMusicWheelScoreMode,
     pub allow_online_fetch: bool,
     pub new_pack_names: Option<&'a HashSet<String>>,
     pub pack_sync_prefs: Option<&'a HashMap<String, rssp::pack::SyncPref>>,
@@ -838,6 +917,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                         }
                     }
 
+                    let mut itl_rendered_side: [bool; 2] = [false; 2];
                     for side in [profile::PlayerSide::P1, profile::PlayerSide::P2] {
                         if matches!(itl_wheel_mode, SelectMusicItlWheelMode::Off) {
                             continue;
@@ -864,6 +944,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                         else {
                             continue;
                         };
+                        itl_rendered_side[side_to_index(side)] = true;
                         match itl_wheel_mode {
                             SelectMusicItlWheelMode::Off => {}
                             SelectMusicItlWheelMode::Score => {
@@ -916,6 +997,75 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                                     xy(highlight_left_world + itl_ex_x, y_center_item + ex_y):
                                     zoom(ITL_POINTS_SCORE_ZOOM):
                                     diffuse(itl_ex_color[0], itl_ex_color[1], itl_ex_color[2], itl_ex_color[3]):
+                                    z(53)
+                                ));
+                            }
+                        }
+                    }
+
+                    // Local personal best EX score (+ optional date) for songs
+                    // where no ITL row was drawn. Issue #339: zmod-style score
+                    // and last-upscore date for every song on the wheel.
+                    if !matches!(p.wheel_score_mode, SelectMusicWheelScoreMode::Off) {
+                        for side in [profile::PlayerSide::P1, profile::PlayerSide::P2] {
+                            if itl_rendered_side[side_to_index(side)] {
+                                continue;
+                            }
+                            if !profile::is_session_side_joined(side) {
+                                continue;
+                            }
+                            let Some(side_chart) = wheel_chart_for_side(side) else {
+                                continue;
+                            };
+                            let Some((grade, ex_percent, played_at_ms)) =
+                                scores::get_cached_local_ex_score_with_date_for_side(
+                                    side_chart.short_hash.as_str(),
+                                    side,
+                                )
+                            else {
+                                continue;
+                            };
+                            if ex_percent <= 0.0 && grade != scores::Grade::Failed {
+                                continue;
+                            }
+                            let ex_hundredths =
+                                (ex_percent.clamp(0.0, 100.0) * 100.0).round() as u32;
+                            let color = local_ex_grade_color(grade);
+                            let show_date = matches!(
+                                p.wheel_score_mode,
+                                SelectMusicWheelScoreMode::ScoreAndDate
+                            ) && played_at_ms != 0;
+                            if show_date {
+                                let (date_y, ex_y) = itl_score_line_y(side, joined_sides);
+                                actors.push(act!(text:
+                                    font(current_machine_font_key(FontRole::Numbers)):
+                                    settext(cached_local_date_text(played_at_ms)):
+                                    align(1.0, 0.5):
+                                    horizalign(right):
+                                    xy(highlight_left_world + itl_ex_x, y_center_item + date_y):
+                                    zoom(LOCAL_SCORE_DATE_ZOOM):
+                                    diffuse(1.0, 1.0, 1.0, 1.0):
+                                    z(53)
+                                ));
+                                actors.push(act!(text:
+                                    font(current_machine_font_key(FontRole::Numbers)):
+                                    settext(cached_local_ex_text(ex_hundredths)):
+                                    align(1.0, 0.5):
+                                    horizalign(right):
+                                    xy(highlight_left_world + itl_ex_x, y_center_item + ex_y):
+                                    zoom(LOCAL_SCORE_DATE_ZOOM):
+                                    diffuse(color[0], color[1], color[2], color[3]):
+                                    z(53)
+                                ));
+                            } else {
+                                actors.push(act!(text:
+                                    font(current_machine_font_key(FontRole::Numbers)):
+                                    settext(cached_local_ex_text(ex_hundredths)):
+                                    align(1.0, 0.5):
+                                    horizalign(right):
+                                    xy(highlight_left_world + itl_ex_x, y_center_item + itl_score_y(side, joined_sides)):
+                                    zoom(LOCAL_SCORE_ZOOM):
+                                    diffuse(color[0], color[1], color[2], color[3]):
                                     z(53)
                                 ));
                             }

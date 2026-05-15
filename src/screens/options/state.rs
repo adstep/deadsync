@@ -895,6 +895,12 @@ pub fn init() -> State {
     set_choice_by_id(
         &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
         SELECT_MUSIC_OPTIONS_ROWS,
+        SubRowId::WheelScoreData,
+        cfg.select_music_wheel_score_mode.choice_index(),
+    );
+    set_choice_by_id(
+        &mut state.sub[SubmenuKind::SelectMusic].choice_indices,
+        SELECT_MUSIC_OPTIONS_ROWS,
         SubRowId::NewPackBadge,
         cfg.select_music_new_pack_mode.choice_index(),
     );

@@ -98,6 +98,7 @@ pub enum SubRowId {
     ShowWheelLamps,
     ItlRank,
     ItlWheelData,
+    WheelScoreData,
     NewPackBadge,
     ShowPatternInfo,
     ChartInfo,

@@ -184,6 +184,45 @@ impl FromStr for SelectMusicItlWheelMode {
     }
 }
 
+/// How the personal-best EX score for *any* song (not just ITL) should appear
+/// on the music wheel rows. Local scores are used; the date is the play that
+/// established the best EX percent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectMusicWheelScoreMode {
+    Off,
+    Score,
+    ScoreAndDate,
+}
+
+impl SelectMusicWheelScoreMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Score => "Score",
+            Self::ScoreAndDate => "ScoreAndDate",
+        }
+    }
+}
+
+impl FromStr for SelectMusicWheelScoreMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "off" | "disable" | "disabled" => Ok(Self::Off),
+            "score" | "scores" => Ok(Self::Score),
+            "scoreanddate" | "scoredate" | "datescore" => Ok(Self::ScoreAndDate),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectMusicWheelStyle {
     Itg,

@@ -218,6 +218,11 @@ fn push_saved_options(
     );
     push_line(
         content,
+        "SelectMusicWheelScore",
+        cfg.select_music_wheel_score_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicWheelStyle",
         cfg.select_music_wheel_style.as_str(),
     );

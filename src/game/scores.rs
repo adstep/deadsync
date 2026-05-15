@@ -710,6 +710,9 @@ fn merge_arrowcloud_score_slot(
 struct BestScalar {
     grade: Grade,
     percent: f64,
+    /// Unix millis of the play that established this best score. `0` if the
+    /// timestamp is unknown (e.g. legacy data prior to tracking).
+    played_at_ms: i64,
 }
 
 #[derive(Debug, Default, Clone, Encode, Decode)]
@@ -720,7 +723,8 @@ struct LocalScoreIndex {
 }
 
 // Rebuild old indexes so stale grade-only quints are rehydrated from EX-backed play files.
-const LOCAL_SCORE_INDEX_VERSION: u16 = 2;
+// v3 added `played_at_ms` tracking for best EX/Hard-EX scalars.
+const LOCAL_SCORE_INDEX_VERSION: u16 = 3;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct LocalScoreIndexFile {
@@ -1352,6 +1356,34 @@ pub fn get_cached_local_hard_ex_score_for_side(
     get_cached_local_scalar_score_for_side(chart_hash, side, true)
 }
 
+/// Returns `(grade, ex_percent, played_at_ms)` for the personal best EX score
+/// of `chart_hash` on the given side, or `None` if no local play is cached.
+/// `played_at_ms == 0` indicates the timestamp is unknown (legacy data).
+pub fn get_cached_local_ex_score_with_date_for_side(
+    chart_hash: &str,
+    side: profile::PlayerSide,
+) -> Option<(Grade, f64, i64)> {
+    let profile_id = profile::active_local_profile_id_for_side(side)?;
+    ensure_local_score_cache_loaded(&profile_id);
+    let state = LOCAL_SCORE_CACHE.lock().unwrap();
+    let index = state.loaded_profiles.get(&profile_id)?;
+    let best = index.best_ex.get(chart_hash)?;
+    Some((best.grade, best.percent, best.played_at_ms))
+}
+
+/// Formats a local-play unix-ms timestamp into a short `YYYY-MM-DD` string
+/// suitable for use on the music wheel. Returns an empty string for unknown
+/// or malformed timestamps.
+pub fn short_local_date_string(played_at_ms: i64) -> String {
+    if played_at_ms == 0 {
+        return String::new();
+    }
+    let Some(dt) = Local.timestamp_millis_opt(played_at_ms).single() else {
+        return String::new();
+    };
+    dt.format("%Y-%m-%d").to_string()
+}
+
 #[inline(always)]
 pub fn is_gs_get_scores_service_allowed() -> bool {
     crate::config::get().enable_groovestats
@@ -1916,6 +1948,7 @@ fn scan_local_scores_dir(dir: &Path, index: &mut LocalScoreIndex) {
         let ex = BestScalar {
             grade,
             percent: h.ex_score_percent,
+            played_at_ms: h.played_at_ms,
         };
         match index.best_ex.get_mut(chart_hash) {
             Some(existing) => {
@@ -1931,6 +1964,7 @@ fn scan_local_scores_dir(dir: &Path, index: &mut LocalScoreIndex) {
         let hard_ex = BestScalar {
             grade,
             percent: h.hard_ex_score_percent,
+            played_at_ms: h.played_at_ms,
         };
         match index.best_hard_ex.get_mut(chart_hash) {
             Some(existing) => {
@@ -1993,6 +2027,7 @@ fn update_local_index_with_header(
     let ex = BestScalar {
         grade,
         percent: h.ex_score_percent,
+        played_at_ms: h.played_at_ms,
     };
     match idx.best_ex.get_mut(chart_hash) {
         Some(existing) => {
@@ -2008,6 +2043,7 @@ fn update_local_index_with_header(
     let hard_ex = BestScalar {
         grade,
         percent: h.hard_ex_score_percent,
+        played_at_ms: h.played_at_ms,
     };
     match idx.best_hard_ex.get_mut(chart_hash) {
         Some(existing) => {

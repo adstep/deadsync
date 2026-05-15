@@ -32,7 +32,8 @@ pub use self::theme::{
     LanguageFlag, LogLevel, MACHINE_FONT_VARIANTS, MachineBarColor, MachineFont,
     MachinePreferredPlayMode, MachinePreferredPlayStyle, NewPackMode, SelectMusicItlRankMode,
     SelectMusicItlWheelMode, SelectMusicPatternInfoMode, SelectMusicScoreboxPlacement,
-    SelectMusicWheelStyle, SyncGraphMode, ThemeFlag, VisualStyle, auto_screenshot_bit,
+    SelectMusicWheelScoreMode, SelectMusicWheelStyle, SyncGraphMode, ThemeFlag, VisualStyle,
+    auto_screenshot_bit,
     auto_screenshot_mask_from_str, auto_screenshot_mask_to_str,
 };
 pub use self::update::*;
@@ -154,6 +155,9 @@ pub struct Config {
     pub show_music_wheel_lamps: bool,
     pub select_music_itl_rank_mode: SelectMusicItlRankMode,
     pub select_music_itl_wheel_mode: SelectMusicItlWheelMode,
+    /// Show local personal best EX score (and optionally date) for every song
+    /// on the music wheel (not just ITL charts).
+    pub select_music_wheel_score_mode: SelectMusicWheelScoreMode,
     /// Simply Love MusicWheelStyle parity: IIDX only shows the active pack when expanded.
     pub select_music_wheel_style: SelectMusicWheelStyle,
     pub select_music_new_pack_mode: NewPackMode,
@@ -325,6 +329,7 @@ impl Default for Config {
             show_music_wheel_lamps: true,
             select_music_itl_rank_mode: SelectMusicItlRankMode::None,
             select_music_itl_wheel_mode: SelectMusicItlWheelMode::Score,
+            select_music_wheel_score_mode: SelectMusicWheelScoreMode::Off,
             select_music_wheel_style: SelectMusicWheelStyle::Itg,
             select_music_new_pack_mode: NewPackMode::Disabled,
             show_select_music_previews: true,

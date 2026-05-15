@@ -354,6 +354,10 @@ fn load_select_music_opts(conf: &SimpleIni, default: Config, cfg: &mut Config) {
         .get("Options", "SelectMusicWheelITL")
         .and_then(|v| SelectMusicItlWheelMode::from_str(&v).ok())
         .unwrap_or(default.select_music_itl_wheel_mode);
+    cfg.select_music_wheel_score_mode = conf
+        .get("Options", "SelectMusicWheelScore")
+        .and_then(|v| SelectMusicWheelScoreMode::from_str(&v).ok())
+        .unwrap_or(default.select_music_wheel_score_mode);
     cfg.select_music_wheel_style = conf
         .get("Options", "SelectMusicWheelStyle")
         .and_then(|v| SelectMusicWheelStyle::from_str(&v).ok())
