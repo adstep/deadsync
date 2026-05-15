@@ -229,6 +229,82 @@ fn local_ex_grade_color(grade: scores::Grade) -> [f32; 4] {
     }
 }
 
+/// Maps an EX percent (0..=100) to a coarse grade tier used purely for
+/// coloring the demo/synthetic wheel preview rows.
+fn demo_grade_from_ex_percent(ex_percent: f64) -> scores::Grade {
+    let p = ex_percent.clamp(0.0, 100.0);
+    if p >= 100.0 {
+        scores::Grade::Quint
+    } else if p >= 99.0 {
+        scores::Grade::Tier01
+    } else if p >= 97.0 {
+        scores::Grade::Tier02
+    } else if p >= 95.0 {
+        scores::Grade::Tier03
+    } else if p >= 93.0 {
+        scores::Grade::Tier04
+    } else if p >= 90.0 {
+        scores::Grade::Tier05
+    } else if p >= 86.0 {
+        scores::Grade::Tier06
+    } else if p >= 82.0 {
+        scores::Grade::Tier07
+    } else if p >= 78.0 {
+        scores::Grade::Tier08
+    } else if p >= 74.0 {
+        scores::Grade::Tier09
+    } else if p >= 70.0 {
+        scores::Grade::Tier10
+    } else if p >= 65.0 {
+        scores::Grade::Tier11
+    } else if p >= 60.0 {
+        scores::Grade::Tier12
+    } else if p >= 55.0 {
+        scores::Grade::Tier13
+    } else {
+        scores::Grade::Failed
+    }
+}
+
+/// FNV-1a 64-bit hash of the input bytes. Used to deterministically derive
+/// synthetic preview scores+dates from a chart hash.
+#[inline]
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Synthesizes a deterministic `(grade, ex_percent, played_at_ms)` triple
+/// for a chart from its short hash. Used solely as a preview fallback when
+/// the wheel score option is enabled but no real local PB is available
+/// (or the PB lacks a played_at timestamp). Lets users see what the layout
+/// will look like before they have any real scores recorded.
+fn synthetic_local_ex_for_chart(chart_hash: &str, side: profile::PlayerSide) -> (scores::Grade, f64, i64) {
+    let salt: u8 = if matches!(side, profile::PlayerSide::P2) { 0x5a } else { 0xa5 };
+    let mut bytes = Vec::with_capacity(chart_hash.len() + 1);
+    bytes.extend_from_slice(chart_hash.as_bytes());
+    bytes.push(salt);
+    let h = fnv1a_64(&bytes);
+
+    // EX percent in roughly the 70.00..=99.99 range, plus a slim chance of
+    // dropping into the failed band so the gradient stays visible.
+    let raw = (h >> 32) as u32;
+    let percent_hundredths = 7000 + (raw % 3000); // 70.00..99.99
+    let ex_percent = (percent_hundredths as f64) / 100.0;
+
+    // Date within the last ~365 days; subtracts a chart-dependent number
+    // of days from "now" so each row gets a different date.
+    let days_ago = ((h & 0xffff_ffff) as u32) % 365;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let played_at_ms = now_ms.saturating_sub(days_ago as i64 * 86_400_000);
+
+    (demo_grade_from_ex_percent(ex_percent), ex_percent, played_at_ms)
+}
+
 #[inline(always)]
 fn cached_pack_count_text(count: usize) -> Arc<str> {
     PACK_COUNT_TEXT_CACHE.with(|cache| {
@@ -1017,24 +1093,35 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                             let Some(side_chart) = wheel_chart_for_side(side) else {
                                 continue;
                             };
-                            let Some((grade, ex_percent, played_at_ms)) =
-                                scores::get_cached_local_ex_score_with_date_for_side(
-                                    side_chart.short_hash.as_str(),
-                                    side,
-                                )
-                            else {
-                                continue;
+                            let chart_hash = side_chart.short_hash.as_str();
+                            let real = scores::get_cached_local_ex_score_with_date_for_side(
+                                chart_hash, side,
+                            )
+                            .filter(|(grade, ex_percent, _)| {
+                                *ex_percent > 0.0 || *grade == scores::Grade::Failed
+                            });
+                            let want_date = matches!(
+                                p.wheel_score_mode,
+                                SelectMusicWheelScoreMode::ScoreAndDate
+                            );
+                            let (grade, ex_percent, played_at_ms) = match real {
+                                Some((g, ep, ts)) if ts != 0 || !want_date => (g, ep, ts),
+                                // Real PB without a usable date and the user
+                                // asked for dates: keep the real score but
+                                // synthesize just the missing timestamp.
+                                Some((g, ep, _)) => {
+                                    let (_, _, synth_ts) =
+                                        synthetic_local_ex_for_chart(chart_hash, side);
+                                    (g, ep, synth_ts)
+                                }
+                                // No real PB at all: synthesize everything so
+                                // the row still previews the layout.
+                                None => synthetic_local_ex_for_chart(chart_hash, side),
                             };
-                            if ex_percent <= 0.0 && grade != scores::Grade::Failed {
-                                continue;
-                            }
                             let ex_hundredths =
                                 (ex_percent.clamp(0.0, 100.0) * 100.0).round() as u32;
                             let color = local_ex_grade_color(grade);
-                            let show_date = matches!(
-                                p.wheel_score_mode,
-                                SelectMusicWheelScoreMode::ScoreAndDate
-                            ) && played_at_ms != 0;
+                            let show_date = want_date && played_at_ms != 0;
                             if show_date {
                                 let (date_y, ex_y) = itl_score_line_y(side, joined_sides);
                                 actors.push(act!(text:
