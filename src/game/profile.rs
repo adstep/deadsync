@@ -4,7 +4,7 @@ use bincode::{Decode, Encode};
 use bitflags::bitflags;
 use chrono::{Datelike, Local};
 use log::{debug, info, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -19,6 +19,9 @@ pub use update::*;
 pub const DEFAULT_WEIGHT_POUNDS: i32 = 120;
 pub const DEFAULT_BIRTH_YEAR: i32 = 1995;
 pub const PLAYER_INITIALS_MAX_LEN: usize = 4;
+/// Number of bookmark slots maintained per chart in practice mode. Mirrors the
+/// classic ITGmania edit-mode mapping of digits 1–9 to numbered bookmarks.
+pub const PRACTICE_BOOKMARK_SLOT_COUNT: usize = 9;
 // Shared player-option HUD offset range, in logical pixels.
 pub const HUD_OFFSET_MIN: i32 = -250;
 pub const HUD_OFFSET_MAX: i32 = 250;
@@ -2872,6 +2875,10 @@ pub struct Profile {
     pub current_combo: u32,
     pub known_pack_names: HashSet<String>,
     pub favorites: HashSet<String>,
+    /// Per-chart practice-mode bookmark slots, keyed by `chart.short_hash`.
+    /// Each entry has `PRACTICE_BOOKMARK_SLOT_COUNT` optional beats; `None`
+    /// means the slot is empty. Persisted to `practice_bookmarks.json`.
+    pub practice_bookmarks: HashMap<String, [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT]>,
     pub noteskin: NoteSkin,
     pub mine_noteskin: Option<NoteSkin>,
     pub receptor_noteskin: Option<NoteSkin>,
@@ -3053,6 +3060,7 @@ impl Default for Profile {
             current_combo: 0,
             known_pack_names: HashSet::new(),
             favorites: HashSet::new(),
+            practice_bookmarks: HashMap::new(),
             noteskin: player_options.noteskin.clone(),
             mine_noteskin: player_options.mine_noteskin.clone(),
             receptor_noteskin: player_options.receptor_noteskin.clone(),
@@ -4201,6 +4209,7 @@ fn load_for_side(side: PlayerSide) {
         profile.current_combo = stats.current_combo;
         profile.known_pack_names = stats.known_pack_names;
         profile.favorites = load_favorites(&profile_id);
+        profile.practice_bookmarks = load_practice_bookmarks(&profile_id);
 
         // Load groovestats.ini
         let mut gs_conf = SimpleIni::new();
@@ -4480,6 +4489,207 @@ pub fn toggle_favorite(side: PlayerSide, chart_hash: &str) -> bool {
 pub fn is_favorite(side: PlayerSide, chart_hash: &str) -> bool {
     let profiles = lock_profiles();
     profiles[side_ix(side)].favorites.contains(chart_hash)
+}
+
+// --- Practice-mode bookmarks ---
+
+fn practice_bookmarks_path(profile_id: &str) -> PathBuf {
+    dirs::app_dirs()
+        .profiles_root()
+        .join(profile_id)
+        .join("practice_bookmarks.json")
+}
+
+/// Drop bookmark entries that aren't representable, so we never round-trip
+/// `NaN`/`inf`/negative beats out to disk and never feed them back to the
+/// practice screen on reload. Kept pure so it's easy to unit test.
+fn sanitize_bookmark_slots(
+    raw: [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT],
+) -> [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT] {
+    let mut out = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+    for (slot, beat) in raw.into_iter().enumerate() {
+        if let Some(b) = beat
+            && b.is_finite()
+            && b >= 0.0
+        {
+            out[slot] = Some(b);
+        }
+    }
+    out
+}
+
+fn load_practice_bookmarks(
+    profile_id: &str,
+) -> HashMap<String, [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT]> {
+    let path = practice_bookmarks_path(profile_id);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return HashMap::new();
+    };
+    let parsed: HashMap<String, [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT]> =
+        match serde_json::from_str(&text) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                warn!(
+                    "Failed to parse practice bookmarks at '{}': {error}; ignoring",
+                    path.display()
+                );
+                return HashMap::new();
+            }
+        };
+    parsed
+        .into_iter()
+        .filter_map(|(hash, slots)| {
+            let trimmed = hash.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let cleaned = sanitize_bookmark_slots(slots);
+            if cleaned.iter().all(Option::is_none) {
+                None
+            } else {
+                Some((trimmed.to_string(), cleaned))
+            }
+        })
+        .collect()
+}
+
+fn save_practice_bookmarks(
+    profile_id: &str,
+    bookmarks: &HashMap<String, [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT]>,
+) {
+    let path = practice_bookmarks_path(profile_id);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    // Sanitize before writing so a crash-or-bug in callers can never persist
+    // non-finite or negative beats. Drop empty entries entirely.
+    let cleaned: HashMap<&str, [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT]> = bookmarks
+        .iter()
+        .filter_map(|(hash, slots)| {
+            let trimmed = hash.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let cleaned = sanitize_bookmark_slots(*slots);
+            if cleaned.iter().all(Option::is_none) {
+                None
+            } else {
+                Some((trimmed, cleaned))
+            }
+        })
+        .collect();
+    let Ok(text) = serde_json::to_string_pretty(&cleaned) else {
+        return;
+    };
+    let tmp_path = path.with_extension("json.tmp");
+    if fs::write(&tmp_path, text.as_bytes()).is_ok() {
+        let _ = fs::rename(&tmp_path, &path);
+    }
+}
+
+/// Returns the slot snapshot for the given side+chart, sanitized. Empty array
+/// when the side has no active local profile, the chart hash is empty, or the
+/// chart has no bookmarks recorded.
+pub fn get_practice_bookmarks(
+    side: PlayerSide,
+    chart_hash: &str,
+) -> [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT] {
+    let trimmed = chart_hash.trim();
+    if trimmed.is_empty() {
+        return [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+    }
+    let profiles = lock_profiles();
+    profiles[side_ix(side)]
+        .practice_bookmarks
+        .get(trimmed)
+        .copied()
+        .map(sanitize_bookmark_slots)
+        .unwrap_or([None; PRACTICE_BOOKMARK_SLOT_COUNT])
+}
+
+/// Store `beat` in `slot` for the given side+chart and persist to disk.
+/// Returns `true` when the change was persisted, `false` when it could not be
+/// (no active local profile for `side`, empty chart hash, invalid slot, or a
+/// non-finite/negative beat).
+pub fn set_practice_bookmark(
+    side: PlayerSide,
+    chart_hash: &str,
+    slot: usize,
+    beat: f32,
+) -> bool {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT || !beat.is_finite() || beat < 0.0 {
+        return false;
+    }
+    let trimmed = chart_hash.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let Some(profile_id) = active_local_profile_id_for_side(side) else {
+        return false;
+    };
+    let snapshot = {
+        let mut profiles = lock_profiles();
+        let slots = profiles[side_ix(side)]
+            .practice_bookmarks
+            .entry(trimmed.to_string())
+            .or_insert([None; PRACTICE_BOOKMARK_SLOT_COUNT]);
+        slots[slot] = Some(beat);
+        profiles[side_ix(side)].practice_bookmarks.clone()
+    };
+    save_practice_bookmarks(&profile_id, &snapshot);
+    true
+}
+
+/// Clear a single bookmark slot for the given side+chart and persist.
+/// Returns `true` when the change was persisted.
+pub fn clear_practice_bookmark(side: PlayerSide, chart_hash: &str, slot: usize) -> bool {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT {
+        return false;
+    }
+    let trimmed = chart_hash.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let Some(profile_id) = active_local_profile_id_for_side(side) else {
+        return false;
+    };
+    let snapshot = {
+        let mut profiles = lock_profiles();
+        let bookmarks = &mut profiles[side_ix(side)].practice_bookmarks;
+        if let Some(slots) = bookmarks.get_mut(trimmed) {
+            slots[slot] = None;
+            if slots.iter().all(Option::is_none) {
+                bookmarks.remove(trimmed);
+            }
+        } else {
+            return false;
+        }
+        bookmarks.clone()
+    };
+    save_practice_bookmarks(&profile_id, &snapshot);
+    true
+}
+
+/// Remove every bookmark slot for the given side+chart and persist.
+/// Returns `true` when there was something to clear and the change was saved.
+pub fn clear_all_practice_bookmarks(side: PlayerSide, chart_hash: &str) -> bool {
+    let trimmed = chart_hash.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let Some(profile_id) = active_local_profile_id_for_side(side) else {
+        return false;
+    };
+    let snapshot = {
+        let mut profiles = lock_profiles();
+        let bookmarks = &mut profiles[side_ix(side)].practice_bookmarks;
+        if bookmarks.remove(trimmed).is_none() {
+            return false;
+        }
+        bookmarks.clone()
+    };
+    save_practice_bookmarks(&profile_id, &snapshot);
+    true
 }
 
 pub fn set_active_profile_for_side(side: PlayerSide, profile: ActiveProfile) -> Profile {
@@ -4946,8 +5156,9 @@ pub fn take_fast_profile_switch_from_select_music() -> bool {
 mod tests {
     use super::{
         BackgroundFilter, DEFAULT_BIRTH_YEAR, DEFAULT_WEIGHT_POUNDS, LastPlayed, NoteSkin,
-        PLAYER_INITIALS_MAX_LEN, PlayStyle, Profile, TimingWindowsOption, initials_from_name,
-        parse_groovestats_is_pad_player, sanitize_player_initials,
+        PLAYER_INITIALS_MAX_LEN, PRACTICE_BOOKMARK_SLOT_COUNT, PlayStyle, PlayerSide, Profile,
+        TimingWindowsOption, get_practice_bookmarks, initials_from_name,
+        parse_groovestats_is_pad_player, sanitize_bookmark_slots, sanitize_player_initials,
     };
     use std::str::FromStr;
 
@@ -5343,5 +5554,44 @@ mod tests {
         assert!(mask.is_empty());
         assert_eq!(error_bar_style_from_mask(mask), ErrorBarStyle::None);
         assert!(!error_bar_text_from_mask(mask));
+    }
+
+    #[test]
+    fn sanitize_bookmark_slots_drops_invalid_beats() {
+        let mut raw = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+        raw[0] = Some(0.0);
+        raw[1] = Some(4.5);
+        raw[2] = Some(f32::NAN);
+        raw[3] = Some(f32::INFINITY);
+        raw[4] = Some(f32::NEG_INFINITY);
+        raw[5] = Some(-0.5);
+        raw[6] = Some(123.75);
+
+        let cleaned = sanitize_bookmark_slots(raw);
+
+        assert_eq!(cleaned[0], Some(0.0));
+        assert_eq!(cleaned[1], Some(4.5));
+        assert_eq!(cleaned[2], None);
+        assert_eq!(cleaned[3], None);
+        assert_eq!(cleaned[4], None);
+        assert_eq!(cleaned[5], None);
+        // Sanitizer doesn't know chart length, so it preserves any non-negative
+        // finite value; the practice screen clamps against `max_play_beat`.
+        assert_eq!(cleaned[6], Some(123.75));
+        assert_eq!(cleaned[7], None);
+        assert_eq!(cleaned[8], None);
+    }
+
+    #[test]
+    fn get_practice_bookmarks_rejects_empty_chart_hash() {
+        // Doesn't touch global profile state, so safe to run alongside other
+        // tests; an empty/whitespace hash is always returned as all-empty.
+        for hash in ["", "   ", "\t", "\n"] {
+            let slots = get_practice_bookmarks(PlayerSide::P1, hash);
+            assert!(
+                slots.iter().all(Option::is_none),
+                "empty chart hash '{hash:?}' should produce empty slots"
+            );
+        }
     }
 }

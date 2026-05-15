@@ -15,6 +15,9 @@ use crate::screens::{Screen, ScreenAction};
 use std::sync::Arc;
 use winit::keyboard::KeyCode;
 
+const PRACTICE_BOOKMARK_SLOT_COUNT: usize = profile::PRACTICE_BOOKMARK_SLOT_COUNT;
+type BookmarkSlots = [Option<f32>; PRACTICE_BOOKMARK_SLOT_COUNT];
+
 const LEAD_IN_SECONDS: f32 = 1.0;
 const LOOP_AFTER_SECONDS: f32 = 1.0;
 const BEATS_PER_MEASURE: f32 = 4.0;
@@ -49,6 +52,15 @@ const MUSIC_RATE_REPEAT_DELAY_SECONDS: f32 = 0.375;
 const MUSIC_RATE_REPEAT_INTERVAL_SECONDS: f32 = 0.05;
 const MAX_MUSIC_RATE_REPEATS_PER_FRAME: usize = 64;
 const FLASH_DURATION_SECS: f32 = 0.75;
+// Bookmark bar deliberately renders BEHIND the receptors and notes (above
+// only the measure lines and column cues) so dense charts stay readable. The
+// slot number label keeps the high marker-z so it's always visible.
+const BOOKMARK_MARKER_Z: f32 = 95.0;
+const BOOKMARK_LABEL_Z: f32 = MARKER_Z + 0.5;
+const BOOKMARK_BAR_COLOR: [f32; 4] = [0.32, 0.34, 0.38, 0.25];
+const BOOKMARK_LABEL_COLOR: [f32; 4] = [0.90, 0.92, 0.95, 1.0];
+const BOOKMARK_LABEL_ZOOM: f32 = 0.5;
+const BOOKMARK_LABEL_GAP: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug)]
 enum Mode {
@@ -81,10 +93,19 @@ enum PracticeNavMode {
     DedicatedThreeKey,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum BookmarkMenu {
+    /// List of all 9 slots plus "Clear all" and "Back".
+    List { selected: usize },
+    /// Per-slot action menu (Set / Jump / Clear / Back).
+    Slot { slot: usize, selected: usize },
+}
+
 pub struct State {
     pub(crate) gameplay: gameplay_screen::State,
     mode: Mode,
     menu: Option<MenuState>,
+    bookmark_menu: Option<BookmarkMenu>,
     cursor_beat: f32,
     selection_anchor: Option<f32>,
     selection_end: Option<f32>,
@@ -104,6 +125,9 @@ pub struct State {
     music_rate_hold_delay_left: f32,
     music_rate_hold_repeat_left: f32,
     flash: Option<(String, f32)>,
+    bookmarks: BookmarkSlots,
+    bookmark_owner_side: profile::PlayerSide,
+    chart_hash: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -165,6 +189,10 @@ const MAIN_MENU: MenuDef = MenuDef {
             action: Some(action_set_selection_end),
         },
         MenuRow {
+            label: lookup_key("Practice", "MenuBookmarks"),
+            action: Some(action_open_bookmarks),
+        },
+        MenuRow {
             label: lookup_key("Practice", "MenuEditorOptions"),
             action: Some(action_editor_options),
         },
@@ -214,6 +242,10 @@ const HELP_MENU: MenuDef = MenuDef {
             action: None,
         },
         MenuRow {
+            label: lookup_key("Practice", "HelpBookmarks"),
+            action: None,
+        },
+        MenuRow {
             label: lookup_key("Practice", "HelpEscEnter"),
             action: None,
         },
@@ -237,10 +269,17 @@ const SNAP_BEATS: [f32; 9] = [
 
 pub fn init(mut gameplay: gameplay_screen::State) -> State {
     gameplay_core::disable_score_for_practice(&mut gameplay);
+    let bookmark_owner_side = profile::gameplay_hud_snapshot().player_side;
+    let chart_hash = gameplay
+        .charts
+        .first()
+        .map(|c| c.short_hash.trim().to_string())
+        .unwrap_or_default();
     let mut state = State {
         gameplay,
         mode: Mode::Editing,
         menu: None,
+        bookmark_menu: None,
         cursor_beat: 0.0,
         selection_anchor: None,
         selection_end: None,
@@ -260,8 +299,12 @@ pub fn init(mut gameplay: gameplay_screen::State) -> State {
         music_rate_hold_delay_left: 0.0,
         music_rate_hold_repeat_left: MUSIC_RATE_REPEAT_INTERVAL_SECONDS,
         flash: None,
+        bookmarks: [None; PRACTICE_BOOKMARK_SLOT_COUNT],
+        bookmark_owner_side,
+        chart_hash,
     };
     set_cursor(&mut state, MIN_CURSOR_BEAT);
+    refresh_bookmarks_from_profile(&mut state);
     state
 }
 
@@ -300,6 +343,7 @@ pub(crate) fn restore_edit_snapshot(state: &mut State, snapshot: EditSnapshot) {
 pub fn on_enter(state: &mut State) {
     audio::stop_music();
     set_cursor(state, state.cursor_beat);
+    refresh_bookmarks_from_profile(state);
 }
 
 pub fn update(state: &mut State, delta_time: f32) -> ScreenAction {
@@ -333,6 +377,9 @@ pub fn update(state: &mut State, delta_time: f32) -> ScreenAction {
 }
 
 pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
+    if state.bookmark_menu.is_some() {
+        return handle_bookmark_menu_input(state, ev);
+    }
     if state.menu.is_some() {
         return handle_menu_input(state, ev);
     }
@@ -435,6 +482,25 @@ pub fn handle_raw_key_event(state: &mut State, raw_key: &RawKeyboardEvent) -> (b
         };
     }
 
+    if state.bookmark_menu.is_some() {
+        return match raw_key.code {
+            KeyCode::Escape => {
+                bookmark_menu_back(state);
+                (true, ScreenAction::None)
+            }
+            KeyCode::Enter => (true, activate_bookmark_menu_item(state)),
+            KeyCode::ArrowUp => {
+                step_bookmark_menu(state, -1);
+                (true, ScreenAction::None)
+            }
+            KeyCode::ArrowDown => {
+                step_bookmark_menu(state, 1);
+                (true, ScreenAction::None)
+            }
+            _ => (false, ScreenAction::None),
+        };
+    }
+
     if state.menu.is_some() {
         return match raw_key.code {
             KeyCode::Escape => {
@@ -444,6 +510,17 @@ pub fn handle_raw_key_event(state: &mut State, raw_key: &RawKeyboardEvent) -> (b
             KeyCode::Enter => (true, activate_menu_item(state)),
             _ => (false, ScreenAction::None),
         };
+    }
+
+    if let Some(slot) = bookmark_slot_for_key(raw_key.code) {
+        if !raw_key.repeat {
+            if state.ctrl_held {
+                toggle_bookmark_at_cursor(state, slot);
+            } else {
+                jump_to_bookmark(state, slot);
+            }
+        }
+        return (true, ScreenAction::None);
     }
 
     match raw_key.code {
@@ -527,6 +604,9 @@ pub fn get_actors(state: &mut State, asset_manager: &AssetManager) -> Vec<Actor>
     }
     if state.menu.is_some() {
         append_main_menu(state, &mut actors);
+    }
+    if state.bookmark_menu.is_some() {
+        append_bookmark_menu(state, &mut actors);
     }
     // Render any active flash text regardless of mode so music-rate changes
     // (and other transient feedback) are visible during loop playback as well.
@@ -656,6 +736,157 @@ fn activate_menu_item(state: &mut State) -> ScreenAction {
     action(state)
 }
 
+// --- Bookmark menus ---
+
+fn bookmark_list_row_count() -> usize {
+    // 9 slot rows + "Clear all" + "Back".
+    PRACTICE_BOOKMARK_SLOT_COUNT + 2
+}
+
+const BOOKMARK_LIST_CLEAR_ALL_ROW: usize = PRACTICE_BOOKMARK_SLOT_COUNT;
+const BOOKMARK_LIST_BACK_ROW: usize = PRACTICE_BOOKMARK_SLOT_COUNT + 1;
+
+fn bookmark_slot_menu_row_count(state: &State, slot: usize) -> usize {
+    // Set is always present. Jump and Clear only when the slot is filled.
+    // Back is always present.
+    let mut n = 1;
+    if state.bookmarks.get(slot).copied().flatten().is_some() {
+        n += 2;
+    }
+    n += 1;
+    n
+}
+
+fn bookmark_slot_menu_row_label(state: &State, slot: usize, row: usize) -> String {
+    let has_value = state.bookmarks.get(slot).copied().flatten().is_some();
+    match (row, has_value) {
+        (0, _) => i18n::tr("Practice", "BookmarkSlotSet").to_string(),
+        (1, true) => i18n::tr("Practice", "BookmarkSlotJump").to_string(),
+        (2, true) => i18n::tr("Practice", "BookmarkSlotClear").to_string(),
+        (1, false) | (3, true) => i18n::tr("Practice", "BookmarkSlotBack").to_string(),
+        _ => String::new(),
+    }
+}
+
+fn open_bookmark_list_menu(state: &mut State) {
+    state.menu = None;
+    clear_cursor_hold_inputs(state);
+    audio::play_sfx("assets/sounds/start.ogg");
+    state.bookmark_menu = Some(BookmarkMenu::List { selected: 0 });
+}
+
+fn open_bookmark_slot_menu(state: &mut State, slot: usize) {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT {
+        return;
+    }
+    audio::play_sfx("assets/sounds/start.ogg");
+    state.bookmark_menu = Some(BookmarkMenu::Slot { slot, selected: 0 });
+}
+
+fn close_bookmark_menu(state: &mut State) {
+    if state.bookmark_menu.is_some() {
+        audio::play_sfx("assets/sounds/start.ogg");
+    }
+    state.bookmark_menu = None;
+}
+
+fn step_bookmark_menu(state: &mut State, delta: isize) {
+    let Some(menu) = state.bookmark_menu else {
+        return;
+    };
+    let (selected, len) = match menu {
+        BookmarkMenu::List { selected } => (selected, bookmark_list_row_count()),
+        BookmarkMenu::Slot { slot, selected } => (selected, bookmark_slot_menu_row_count(state, slot)),
+    };
+    if len == 0 {
+        return;
+    }
+    let next = (selected as isize + delta).rem_euclid(len as isize) as usize;
+    state.bookmark_menu = Some(match menu {
+        BookmarkMenu::List { .. } => BookmarkMenu::List { selected: next },
+        BookmarkMenu::Slot { slot, .. } => BookmarkMenu::Slot { slot, selected: next },
+    });
+    audio::play_sfx("assets/sounds/change.ogg");
+}
+
+fn activate_bookmark_menu_item(state: &mut State) -> ScreenAction {
+    let Some(menu) = state.bookmark_menu else {
+        return ScreenAction::None;
+    };
+    match menu {
+        BookmarkMenu::List { selected } => {
+            if selected == BOOKMARK_LIST_BACK_ROW {
+                close_bookmark_menu(state);
+            } else if selected == BOOKMARK_LIST_CLEAR_ALL_ROW {
+                clear_all_bookmarks(state);
+                // Stay in the list so the user can confirm everything is empty.
+            } else {
+                open_bookmark_slot_menu(state, selected);
+            }
+        }
+        BookmarkMenu::Slot { slot, selected } => {
+            let has_value = state.bookmarks.get(slot).copied().flatten().is_some();
+            match (selected, has_value) {
+                (0, _) => {
+                    set_bookmark(state, slot);
+                    state.bookmark_menu = None;
+                }
+                (1, true) => {
+                    jump_to_bookmark(state, slot);
+                    state.bookmark_menu = None;
+                }
+                (2, true) => {
+                    clear_bookmark(state, slot);
+                    // Returning to the list is friendlier than dropping the user
+                    // back into editing right after clearing a single slot.
+                    state.bookmark_menu = Some(BookmarkMenu::List { selected: slot });
+                }
+                (1, false) | (3, true) => {
+                    state.bookmark_menu = Some(BookmarkMenu::List { selected: slot });
+                }
+                _ => {}
+            }
+        }
+    }
+    ScreenAction::None
+}
+
+fn handle_bookmark_menu_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
+    if !ev.pressed {
+        return ScreenAction::None;
+    }
+    if let Some(delta) = menu_step_delta_for_action(ev.action) {
+        step_bookmark_menu(state, delta);
+        return ScreenAction::None;
+    }
+    match ev.action {
+        VirtualAction::p1_start
+        | VirtualAction::p2_start
+        | VirtualAction::p1_select
+        | VirtualAction::p2_select => activate_bookmark_menu_item(state),
+        VirtualAction::p1_back | VirtualAction::p2_back => {
+            bookmark_menu_back(state);
+            ScreenAction::None
+        }
+        _ => ScreenAction::None,
+    }
+}
+
+/// "Back" / Escape: from a slot menu, return to the list; from the list,
+/// close the bookmark menu entirely.
+fn bookmark_menu_back(state: &mut State) {
+    let Some(menu) = state.bookmark_menu else {
+        return;
+    };
+    match menu {
+        BookmarkMenu::List { .. } => close_bookmark_menu(state),
+        BookmarkMenu::Slot { slot, .. } => {
+            audio::play_sfx("assets/sounds/start.ogg");
+            state.bookmark_menu = Some(BookmarkMenu::List { selected: slot });
+        }
+    }
+}
+
 fn action_play_whole_song(state: &mut State) -> ScreenAction {
     start_playback(state, MIN_CURSOR_BEAT, max_play_beat(state));
     ScreenAction::None
@@ -684,6 +915,11 @@ fn action_set_selection_end(state: &mut State) -> ScreenAction {
 
 fn action_editor_options(_state: &mut State) -> ScreenAction {
     ScreenAction::Navigate(Screen::PlayerOptions)
+}
+
+fn action_open_bookmarks(state: &mut State) -> ScreenAction {
+    open_bookmark_list_menu(state);
+    ScreenAction::None
 }
 
 fn action_exit_practice(_state: &mut State) -> ScreenAction {
@@ -1279,6 +1515,112 @@ fn clear_selection(state: &mut State) {
     set_flash_tr(state, "FlashSelectionCleared");
 }
 
+// --- Bookmarks ---
+
+fn slot_label(slot: usize) -> String {
+    (slot + 1).to_string()
+}
+
+fn fmt_bookmark_beat(beat: f32) -> String {
+    format!("{beat:.3}")
+}
+
+fn set_bookmark(state: &mut State, slot: usize) {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT {
+        return;
+    }
+    let beat = state.cursor_beat;
+    state.bookmarks[slot] = Some(beat);
+    let _ = profile::set_practice_bookmark(
+        state.bookmark_owner_side,
+        &state.chart_hash,
+        slot,
+        beat,
+    );
+    audio::play_sfx(EDIT_MARKER_SOUND);
+    set_flash_tr_fmt(
+        state,
+        "FlashBookmarkSet",
+        &[("n", &slot_label(slot)), ("beat", &fmt_bookmark_beat(beat))],
+    );
+}
+
+/// Cursor-aware toggle used by the `Ctrl+N` hotkey: pressing it on a beat that
+/// already holds bookmark N clears the slot; pressing it anywhere else
+/// sets/overwrites the slot at the cursor. Menu "Set at cursor" stays a plain
+/// set so users never accidentally clear via the menu.
+fn toggle_bookmark_at_cursor(state: &mut State, slot: usize) {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT {
+        return;
+    }
+    if bookmark_toggle_should_clear(state.bookmarks[slot], state.cursor_beat) {
+        clear_bookmark(state, slot);
+    } else {
+        set_bookmark(state, slot);
+    }
+}
+
+/// Pure decision used by `toggle_bookmark_at_cursor`. Returns `true` when the
+/// slot is already set at (effectively) the cursor beat — in that case the
+/// hotkey clears the slot instead of re-setting it.
+fn bookmark_toggle_should_clear(existing: Option<f32>, cursor_beat: f32) -> bool {
+    matches!(existing, Some(beat) if same_beat(beat, cursor_beat))
+}
+
+fn jump_to_bookmark(state: &mut State, slot: usize) {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT {
+        return;
+    }
+    let Some(beat) = state.bookmarks[slot] else {
+        audio::play_sfx(EDIT_INVALID_SOUND);
+        set_flash_tr_fmt(state, "FlashBookmarkEmpty", &[("n", &slot_label(slot))]);
+        return;
+    };
+    let clamped = clamp_marker_beat(beat, max_play_beat(state));
+    state.shift_anchor = None;
+    set_cursor(state, clamped);
+    audio::play_sfx(EDIT_LINE_SOUND);
+    set_flash_tr_fmt(state, "FlashBookmarkJumped", &[("n", &slot_label(slot))]);
+}
+
+fn clear_bookmark(state: &mut State, slot: usize) {
+    if slot >= PRACTICE_BOOKMARK_SLOT_COUNT || state.bookmarks[slot].is_none() {
+        audio::play_sfx(EDIT_INVALID_SOUND);
+        return;
+    }
+    state.bookmarks[slot] = None;
+    let _ =
+        profile::clear_practice_bookmark(state.bookmark_owner_side, &state.chart_hash, slot);
+    audio::play_sfx(EDIT_MARKER_SOUND);
+    set_flash_tr_fmt(state, "FlashBookmarkCleared", &[("n", &slot_label(slot))]);
+}
+
+fn clear_all_bookmarks(state: &mut State) {
+    if state.bookmarks.iter().all(Option::is_none) {
+        audio::play_sfx(EDIT_INVALID_SOUND);
+        return;
+    }
+    state.bookmarks = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+    let _ = profile::clear_all_practice_bookmarks(state.bookmark_owner_side, &state.chart_hash);
+    audio::play_sfx(EDIT_MARKER_SOUND);
+    set_flash_tr(state, "FlashAllBookmarksCleared");
+}
+
+const fn bookmark_slot_for_key(code: KeyCode) -> Option<usize> {
+    match code {
+        KeyCode::Digit1 | KeyCode::Numpad1 => Some(0),
+        KeyCode::Digit2 | KeyCode::Numpad2 => Some(1),
+        KeyCode::Digit3 | KeyCode::Numpad3 => Some(2),
+        KeyCode::Digit4 | KeyCode::Numpad4 => Some(3),
+        KeyCode::Digit5 | KeyCode::Numpad5 => Some(4),
+        KeyCode::Digit6 | KeyCode::Numpad6 => Some(5),
+        KeyCode::Digit7 | KeyCode::Numpad7 => Some(6),
+        KeyCode::Digit8 | KeyCode::Numpad8 => Some(7),
+        KeyCode::Digit9 | KeyCode::Numpad9 => Some(8),
+        _ => None,
+    }
+}
+
 fn set_marker_range(state: &mut State, a: f32, b: f32) {
     state.selection_anchor = Some(a.min(b));
     state.selection_end = Some(a.max(b));
@@ -1305,6 +1647,28 @@ fn clamp_marker_beat(beat: f32, max_beat: f32) -> f32 {
     } else {
         MIN_CURSOR_BEAT
     }
+}
+
+/// Drop bookmark slots whose beat is non-finite, negative, or beyond the
+/// chart's playable end. Returned array preserves slot indices so callers can
+/// keep `1`–`9` semantics. Pure helper for reuse + unit tests.
+fn sanitized_bookmarks(raw: BookmarkSlots, max_beat: f32) -> BookmarkSlots {
+    let mut out = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+    for (slot, beat) in raw.into_iter().enumerate() {
+        if let Some(b) = beat
+            && b.is_finite()
+            && b >= MIN_CURSOR_BEAT
+            && b <= max_beat + BEAT_EPSILON
+        {
+            out[slot] = Some(b.clamp(MIN_CURSOR_BEAT, max_beat));
+        }
+    }
+    out
+}
+
+fn refresh_bookmarks_from_profile(state: &mut State) {
+    let raw = profile::get_practice_bookmarks(state.bookmark_owner_side, &state.chart_hash);
+    state.bookmarks = sanitized_bookmarks(raw, max_play_beat(state));
 }
 
 fn same_beat(a: f32, b: f32) -> bool {
@@ -1448,6 +1812,46 @@ fn append_player_markers(
             append_marker_bar(actors, center_x, y, width, marker_shade);
         }
         (None, None) => {}
+    }
+
+    append_bookmark_markers(state, actors, player_idx, col_start, offset_y, center_x, width);
+}
+
+fn append_bookmark_markers(
+    state: &State,
+    actors: &mut Vec<Actor>,
+    player_idx: usize,
+    col_start: usize,
+    offset_y: f32,
+    center_x: f32,
+    width: f32,
+) {
+    let marker_height = practice_marker_bar_height();
+    for (slot, beat) in state.bookmarks.iter().enumerate() {
+        let Some(beat) = *beat else { continue };
+        let y = marker_y_for_beat(state, player_idx, col_start, offset_y, beat);
+        if !y.is_finite() || y < -marker_height || y > screen_height() + marker_height {
+            continue;
+        }
+        actors.push(act!(quad:
+            align(0.5, 0.5):
+            xy(center_x, y):
+            zoomto(width, marker_height):
+            diffuse(BOOKMARK_BAR_COLOR[0], BOOKMARK_BAR_COLOR[1], BOOKMARK_BAR_COLOR[2], BOOKMARK_BAR_COLOR[3]):
+            z(BOOKMARK_MARKER_Z)
+        ));
+        // Slot number off the right edge of the field for legibility at the
+        // half-size practice field zoom.
+        actors.push(act!(text:
+            font("miso"):
+            settext(slot_label(slot)):
+            align(0.0, 0.5):
+            xy(center_x + width * 0.5 + BOOKMARK_LABEL_GAP, y):
+            zoom(BOOKMARK_LABEL_ZOOM):
+            diffuse(BOOKMARK_LABEL_COLOR[0], BOOKMARK_LABEL_COLOR[1], BOOKMARK_LABEL_COLOR[2], BOOKMARK_LABEL_COLOR[3]):
+            shadowlength(1.0):
+            z(BOOKMARK_LABEL_Z)
+        ));
     }
 }
 
@@ -1785,6 +2189,67 @@ fn append_main_menu(state: &State, actors: &mut Vec<Actor>) {
     }
 }
 
+fn append_bookmark_menu(state: &State, actors: &mut Vec<Actor>) {
+    let Some(menu) = state.bookmark_menu else {
+        return;
+    };
+    let selected_color = practice_player_color(state);
+    let labels: Vec<String> = match menu {
+        BookmarkMenu::List { .. } => bookmark_list_labels(state),
+        BookmarkMenu::Slot { slot, .. } => bookmark_slot_labels(state, slot),
+    };
+    let row_count = labels.len();
+    let selected_idx = match menu {
+        BookmarkMenu::List { selected } => selected.min(row_count.saturating_sub(1)),
+        BookmarkMenu::Slot { selected, .. } => selected.min(row_count.saturating_sub(1)),
+    };
+    for (idx, label) in labels.into_iter().enumerate() {
+        append_menu_row(
+            actors,
+            idx,
+            row_count,
+            selected_idx == idx,
+            Arc::<str>::from(label),
+            selected_color,
+        );
+    }
+}
+
+fn bookmark_list_labels(state: &State) -> Vec<String> {
+    let mut labels = Vec::with_capacity(bookmark_list_row_count());
+    for slot in 0..PRACTICE_BOOKMARK_SLOT_COUNT {
+        let n = slot_label(slot);
+        labels.push(match state.bookmarks[slot] {
+            Some(beat) => i18n::tr_fmt(
+                "Practice",
+                "BookmarkSlotLabel",
+                &[("n", &n), ("beat", &fmt_bookmark_beat(beat))],
+            )
+            .to_string(),
+            None => i18n::tr_fmt("Practice", "BookmarkSlotEmptyLabel", &[("n", &n)]).to_string(),
+        });
+    }
+    labels.push(i18n::tr("Practice", "MenuBookmarkClearAll").to_string());
+    labels.push(i18n::tr("Practice", "BookmarkListBack").to_string());
+    labels
+}
+
+fn bookmark_slot_labels(state: &State, slot: usize) -> Vec<String> {
+    let count = bookmark_slot_menu_row_count(state, slot);
+    let n = slot_label(slot);
+    (0..count)
+        .map(|row| {
+            let action = bookmark_slot_menu_row_label(state, slot, row);
+            i18n::tr_fmt(
+                "Practice",
+                "BookmarkSlotMenuRow",
+                &[("n", &n), ("action", &action)],
+            )
+            .to_string()
+        })
+        .collect()
+}
+
 fn append_menu_row(
     actors: &mut Vec<Actor>,
     idx: usize,
@@ -1868,11 +2333,13 @@ fn append_help_section(
 #[cfg(test)]
 mod tests {
     use super::{
-        CursorHoldDir, HELP_MENU, MAIN_MENU, MUSIC_RATE_HOTKEY_MAX, MUSIC_RATE_HOTKEY_MIN,
-        MUSIC_RATE_HOTKEY_STEP, MenuDef, MusicRateHoldDir, PracticeNavMode, clamp_selection,
-        edit_cursor_hold_dir_for_action_in_mode, edit_snap_delta_for_action_in_mode,
-        fmt_music_rate, menu_step_delta_for_action_in_mode, music_rate_delta_for_dir,
-        music_rate_hold_dir_for_key, practice_nav_mode_from_config, quantized_music_rate,
+        BookmarkSlots, CursorHoldDir, HELP_MENU, MAIN_MENU, MUSIC_RATE_HOTKEY_MAX,
+        MUSIC_RATE_HOTKEY_MIN, MUSIC_RATE_HOTKEY_STEP, MenuDef, MusicRateHoldDir,
+        PRACTICE_BOOKMARK_SLOT_COUNT, PracticeNavMode, bookmark_slot_for_key,
+        bookmark_toggle_should_clear, clamp_selection, edit_cursor_hold_dir_for_action_in_mode,
+        edit_snap_delta_for_action_in_mode, fmt_music_rate, menu_step_delta_for_action_in_mode,
+        music_rate_delta_for_dir, music_rate_hold_dir_for_key, practice_nav_mode_from_config,
+        quantized_music_rate, sanitized_bookmarks,
     };
     use crate::assets::i18n;
     use crate::engine::input::VirtualAction;
@@ -1920,6 +2387,20 @@ mod tests {
         "InfoNumRolls",
         "InfoNumLifts",
         "InfoNumFakes",
+        "FlashBookmarkSet",
+        "FlashBookmarkJumped",
+        "FlashBookmarkEmpty",
+        "FlashBookmarkCleared",
+        "FlashAllBookmarksCleared",
+        "BookmarkSlotLabel",
+        "BookmarkSlotEmptyLabel",
+        "BookmarkSlotMenuRow",
+        "BookmarkSlotSet",
+        "BookmarkSlotJump",
+        "BookmarkSlotClear",
+        "BookmarkSlotBack",
+        "BookmarkListBack",
+        "MenuBookmarkClearAll",
     ];
 
     #[test]
@@ -2127,5 +2608,107 @@ mod tests {
                 "missing i18n entry for {fallback}"
             );
         }
+    }
+
+    #[test]
+    fn bookmark_slot_for_key_maps_digits_and_numpad() {
+        let digit_keys = [
+            (KeyCode::Digit1, 0),
+            (KeyCode::Digit2, 1),
+            (KeyCode::Digit3, 2),
+            (KeyCode::Digit4, 3),
+            (KeyCode::Digit5, 4),
+            (KeyCode::Digit6, 5),
+            (KeyCode::Digit7, 6),
+            (KeyCode::Digit8, 7),
+            (KeyCode::Digit9, 8),
+        ];
+        for (key, expected) in digit_keys {
+            assert_eq!(
+                bookmark_slot_for_key(key),
+                Some(expected),
+                "Digit key {key:?} should map to slot {expected}"
+            );
+        }
+        let numpad_keys = [
+            (KeyCode::Numpad1, 0),
+            (KeyCode::Numpad2, 1),
+            (KeyCode::Numpad3, 2),
+            (KeyCode::Numpad4, 3),
+            (KeyCode::Numpad5, 4),
+            (KeyCode::Numpad6, 5),
+            (KeyCode::Numpad7, 6),
+            (KeyCode::Numpad8, 7),
+            (KeyCode::Numpad9, 8),
+        ];
+        for (key, expected) in numpad_keys {
+            assert_eq!(
+                bookmark_slot_for_key(key),
+                Some(expected),
+                "Numpad key {key:?} should map to slot {expected}"
+            );
+        }
+        assert_eq!(bookmark_slot_for_key(KeyCode::Digit0), None);
+        assert_eq!(bookmark_slot_for_key(KeyCode::Numpad0), None);
+        assert_eq!(bookmark_slot_for_key(KeyCode::KeyA), None);
+        assert_eq!(bookmark_slot_for_key(KeyCode::Space), None);
+    }
+
+    #[test]
+    fn sanitized_bookmarks_drops_invalid_entries() {
+        let mut slots: BookmarkSlots = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+        slots[0] = Some(0.0);
+        slots[1] = Some(4.5);
+        slots[2] = Some(f32::NAN);
+        slots[3] = Some(f32::INFINITY);
+        slots[4] = Some(f32::NEG_INFINITY);
+        slots[5] = Some(-1.0);
+        slots[6] = Some(16.0);
+        slots[7] = Some(99.0);
+
+        let cleaned = sanitized_bookmarks(slots, 32.0);
+
+        assert_eq!(cleaned[0], Some(0.0));
+        assert_eq!(cleaned[1], Some(4.5));
+        assert_eq!(cleaned[2], None);
+        assert_eq!(cleaned[3], None);
+        assert_eq!(cleaned[4], None);
+        assert_eq!(cleaned[5], None);
+        assert_eq!(cleaned[6], Some(16.0));
+        // 99.0 is past the chart, so it is dropped (not silently clamped).
+        assert_eq!(cleaned[7], None);
+        assert_eq!(cleaned[8], None);
+    }
+
+    #[test]
+    fn sanitized_bookmarks_drops_everything_when_max_is_invalid() {
+        let mut slots: BookmarkSlots = [None; PRACTICE_BOOKMARK_SLOT_COUNT];
+        slots[0] = Some(0.0);
+        slots[1] = Some(4.0);
+
+        // Any non-finite max means no comparison succeeds, so all entries drop.
+        let cleaned = sanitized_bookmarks(slots, f32::NAN);
+        assert!(cleaned.iter().all(|s| s.is_none()));
+    }
+
+    #[test]
+    fn bookmark_toggle_clears_only_when_cursor_is_on_existing_beat() {
+        // Empty slot: never clears, always falls through to "set".
+        assert!(!bookmark_toggle_should_clear(None, 0.0));
+        assert!(!bookmark_toggle_should_clear(None, 12.5));
+
+        // Same beat (within epsilon): clears.
+        assert!(bookmark_toggle_should_clear(Some(8.0), 8.0));
+        assert!(bookmark_toggle_should_clear(
+            Some(8.0),
+            8.0 + super::BEAT_EPSILON * 0.5
+        ));
+
+        // Different beat: does not clear (Ctrl+N relocates the slot).
+        assert!(!bookmark_toggle_should_clear(Some(8.0), 12.0));
+        assert!(!bookmark_toggle_should_clear(
+            Some(8.0),
+            8.0 + super::BEAT_EPSILON * 10.0
+        ));
     }
 }
