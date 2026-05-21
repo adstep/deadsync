@@ -161,6 +161,7 @@ pub fn update_rate_mod_preserves_pitch(enabled: bool) {
         }
         cfg.rate_mod_preserves_pitch = enabled;
     }
+    crate::engine::audio::on_preserve_pitch_changed(enabled);
     save_without_keymaps();
 }
 

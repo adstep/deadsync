@@ -3,6 +3,7 @@ pub(crate) mod decode;
 pub mod folder;
 pub mod replaygain;
 mod resample;
+mod stretch;
 
 use crate::config::dirs;
 use crate::engine::host_time::{instant_nanos, now_nanos};
@@ -77,11 +78,13 @@ struct QueuedSfx {
 
 // Commands to the audio engine
 enum AudioCommand {
-    // Path, cut, looping, rate (1.0 = normal)
-    PlayMusic(PathBuf, Cut, bool, f32),
+    // Path, cut, looping, rate (1.0 = normal), preserve_pitch
+    PlayMusic(PathBuf, Cut, bool, f32, bool),
     StopMusic,
     // Change rate of currently playing music without restarting
     SetMusicRate(f32),
+    // Toggle pitch-preserving rate-mod on the currently playing music
+    SetPreservePitch(bool),
 }
 
 // Global engine (initialized once)
@@ -575,6 +578,7 @@ struct MusicStream {
     thread: thread::JoinHandle<()>,
     stop_signal: Arc<AtomicBool>,
     rate_bits: Arc<AtomicU32>,
+    preserve_pitch: Arc<AtomicBool>,
 }
 
 // Global playback position tracking for the current music stream.
@@ -1452,9 +1456,13 @@ pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
     // gain doesn't audibly bleed into the start of this one.
     MUSIC_GAIN_SNAP_GEN.fetch_add(1, Ordering::Release);
 
-    let _ = ENGINE
-        .command_sender
-        .send(AudioCommand::PlayMusic(path, cut, looping, rate));
+    let _ = ENGINE.command_sender.send(AudioCommand::PlayMusic(
+        path,
+        cut,
+        looping,
+        rate,
+        crate::config::get().rate_mod_preserves_pitch,
+    ));
 }
 
 /// Applies a ReplayGain result from the background analyzer, but only if it
@@ -1501,6 +1509,23 @@ pub fn set_music_rate(rate: f32) {
         1.0
     };
     let _ = ENGINE.command_sender.send(AudioCommand::SetMusicRate(rate));
+}
+
+/// Toggle the pitch-preserving rate-mod for the currently playing music
+/// stream. When `enabled` is true and the rate is not 1.0, a SOLA
+/// time-stretcher runs ahead of the resampler so that changing the rate
+/// changes duration without changing pitch.
+pub fn set_preserve_pitch(enabled: bool) {
+    let _ = ENGINE
+        .command_sender
+        .send(AudioCommand::SetPreservePitch(enabled));
+}
+
+/// Called from the config layer when the user toggles the
+/// `RateModPreservesPitch` setting. Mirrors [`on_replaygain_setting_changed`]
+/// so changes take effect on the currently playing track without restart.
+pub fn on_preserve_pitch_changed(enabled: bool) {
+    set_preserve_pitch(enabled);
 }
 
 /// Returns the elapsed real time (in seconds) of the currently playing
@@ -2810,7 +2835,7 @@ fn audio_manager_thread(
     // Command loop: manage music decoder thread.
     loop {
         match command_receiver.recv() {
-            Ok(AudioCommand::PlayMusic(path, cut, looping, rate)) => {
+            Ok(AudioCommand::PlayMusic(path, cut, looping, rate, preserve_pitch)) => {
                 if let Some(old) = music_stream.take() {
                     old.stop_signal
                         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2820,11 +2845,13 @@ fn audio_manager_thread(
                 MUSIC_TRACK_ACTIVE.store(true, Ordering::Relaxed);
                 MUSIC_TRACK_HAS_STARTED.store(false, Ordering::Relaxed);
                 let rate_bits = Arc::new(AtomicU32::new(rate.to_bits()));
+                let preserve_pitch_bits = Arc::new(AtomicBool::new(preserve_pitch));
                 music_stream = Some(resample::spawn_music_decoder_thread(
                     path,
                     cut,
                     looping,
                     rate_bits,
+                    preserve_pitch_bits,
                     music_ring.clone(),
                 ));
             }
@@ -2845,6 +2872,15 @@ fn audio_manager_thread(
                 // Drop buffered old-rate samples so the change is heard immediately.
                 internal::ring_clear(&music_ring);
                 clear_music_pos_map();
+            }
+            Ok(AudioCommand::SetPreservePitch(enabled)) => {
+                if let Some(ms) = &music_stream {
+                    ms.preserve_pitch.store(enabled, Ordering::Relaxed);
+                    // Drop buffered samples produced with the old mode so the
+                    // change is heard immediately.
+                    internal::ring_clear(&music_ring);
+                    clear_music_pos_map();
+                }
             }
             Err(_) => break,
         }
