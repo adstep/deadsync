@@ -23,6 +23,7 @@ struct DynamicVideoState {
 
 struct PreparedBannerVideo {
     key: String,
+    path: PathBuf,
     poster: RgbaImage,
     player: video::Player,
 }
@@ -761,10 +762,19 @@ impl DynamicMedia {
         backend: &mut Backend,
     ) {
         self.destroy_current_dynamic_background(assets, backend);
-        for key in self.active_song_lua_videos.drain().map(|(key, _)| key) {
+        for key in self
+            .active_song_lua_videos
+            .drain()
+            .map(|(key, _)| key)
+            .collect::<Vec<_>>()
+        {
             self.release_texture_key(assets, backend, key);
         }
-        for key in self.failed_song_lua_video_keys.drain() {
+        for key in self
+            .failed_song_lua_video_keys
+            .drain()
+            .collect::<Vec<_>>()
+        {
             self.release_texture_key(assets, backend, key);
         }
         self.reset_pending_gameplay_background();
@@ -1090,6 +1100,7 @@ fn prepare_banner_video(key: String, path: PathBuf) -> BannerVideoPrepResult {
         return match video::open(&path, true) {
             Ok(video) => BannerVideoPrepResult::Ready(PreparedBannerVideo {
                 key,
+                path,
                 poster: video.poster,
                 player: video.player,
             }),
@@ -1111,6 +1122,7 @@ fn prepare_banner_video(key: String, path: PathBuf) -> BannerVideoPrepResult {
     };
     BannerVideoPrepResult::Ready(PreparedBannerVideo {
         key,
+        path,
         poster,
         player,
     })
