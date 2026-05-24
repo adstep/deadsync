@@ -1430,13 +1430,38 @@ fn lookup_music_position(stream_frames: f64, sample_rate: u32) -> Option<(f32, f
 }
 
 /// Plays a music track from a file path.
-pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
+///
+/// `preserve_pitch` controls the SOLA time-stretcher that implements the
+/// `RateModPreservesPitch` option:
+/// * `Some(true)` — force pitch preservation regardless of the user's
+///   global setting.
+/// * `Some(false)` — force pitch *not* to be preserved regardless of the
+///   global setting.
+/// * `None` — use the user's global `rate_mod_preserves_pitch` config value.
+///
+/// Most callers want `None`. Force a specific value only when a caller has a
+/// gameplay-mode reason to override the user preference (e.g. a chart that
+/// explicitly requires/forbids pitch preservation).
+pub fn play_music(
+    path: PathBuf,
+    cut: Cut,
+    looping: bool,
+    rate: f32,
+    preserve_pitch: Option<bool>,
+) {
     let rate = if rate.is_finite() && rate > 0.0 {
         rate
     } else {
         1.0
     };
     reset_music_stream_clock();
+
+    // Resolve per-play settings up front so the config snapshot used here is
+    // the one observed by the audio engine for this PlayMusic command (no
+    // TOCTOU window vs a later read on the audio manager thread).
+    let cfg = crate::config::get();
+    let preserve_pitch = preserve_pitch.unwrap_or(cfg.rate_mod_preserves_pitch);
+    let replaygain_enabled = cfg.enable_replaygain;
 
     // Resolve a per-play track id and decide on the initial ReplayGain
     // value. If the user has the experimental ReplayGain setting on, and we
@@ -1446,7 +1471,7 @@ pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
     let track_id = MUSIC_TRACK_ID
         .fetch_add(1, Ordering::AcqRel)
         .wrapping_add(1);
-    let initial_gain: f32 = if crate::config::get().enable_replaygain {
+    let initial_gain: f32 = if replaygain_enabled {
         replaygain::get_or_queue_gain_linear(&path, track_id).unwrap_or(1.0)
     } else {
         1.0
@@ -1461,7 +1486,7 @@ pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
         cut,
         looping,
         rate,
-        crate::config::get().rate_mod_preserves_pitch,
+        preserve_pitch,
     ));
 }
 
@@ -2867,7 +2892,7 @@ fn audio_manager_thread(
             }
             Ok(AudioCommand::SetMusicRate(new_rate)) => {
                 if let Some(ms) = &music_stream {
-                    ms.rate_bits.store(new_rate.to_bits(), Ordering::Relaxed);
+                    ms.rate_bits.store(new_rate.to_bits(), Ordering::Release);
                 }
                 // Drop buffered old-rate samples so the change is heard immediately.
                 internal::ring_clear(&music_ring);
@@ -2875,7 +2900,7 @@ fn audio_manager_thread(
             }
             Ok(AudioCommand::SetPreservePitch(enabled)) => {
                 if let Some(ms) = &music_stream {
-                    ms.preserve_pitch.store(enabled, Ordering::Relaxed);
+                    ms.preserve_pitch.store(enabled, Ordering::Release);
                     // Drop buffered samples produced with the old mode so the
                     // change is heard immediately.
                     internal::ring_clear(&music_ring);

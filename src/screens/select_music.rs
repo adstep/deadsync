@@ -3787,6 +3787,7 @@ fn sync_preview_song(state: &mut State, selected_song: Option<&Arc<SongData>>, l
                 cut,
                 loop_preview,
                 crate::game::profile::get_session_music_rate(),
+                None,
             );
         } else {
             state.currently_playing_preview_start_sec = None;

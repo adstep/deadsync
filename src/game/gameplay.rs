@@ -4952,7 +4952,7 @@ fn start_stage_music_audio(state: &State) {
         1.0
     };
     debug!("Starting music with a preroll delay of {lead_in:.2}s");
-    audio::play_music(music_path.clone(), stage_music_cut(lead_in), false, rate);
+    audio::play_music(music_path.clone(), stage_music_cut(lead_in), false, rate, None);
 }
 
 pub fn start_stage_music(state: &mut State) {
@@ -5152,6 +5152,7 @@ pub fn start_practice_music(
         },
         false,
         rate,
+        None,
     );
 }
 

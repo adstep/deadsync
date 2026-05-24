@@ -347,7 +347,7 @@ fn find_closest_match(buffer: &[f32], correlate: &[f32]) -> usize {
     let distance = buffer.len() - correlate.len();
     let mut best_offset = 0usize;
     let mut best_score = f32::INFINITY;
-    for i in 0..distance {
+    for i in 0..=distance {
         let mut score = 0.0f32;
         let frames = &buffer[i..i + correlate.len()];
         for j in 0..correlate.len() {
@@ -523,5 +523,131 @@ mod tests {
         let l_sum: f32 = out[0].iter().take(1024).map(|v| v.abs()).sum();
         let r_sum: f32 = out[1].iter().take(1024).map(|v| v.abs()).sum();
         assert!(l_sum > 0.0 && r_sum > 0.0);
+    }
+
+    /// Regression test for the L1 correlation off-by-one: the search must
+    /// include the last valid offset (`buffer.len() - correlate.len()`) in
+    /// its scan, not stop just before it.
+    #[test]
+    fn correlation_checks_final_valid_position() {
+        let mut buffer = vec![0.0f32; 10];
+        let pattern = [1.0f32, 2.0, 3.0, 4.0];
+        // Plant the only perfect match at the last valid position.
+        let last = buffer.len() - pattern.len();
+        buffer[last..].copy_from_slice(&pattern);
+        let found = find_closest_match(&buffer, &pattern);
+        assert_eq!(
+            found, last,
+            "L1 search must check the final valid offset"
+        );
+    }
+
+    /// At `rate=1.0` SOLA should not stall waiting for the full search
+    /// window — preserve_pitch at unit rate is a no-op and the caller is
+    /// expected to bypass SOLA entirely, but the stretcher itself should
+    /// still produce output promptly if it is fed.
+    #[test]
+    fn rate_one_does_not_stall() {
+        let sr = 48_000u32;
+        let sine = make_sine(440.0, sr, sr as usize);
+        let mut s = SolaStretcher::new(1, sr);
+        s.set_speed_ratio(1.0);
+        s.push_interleaved_i16(&sine);
+        let out = pull_until(&mut s, 8192);
+        assert!(
+            out[0].len() >= 4096,
+            "rate=1.0 should not stall: only got {} samples",
+            out[0].len()
+        );
+    }
+
+    /// Changing the speed ratio after some output has already been pulled
+    /// must continue producing output (not get stuck in an inconsistent
+    /// internal state).
+    #[test]
+    fn mid_stream_rate_change_continues_producing() {
+        let sr = 48_000u32;
+        let sine = make_sine(440.0, sr, sr as usize * 2);
+        let mut s = SolaStretcher::new(1, sr);
+        s.set_speed_ratio(1.5);
+        s.push_interleaved_i16(&sine);
+        let first = pull_until(&mut s, 4096);
+        assert!(!first[0].is_empty());
+        s.set_speed_ratio(0.75);
+        let mut second: Vec<Vec<f32>> = vec![Vec::new()];
+        let produced = s.pull(&mut second, 4096);
+        assert!(
+            produced > 0,
+            "stretcher should keep producing after a mid-stream ratio change"
+        );
+        for v in &second[0] {
+            assert!(v.is_finite());
+        }
+    }
+
+    /// Silence in must produce silence out (no NaN, no divide-by-zero in
+    /// the correlation search even though every L1 score is 0).
+    #[test]
+    fn silence_in_silence_out() {
+        let sr = 48_000u32;
+        let silence = vec![0i16; sr as usize];
+        let mut s = SolaStretcher::new(1, sr);
+        s.set_speed_ratio(1.5);
+        s.push_interleaved_i16(&silence);
+        let out = pull_until(&mut s, 8192);
+        for &v in &out[0] {
+            assert!(v.is_finite(), "non-finite sample in silent stretch");
+            assert!(v.abs() < 1e-6, "non-silent sample in silent stretch: {v}");
+        }
+    }
+
+    /// Pushing fewer frames than the search window requires must not
+    /// panic. The first window emits up to the buffered count without a
+    /// real SOLA step (matches upstream behavior); subsequent pulls must
+    /// stop cleanly once the buffer is exhausted.
+    #[test]
+    fn sub_window_push_does_not_panic() {
+        let sr = 48_000u32;
+        let mut s = SolaStretcher::new(1, sr);
+        s.set_speed_ratio(1.5);
+        let pushed = 100usize;
+        let short = make_sine(440.0, sr, pushed);
+        s.push_interleaved_i16(&short);
+        let mut out: Vec<Vec<f32>> = vec![Vec::new()];
+        let first = s.pull(&mut out, 1024);
+        assert!(
+            first <= pushed,
+            "must not invent samples: pushed {pushed}, produced {first}"
+        );
+        // A second pull with no further pushes must stop (zero) rather
+        // than block or panic.
+        let second = s.pull(&mut out, 1024);
+        assert_eq!(second, 0);
+        for v in &out[0] {
+            assert!(v.is_finite());
+        }
+    }
+
+    /// Mono SOLA path: pitch must be preserved across stretch, separate
+    /// from the existing stereo-divergence test.
+    #[test]
+    fn mono_pitch_is_preserved_under_stretch() {
+        let sr = 48_000u32;
+        let freq = 880.0f32;
+        let in_frames = sr as usize;
+        let sine = make_sine(freq, sr, in_frames);
+        let mut s = SolaStretcher::new(1, sr);
+        s.set_speed_ratio(1.25);
+        s.push_interleaved_i16(&sine);
+        let out = pull_until(&mut s, 4096);
+        let analysis_len = 4096usize.min(out[0].len());
+        assert!(analysis_len >= 2048);
+        let bin = fft_peak_bin(&out[0][..analysis_len]);
+        let bin_freq = bin as f32 * sr as f32 / analysis_len as f32;
+        let bin_size = sr as f32 / analysis_len as f32;
+        assert!(
+            (bin_freq - freq).abs() < bin_size * 3.0,
+            "mono pitch shifted: peak {bin_freq} Hz, expected ~{freq} Hz (bin {bin_size} Hz)"
+        );
     }
 }

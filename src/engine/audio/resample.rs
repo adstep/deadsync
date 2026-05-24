@@ -19,6 +19,13 @@ const PLANAR_COMPACT_THRESHOLD_FRAMES: usize = 2048;
 const SILENCE_CHUNK_FRAMES: usize = 2048;
 const MIN_MUSIC_RATE: f32 = 0.05;
 const MAX_MUSIC_RATE: f32 = 8.0;
+/// Threshold used everywhere to decide whether a music `rate` value is
+/// "effectively 1.0". Picked to be smaller than any musically meaningful
+/// rate change but well above the noise of `f32` round-tripping through
+/// atomic storage. Used to gate SOLA activation, direct-audio passthrough,
+/// and resampler/SOLA rebuilds, so all three stay in agreement (otherwise
+/// a rate like 1.0001 could activate SOLA without triggering rebuild).
+const RATE_EPS: f32 = 0.0005;
 const RESAMPLE_MAX_RELATIVE_RATIO: f64 = 64.0;
 
 fn push_music_block_with_map(
@@ -479,15 +486,20 @@ fn music_decoder_thread_loop(
     let mut pkt_buf = Vec::new();
 
     'main_loop: loop {
-        let mut current_rate_f32 = f32::from_bits(rate_bits.load(Ordering::Relaxed));
+        // Load order matters: always read `rate_bits` before `preserve_pitch`
+        // so that, paired with `Release` stores on the manager thread, a
+        // simultaneous rate+preserve-pitch update is observed as either
+        // (old, old), (new, old), or (new, new) — never (old, new). This
+        // avoids a one-packet window where the wrong SOLA mode is used.
+        let mut current_rate_f32 = f32::from_bits(rate_bits.load(Ordering::Acquire));
         if !current_rate_f32.is_finite() || current_rate_f32 <= 0.0 {
             current_rate_f32 = 1.0;
         } else {
             current_rate_f32 = current_rate_f32.clamp(MIN_MUSIC_RATE, MAX_MUSIC_RATE);
         }
-        let mut current_pp = preserve_pitch.load(Ordering::Relaxed)
-            && (current_rate_f32 - 1.0).abs() > f32::EPSILON;
-        let direct_audio = in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= f32::EPSILON;
+        let mut current_pp = preserve_pitch.load(Ordering::Acquire)
+            && (current_rate_f32 - 1.0).abs() > RATE_EPS;
+        let direct_audio = in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= RATE_EPS;
         let mut ratio = if current_pp {
             f64::from(out_hz) / f64::from(in_hz)
         } else {
@@ -640,27 +652,28 @@ fn music_decoder_thread_loop(
                 slice = &pkt_buf[drop_samples..];
                 to_drop_in = 0;
             }
-            let desired_rate = f32::from_bits(rate_bits.load(Ordering::Relaxed));
+            // Load rate first, then preserve_pitch — see note above.
+            let desired_rate = f32::from_bits(rate_bits.load(Ordering::Acquire));
             let mut desired_rate = if desired_rate.is_finite() && desired_rate > 0.0 {
                 desired_rate
             } else {
                 1.0
             };
-            let desired_pp_raw = preserve_pitch.load(Ordering::Relaxed);
+            let desired_pp_raw = preserve_pitch.load(Ordering::Acquire);
             let desired_pp_active =
-                desired_pp_raw && (desired_rate - 1.0).abs() > f32::EPSILON;
-            let rate_changed = (desired_rate - current_rate_f32).abs() > 0.0005;
+                desired_pp_raw && (desired_rate - 1.0).abs() > RATE_EPS;
+            let rate_changed = (desired_rate - current_rate_f32).abs() > RATE_EPS;
             let pp_changed = desired_pp_active != current_pp;
             if rate_changed || pp_changed {
                 desired_rate = desired_rate.clamp(MIN_MUSIC_RATE, MAX_MUSIC_RATE);
                 current_rate_f32 = desired_rate;
-                current_pp = desired_pp_raw && (desired_rate - 1.0).abs() > f32::EPSILON;
+                current_pp = desired_pp_raw && (desired_rate - 1.0).abs() > RATE_EPS;
                 ratio = if current_pp {
                     f64::from(out_hz) / f64::from(in_hz)
                 } else {
                     (f64::from(out_hz) / f64::from(in_hz)) / f64::from(current_rate_f32)
                 };
-                if in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= f32::EPSILON {
+                if in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= RATE_EPS {
                     resampler = None;
                     resampler_rate = f32::NAN;
                     resampler_pp = false;

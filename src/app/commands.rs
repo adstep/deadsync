@@ -289,6 +289,7 @@ impl App {
             crate::engine::audio::Cut::default(),
             looped,
             volume,
+            None,
         );
     }
 

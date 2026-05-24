@@ -190,6 +190,7 @@ impl App {
                     crate::engine::audio::Cut::default(),
                     true,
                     1.0,
+                    None,
                 );
             }
         } else if prev_menu_music {
