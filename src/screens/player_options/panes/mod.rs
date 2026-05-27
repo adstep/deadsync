@@ -222,6 +222,16 @@ pub(super) fn apply_profile_defaults(
             .unwrap_or(0)
             .min(row.choices.len().saturating_sub(1));
     }
+    if let Some(row) = row_map.get_mut(RowId::ErrorBarIntensity) {
+        let stepped = crate::game::profile::clamp_error_bar_intensity(profile.error_bar_intensity);
+        let needle = fmt_error_bar_intensity(stepped);
+        row.selected_choice_index[player_idx] = row
+            .choices
+            .iter()
+            .position(|c| c == &needle)
+            .unwrap_or(0)
+            .min(row.choices.len().saturating_sub(1));
+    }
     if let Some(row) = row_map.get_mut(RowId::JudgmentTiltMinThreshold) {
         let threshold =
             crate::game::profile::clamp_tilt_threshold_ms(profile.tilt_min_threshold_ms);

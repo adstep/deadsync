@@ -127,6 +127,24 @@ pub(super) fn tilt_intensity_choices() -> Vec<String> {
 }
 
 #[inline(always)]
+pub(super) fn fmt_error_bar_intensity(value: f32) -> String {
+    format!("{value:.2}x")
+}
+
+pub(super) fn error_bar_intensity_choices() -> Vec<String> {
+    let count = ((ERROR_BAR_INTENSITY_MAX - ERROR_BAR_INTENSITY_MIN) / ERROR_BAR_INTENSITY_STEP)
+        .round() as usize
+        + 1;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        out.push(fmt_error_bar_intensity(
+            ERROR_BAR_INTENSITY_MIN + i as f32 * ERROR_BAR_INTENSITY_STEP,
+        ));
+    }
+    out
+}
+
+#[inline(always)]
 pub(super) fn fmt_tilt_threshold_ms(ms: u32) -> String {
     format!("{ms}ms")
 }

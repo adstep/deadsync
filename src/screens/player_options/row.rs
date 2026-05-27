@@ -59,6 +59,7 @@ pub enum RowId {
     ErrorBarOptions,
     ErrorBarOffsetX,
     ErrorBarOffsetY,
+    ErrorBarIntensity,
     MeasureCounter,
     MeasureCounterLookahead,
     MeasureCounterOptions,

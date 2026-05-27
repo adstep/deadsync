@@ -1006,6 +1006,19 @@ pub fn update_error_bar_trim_for_side(side: PlayerSide, setting: ErrorBarTrim) {
     save_profile_ini_for_side(side);
 }
 
+pub fn update_error_bar_intensity_for_side(side: PlayerSide, intensity: f32) {
+    let normalized = super::clamp_error_bar_intensity(intensity);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if (profile.error_bar_intensity - normalized).abs() < 1e-6 {
+            return;
+        }
+        profile.error_bar_intensity = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_data_visualizations_for_side(side: PlayerSide, setting: DataVisualizations) {
     {
         let mut profiles = lock_profiles();

@@ -22,6 +22,12 @@ pub(super) const TILT_INTENSITY_MAX: f32 = 10.00;
 
 pub(super) const TILT_INTENSITY_STEP: f32 = 0.05;
 
+pub(super) const ERROR_BAR_INTENSITY_MIN: f32 = crate::game::profile::ERROR_BAR_INTENSITY_MIN;
+
+pub(super) const ERROR_BAR_INTENSITY_MAX: f32 = crate::game::profile::ERROR_BAR_INTENSITY_MAX;
+
+pub(super) const ERROR_BAR_INTENSITY_STEP: f32 = crate::game::profile::ERROR_BAR_INTENSITY_STEP;
+
 pub(super) const TILT_THRESHOLD_MIN_MS: u32 = crate::game::profile::TILT_THRESHOLD_MIN_MS;
 
 pub(super) const TILT_THRESHOLD_MAX_MS: u32 = crate::game::profile::TILT_THRESHOLD_MAX_MS;

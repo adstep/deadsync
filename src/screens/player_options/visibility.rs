@@ -40,6 +40,7 @@ pub(super) fn row_visible_with_flags(id: RowId, visibility: RowVisibility) -> bo
         || id == RowId::ErrorBarOptions
         || id == RowId::ErrorBarOffsetX
         || id == RowId::ErrorBarOffsetY
+        || id == RowId::ErrorBarIntensity
     {
         return visibility.show_error_bar_children;
     }
@@ -97,6 +98,7 @@ pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
         || id == RowId::ErrorBarOptions
         || id == RowId::ErrorBarOffsetX
         || id == RowId::ErrorBarOffsetY
+        || id == RowId::ErrorBarIntensity
     {
         return Some(RowId::ErrorBar);
     }

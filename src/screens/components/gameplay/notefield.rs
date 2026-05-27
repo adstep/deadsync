@@ -8344,6 +8344,9 @@ pub fn build_bundles(
                     } else {
                         0.0
                     };
+                    let intensity = crate::game::profile::clamp_error_bar_intensity(
+                        profile.error_bar_intensity,
+                    );
                     let bar_visible = p
                         .error_bar_avg_bar_started_at
                         .map(|t0| {
@@ -8367,7 +8370,16 @@ pub fn build_bundles(
                             if alpha <= 0.0 {
                                 continue;
                             }
-                            let x = tick.offset_s * wscale;
+                            // Visual-only intensity multiplier (issue #431): scale the
+                            // displayed offset, then re-clamp to the active timing
+                            // window so the tick can never escape the bar. The stored
+                            // tick.offset_s and underlying samples are untouched.
+                            let scaled_offset = if max_offset_s.is_finite() && max_offset_s > 0.0 {
+                                (tick.offset_s * intensity).clamp(-max_offset_s, max_offset_s)
+                            } else {
+                                tick.offset_s * intensity
+                            };
+                            let x = scaled_offset * wscale;
                             if !x.is_finite() {
                                 continue;
                             }
