@@ -1,15 +1,20 @@
 name: release-windows-win7
 
-# Build a Windows 7 / Windows 7 Embedded compatible release of deadsync.exe.
+# Build a Windows 7 / Windows 7 Embedded compatible release of deadsync.exe
+# using Rust's Tier 3 `x86_64-win7-windows-msvc` target.
 #
-# The Rust standard library (since 1.78) imports `ProcessPrng` from
+# Background: since Rust 1.78 the standard library imports `ProcessPrng` from
 # `bcryptprimitives.dll`, which only exists on Windows 10 build 17763 (1809)
-# and later. This workflow links the binary against Chuyu-Team/YY-Thunks and
-# Chuyu-Team/VC-LTL5 so the resulting executable runs on Win7 SP1 and up.
+# and later. The Win7 target rebuilds std to use `RtlGenRandom` instead, so
+# the resulting binary launches successfully on Win7 SP1 and up.
+#
+# Tier 3 targets require a nightly toolchain and `-Z build-std`. They are not
+# covered by Rust's CI guarantees, so this workflow may break between
+# nightlies — pin the nightly date below if you need reproducibility.
 #
 # The workflow is opt-in (manual dispatch or push of a `*-win7` tag) so it
-# never interferes with the upstream pnn64/deadsync release process. When run
-# on a fork, the GitHub release is published against the fork, not upstream.
+# never interferes with the main release process. When run on a fork, the
+# GitHub release is published against the fork.
 
 on:
   push:
@@ -36,6 +41,7 @@ jobs:
     runs-on: windows-latest
     env:
       CARGO_TERM_COLOR: always
+      RUST_TARGET: x86_64-win7-windows-msvc
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,24 +77,38 @@ jobs:
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust nightly (with rust-src)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
-      - name: Download YY-Thunks and VC-LTL5
-        id: win7libs
-        shell: pwsh
-        run: scripts/install-win7-compat-libs.ps1 -Arch x86_64
+      - name: Show toolchain
+        run: |
+          rustc +nightly -vV
+          cargo +nightly -vV
 
-      - name: Build release (Win7 compat)
-        env:
-          DEADSYNC_WIN7_THUNK_OBJ: ${{ steps.win7libs.outputs.thunk_obj }}
-          DEADSYNC_WIN7_VC_LTL_LIB_DIR: ${{ steps.win7libs.outputs.vc_ltl_lib_dir }}
-        run: cargo build --release --locked --bin deadsync
+      - name: Build release (Win7 Tier 3 target)
+        # --locked is intentionally omitted: -Z build-std rewrites the lockfile
+        # to include sysroot dependencies, which the existing Cargo.lock does
+        # not pin.
+        run: >
+          cargo +nightly build
+          --release
+          --bin deadsync
+          --target ${{ env.RUST_TARGET }}
+          -Z build-std=std,panic_abort
+          -Z build-std-features=panic_immediate_abort
 
       - name: Package Windows Win7 release
         id: package
         shell: pwsh
-        run: scripts/package-windows-release.ps1 -Tag "${{ steps.tag.outputs.tag }}" -Arch x86_64 -Variant win7 -ExtraReadme docs/WINDOWS-7-COMPAT.md
+        run: >
+          scripts/package-windows-release.ps1
+          -Tag "${{ steps.tag.outputs.tag }}"
+          -Arch x86_64
+          -Variant win7
+          -ExtraReadme docs/WINDOWS-7-COMPAT.md
+          -BinPath "target/${{ env.RUST_TARGET }}/release/deadsync.exe"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -109,10 +129,11 @@ jobs:
           body: |
             Windows 7 / Windows 7 Embedded compatible build of deadsync.
 
-            Built with [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) and
-            [VC-LTL5](https://github.com/Chuyu-Team/VC-LTL5) link-time shims to
-            work around the `ProcessPrng` / `bcryptprimitives.dll` import that
-            the Rust standard library requires on Windows 10 1809+.
+            Built with Rust nightly + `-Z build-std` targeting the Tier 3
+            `x86_64-win7-windows-msvc` triple. This rebuilds the standard
+            library to use `RtlGenRandom` instead of `ProcessPrng`, so the
+            binary no longer requires the Windows 10 1809+ export from
+            `bcryptprimitives.dll`.
 
             See `docs/WINDOWS-7-COMPAT.md` (also included inside the archive)
             for requirements and troubleshooting.
