@@ -20,7 +20,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     detect_pipewire_audio();
     detect_pulse_audio();
     configure_windows_stack();
-    configure_win7_compat();
     emit_build_info();
 
     embed_windows_icon()?;
@@ -77,39 +76,6 @@ fn configure_windows_stack() {
     // which is smaller than the reserve we effectively get on Unix and has
     // started overflowing when entering gameplay.
     println!("cargo:rustc-link-arg-bins=/STACK:8388608");
-}
-
-// Opt-in Windows 7 compatibility shim. Activated by setting
-// DEADSYNC_WIN7_THUNK_OBJ (path to a YY-Thunks .obj, e.g. YY_Thunks_for_Win7.obj)
-// in the build environment. Optionally set DEADSYNC_WIN7_VC_LTL_LIB_DIR to point
-// at a VC-LTL5 lib directory to redirect the C runtime to the Win7-compatible
-// system CRT. The release-windows-win7 GitHub workflow wires both env vars up
-// after downloading upstream binaries from Chuyu-Team/{YY-Thunks,VC-LTL5}.
-fn configure_win7_compat() {
-    println!("cargo:rerun-if-env-changed=DEADSYNC_WIN7_THUNK_OBJ");
-    println!("cargo:rerun-if-env-changed=DEADSYNC_WIN7_VC_LTL_LIB_DIR");
-
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    if target_os != "windows" || target_env != "msvc" {
-        return;
-    }
-
-    if let Ok(lib_dir) = std::env::var("DEADSYNC_WIN7_VC_LTL_LIB_DIR") {
-        let trimmed = lib_dir.trim();
-        if !trimmed.is_empty() {
-            println!("cargo:rustc-link-search=native={trimmed}");
-            println!("cargo:warning=VC-LTL5 lib search path enabled: {trimmed}");
-        }
-    }
-
-    if let Ok(obj_path) = std::env::var("DEADSYNC_WIN7_THUNK_OBJ") {
-        let trimmed = obj_path.trim();
-        if !trimmed.is_empty() {
-            println!("cargo:rustc-link-arg-bins={trimmed}");
-            println!("cargo:warning=YY-Thunks Win7 compatibility object linked: {trimmed}");
-        }
-    }
 }
 
 #[cfg(windows)]

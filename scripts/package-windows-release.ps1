@@ -7,7 +7,9 @@ param(
 
     [string]$Variant,
 
-    [string]$ExtraReadme
+    [string]$ExtraReadme,
+
+    [string]$BinPath = 'target\release\deadsync.exe'
 )
 
 Set-StrictMode -Version Latest
@@ -31,7 +33,7 @@ if (-not $Arch) {
     $Arch = Map-Arch $Arch
 }
 
-$binPath = 'target\release\deadsync.exe'
+$binPath = $BinPath
 
 if (-not (Test-Path $binPath)) {
     Write-Error "missing executable: $binPath"
