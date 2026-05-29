@@ -1,0 +1,123 @@
+name: release-windows-win7
+
+# Build a Windows 7 / Windows 7 Embedded compatible release of deadsync.exe.
+#
+# The Rust standard library (since 1.78) imports `ProcessPrng` from
+# `bcryptprimitives.dll`, which only exists on Windows 10 build 17763 (1809)
+# and later. This workflow links the binary against Chuyu-Team/YY-Thunks and
+# Chuyu-Team/VC-LTL5 so the resulting executable runs on Win7 SP1 and up.
+#
+# The workflow is opt-in (manual dispatch or push of a `*-win7` tag) so it
+# never interferes with the upstream pnn64/deadsync release process. When run
+# on a fork, the GitHub release is published against the fork, not upstream.
+
+on:
+  push:
+    tags:
+      - "v*-win7"
+      - "win7-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: v0.4.271-win7)"
+        required: true
+        type: string
+      publish_release:
+        description: "Publish a GitHub release on this repo"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: scripts/install-vulkan-sdk.ps1
+
+      - name: Install Ninja
+        shell: pwsh
+        run: scripts/install-ninja.ps1
+
+      - name: Install CMake
+        shell: pwsh
+        run: scripts/install-cmake.ps1
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          tag="${tag#refs/tags/}"
+          if [ -z "${tag}" ]; then
+            echo "Release tag is required." >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download YY-Thunks and VC-LTL5
+        id: win7libs
+        shell: pwsh
+        run: scripts/install-win7-compat-libs.ps1 -Arch x86_64
+
+      - name: Build release (Win7 compat)
+        env:
+          DEADSYNC_WIN7_THUNK_OBJ: ${{ steps.win7libs.outputs.thunk_obj }}
+          DEADSYNC_WIN7_VC_LTL_LIB_DIR: ${{ steps.win7libs.outputs.vc_ltl_lib_dir }}
+        run: cargo build --release --locked --bin deadsync
+
+      - name: Package Windows Win7 release
+        id: package
+        shell: pwsh
+        run: scripts/package-windows-release.ps1 -Tag "${{ steps.tag.outputs.tag }}" -Arch x86_64 -Variant win7 -ExtraReadme docs/WINDOWS-7-COMPAT.md
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deadsync-windows-win7-${{ steps.tag.outputs.tag }}-x86_64
+          if-no-files-found: error
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.checksum }}
+
+      - name: Publish GitHub release
+        if: ${{ github.event_name == 'push' || github.event.inputs.publish_release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.tag.outputs.tag }} (Windows 7 compat)
+          body: |
+            Windows 7 / Windows 7 Embedded compatible build of deadsync.
+
+            Built with [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) and
+            [VC-LTL5](https://github.com/Chuyu-Team/VC-LTL5) link-time shims to
+            work around the `ProcessPrng` / `bcryptprimitives.dll` import that
+            the Rust standard library requires on Windows 10 1809+.
+
+            See `docs/WINDOWS-7-COMPAT.md` (also included inside the archive)
+            for requirements and troubleshooting.
+          files: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.checksum }}
+          prerelease: true
+          fail_on_unmatched_files: true
