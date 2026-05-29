@@ -1,5 +1,27 @@
 use super::*;
 
+pub fn update_machine_font(font: MachineFont) {
+    {
+        let mut cfg = lock_config();
+        if cfg.machine_font == font {
+            return;
+        }
+        cfg.machine_font = font;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_machine_bar_color(color: MachineBarColor) {
+    {
+        let mut cfg = lock_config();
+        if cfg.machine_bar_color == color {
+            return;
+        }
+        cfg.machine_bar_color = color;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_select_music_breakdown_style(style: BreakdownStyle) {
     {
         let mut cfg = lock_config();
@@ -29,6 +51,28 @@ pub fn update_show_select_music_banners(enabled: bool) {
             return;
         }
         cfg.show_select_music_banners = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_show_version_overlay(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.show_version_overlay == enabled {
+            return;
+        }
+        cfg.show_version_overlay = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_version_overlay_side(side: VersionOverlaySide) {
+    {
+        let mut cfg = lock_config();
+        if cfg.version_overlay_side == side {
+            return;
+        }
+        cfg.version_overlay_side = side;
     }
     save_without_keymaps();
 }
@@ -77,6 +121,17 @@ pub fn update_show_music_wheel_lamps(enabled: bool) {
     save_without_keymaps();
 }
 
+pub fn update_select_music_itl_rank_mode(mode: SelectMusicItlRankMode) {
+    {
+        let mut cfg = lock_config();
+        if cfg.select_music_itl_rank_mode == mode {
+            return;
+        }
+        cfg.select_music_itl_rank_mode = mode;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_select_music_itl_wheel_mode(mode: SelectMusicItlWheelMode) {
     {
         let mut cfg = lock_config();
@@ -99,6 +154,17 @@ pub fn update_select_music_wheel_style(style: SelectMusicWheelStyle) {
     save_without_keymaps();
 }
 
+pub fn update_select_music_song_select_bg_mode(mode: SelectMusicSongSelectBgMode) {
+    {
+        let mut cfg = lock_config();
+        if cfg.select_music_song_select_bg_mode == mode {
+            return;
+        }
+        cfg.select_music_song_select_bg_mode = mode;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_select_music_new_pack_mode(mode: NewPackMode) {
     {
         let mut cfg = lock_config();
@@ -106,6 +172,17 @@ pub fn update_select_music_new_pack_mode(mode: NewPackMode) {
             return;
         }
         cfg.select_music_new_pack_mode = mode;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_show_select_music_folder_stats(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.show_select_music_folder_stats == enabled {
+            return;
+        }
+        cfg.show_select_music_folder_stats = enabled;
     }
     save_without_keymaps();
 }
@@ -154,6 +231,17 @@ pub fn update_select_music_pattern_info_mode(mode: SelectMusicPatternInfoMode) {
     save_without_keymaps();
 }
 
+pub fn update_select_music_step_artist_box_mode(mode: SelectMusicStepArtistBoxMode) {
+    {
+        let mut cfg = lock_config();
+        if cfg.select_music_step_artist_box_mode == mode {
+            return;
+        }
+        cfg.select_music_step_artist_box_mode = mode;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_show_select_music_gameplay_timer(enabled: bool) {
     {
         let mut cfg = lock_config();
@@ -161,6 +249,17 @@ pub fn update_show_select_music_gameplay_timer(enabled: bool) {
             return;
         }
         cfg.show_select_music_gameplay_timer = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_show_select_music_stage_display(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.show_select_music_stage_display == enabled {
+            return;
+        }
+        cfg.show_select_music_stage_display = enabled;
     }
     save_without_keymaps();
 }
@@ -238,6 +337,17 @@ pub fn update_select_music_chart_info_peak_nps(enabled: bool) {
             return;
         }
         cfg.select_music_chart_info_peak_nps = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_select_music_chart_info_effective_bpm(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.select_music_chart_info_effective_bpm == enabled {
+            return;
+        }
+        cfg.select_music_chart_info_effective_bpm = enabled;
     }
     save_without_keymaps();
 }

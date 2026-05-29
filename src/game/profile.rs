@@ -23,6 +23,145 @@ pub const PLAYER_INITIALS_MAX_LEN: usize = 4;
 pub const HUD_OFFSET_MIN: i32 = -250;
 pub const HUD_OFFSET_MAX: i32 = 250;
 
+/// Min/max for the per-player Spacing modifier (zmod parity, step 1).
+pub const SPACING_PERCENT_MIN: i32 = -100;
+pub const SPACING_PERCENT_MAX: i32 = 100;
+
+/// Min/max for the Mini player option (Simply Love parity).
+pub const MINI_PERCENT_MIN: i32 = -100;
+pub const MINI_PERCENT_MAX: i32 = 150;
+
+/// Min/max for judgment tilt thresholds, in milliseconds.
+pub const TILT_THRESHOLD_MIN_MS: u32 = 0;
+pub const TILT_THRESHOLD_MAX_MS: u32 = 100;
+pub const TILT_MIN_THRESHOLD_DEFAULT_MS: u32 = 0;
+pub const TILT_MAX_THRESHOLD_DEFAULT_MS: u32 = 50;
+
+#[inline(always)]
+pub const fn clamp_tilt_threshold_ms(ms: u32) -> u32 {
+    if ms > TILT_THRESHOLD_MAX_MS {
+        TILT_THRESHOLD_MAX_MS
+    } else {
+        ms
+    }
+}
+
+pub const LONG_ERROR_BAR_INTENSITY_MIN: f32 = 1.0;
+pub const LONG_ERROR_BAR_INTENSITY_MAX: f32 = 2.0;
+pub const LONG_ERROR_BAR_INTENSITY_STEP: f32 = 0.25;
+pub const LONG_ERROR_BAR_INTENSITY_DEFAULT: f32 = 2.0;
+
+pub const AVERAGE_ERROR_BAR_INTENSITY_MIN: f32 = 1.0;
+pub const AVERAGE_ERROR_BAR_INTENSITY_MAX: f32 = 2.0;
+pub const AVERAGE_ERROR_BAR_INTENSITY_STEP: f32 = 0.25;
+pub const AVERAGE_ERROR_BAR_INTENSITY_DEFAULT: f32 = 1.0;
+
+pub const AVERAGE_ERROR_BAR_INTERVAL_MS_MIN: u32 = 100;
+pub const AVERAGE_ERROR_BAR_INTERVAL_MS_MAX: u32 = 2000;
+pub const AVERAGE_ERROR_BAR_INTERVAL_MS_STEP: u32 = 100;
+pub const AVERAGE_ERROR_BAR_INTERVAL_MS_DEFAULT: u32 = 400;
+
+pub const LONG_ERROR_BAR_THRESHOLD_MS_MIN: u32 = 1;
+pub const LONG_ERROR_BAR_THRESHOLD_MS_MAX: u32 = 15;
+pub const LONG_ERROR_BAR_THRESHOLD_MS_DEFAULT: u32 = 4;
+
+pub const LONG_ERROR_BAR_MIN_SAMPLES_MIN: u32 = 4;
+pub const LONG_ERROR_BAR_MIN_SAMPLES_MAX: u32 = 64;
+pub const LONG_ERROR_BAR_MIN_SAMPLES_DEFAULT: u32 = 16;
+
+pub const LONG_ERROR_BAR_BUFFER_CAP_MIN: u32 = 16;
+pub const LONG_ERROR_BAR_BUFFER_CAP_MAX: u32 = 128;
+pub const LONG_ERROR_BAR_BUFFER_CAP_DEFAULT: u32 = 64;
+
+#[inline]
+pub const fn clamp_long_error_bar_threshold_ms(ms: u32) -> u32 {
+    if ms < LONG_ERROR_BAR_THRESHOLD_MS_MIN {
+        LONG_ERROR_BAR_THRESHOLD_MS_MIN
+    } else if ms > LONG_ERROR_BAR_THRESHOLD_MS_MAX {
+        LONG_ERROR_BAR_THRESHOLD_MS_MAX
+    } else {
+        ms
+    }
+}
+
+#[inline]
+pub const fn clamp_long_error_bar_min_samples(n: u32) -> u32 {
+    if n < LONG_ERROR_BAR_MIN_SAMPLES_MIN {
+        LONG_ERROR_BAR_MIN_SAMPLES_MIN
+    } else if n > LONG_ERROR_BAR_MIN_SAMPLES_MAX {
+        LONG_ERROR_BAR_MIN_SAMPLES_MAX
+    } else {
+        n
+    }
+}
+
+#[inline]
+pub const fn clamp_long_error_bar_buffer_cap(n: u32) -> u32 {
+    if n < LONG_ERROR_BAR_BUFFER_CAP_MIN {
+        LONG_ERROR_BAR_BUFFER_CAP_MIN
+    } else if n > LONG_ERROR_BAR_BUFFER_CAP_MAX {
+        LONG_ERROR_BAR_BUFFER_CAP_MAX
+    } else {
+        n
+    }
+}
+
+#[inline]
+pub fn clamp_long_error_bar_intensity(value: f32) -> f32 {
+    if !value.is_finite() {
+        return LONG_ERROR_BAR_INTENSITY_DEFAULT;
+    }
+    let clamped = value.clamp(LONG_ERROR_BAR_INTENSITY_MIN, LONG_ERROR_BAR_INTENSITY_MAX);
+    let steps = ((clamped - LONG_ERROR_BAR_INTENSITY_MIN) / LONG_ERROR_BAR_INTENSITY_STEP).round();
+    (LONG_ERROR_BAR_INTENSITY_MIN + steps * LONG_ERROR_BAR_INTENSITY_STEP)
+        .clamp(LONG_ERROR_BAR_INTENSITY_MIN, LONG_ERROR_BAR_INTENSITY_MAX)
+}
+
+#[inline]
+pub fn clamp_average_error_bar_intensity(value: f32) -> f32 {
+    if !value.is_finite() {
+        return AVERAGE_ERROR_BAR_INTENSITY_DEFAULT;
+    }
+    let clamped = value.clamp(
+        AVERAGE_ERROR_BAR_INTENSITY_MIN,
+        AVERAGE_ERROR_BAR_INTENSITY_MAX,
+    );
+    let steps =
+        ((clamped - AVERAGE_ERROR_BAR_INTENSITY_MIN) / AVERAGE_ERROR_BAR_INTENSITY_STEP).round();
+    (AVERAGE_ERROR_BAR_INTENSITY_MIN + steps * AVERAGE_ERROR_BAR_INTENSITY_STEP).clamp(
+        AVERAGE_ERROR_BAR_INTENSITY_MIN,
+        AVERAGE_ERROR_BAR_INTENSITY_MAX,
+    )
+}
+
+#[inline]
+pub const fn clamp_average_error_bar_interval_ms(ms: u32) -> u32 {
+    let clamped = if ms < AVERAGE_ERROR_BAR_INTERVAL_MS_MIN {
+        AVERAGE_ERROR_BAR_INTERVAL_MS_MIN
+    } else if ms > AVERAGE_ERROR_BAR_INTERVAL_MS_MAX {
+        AVERAGE_ERROR_BAR_INTERVAL_MS_MAX
+    } else {
+        ms
+    };
+    let steps = (clamped - AVERAGE_ERROR_BAR_INTERVAL_MS_MIN
+        + AVERAGE_ERROR_BAR_INTERVAL_MS_STEP / 2)
+        / AVERAGE_ERROR_BAR_INTERVAL_MS_STEP;
+    AVERAGE_ERROR_BAR_INTERVAL_MS_MIN + steps * AVERAGE_ERROR_BAR_INTERVAL_MS_STEP
+}
+
+/// Min/max for the per-player NoteField horizontal offset.
+pub const NOTE_FIELD_OFFSET_X_MIN: i32 = 0;
+pub const NOTE_FIELD_OFFSET_X_MAX: i32 = 50;
+
+/// Min/max for the per-player NoteField vertical offset.
+pub const NOTE_FIELD_OFFSET_Y_MIN: i32 = -50;
+pub const NOTE_FIELD_OFFSET_Y_MAX: i32 = 50;
+
+/// Min/max (in milliseconds) for the per-player visual-delay calibration
+/// (Simply Love parity). Also used as the range for the global offset shift.
+pub const VISUAL_DELAY_MS_MIN: i32 = -100;
+pub const VISUAL_DELAY_MS_MAX: i32 = 100;
+
 #[inline(always)]
 const fn clamp_weight_pounds(weight_pounds: i32) -> i32 {
     if weight_pounds == 0 {
@@ -422,6 +561,56 @@ bitflags! {
     }
 }
 
+bitflags! {
+    /// Persisted bitmask of live timing statistics shown during gameplay.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct LiveTimingStatsMask: u8 {
+        const MEAN     = 1 << 0;
+        const MEAN_ABS = 1 << 1;
+        const MAX      = 1 << 2;
+    }
+}
+
+bitflags! {
+    /// Persisted bitmask of tap explosion windows enabled for gameplay.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct TapExplosionMask: u8 {
+        const FANTASTIC = 1 << 0;
+        const EXCELLENT = 1 << 1;
+        const GREAT     = 1 << 2;
+        const DECENT    = 1 << 3;
+        const WAY_OFF   = 1 << 4;
+        const HELD      = 1 << 5;
+        const MISS      = 1 << 6;
+        const HOLDING   = 1 << 7;
+    }
+}
+
+const TAP_EXPLOSION_MASK_VERSION: u8 = 2;
+
+#[inline(always)]
+fn tap_explosion_mask_for_window(window: &str) -> Option<TapExplosionMask> {
+    match window {
+        "W0" | "W1" => Some(TapExplosionMask::FANTASTIC),
+        "W2" => Some(TapExplosionMask::EXCELLENT),
+        "W3" => Some(TapExplosionMask::GREAT),
+        "W4" => Some(TapExplosionMask::DECENT),
+        "W5" => Some(TapExplosionMask::WAY_OFF),
+        "Miss" => Some(TapExplosionMask::MISS),
+        "Held" => Some(TapExplosionMask::HELD),
+        _ => None,
+    }
+}
+
+#[inline(always)]
+fn normalize_tap_explosion_mask(bits: u8, version: u8) -> TapExplosionMask {
+    let mut mask = TapExplosionMask::from_bits_truncate(bits);
+    if version < TAP_EXPLOSION_MASK_VERSION {
+        mask.insert(TapExplosionMask::MISS | TapExplosionMask::HOLDING);
+    }
+    mask
+}
+
 // --- Profile Data ---
 const DEFAULT_PROFILE_ID: &str = "00000000";
 const PROFILE_STATS_VERSION_V1: u16 = 1;
@@ -450,6 +639,14 @@ fn parse_groovestats_is_pad_player(value: Option<String>, default: bool) -> bool
     value
         .and_then(|v| v.parse::<u8>().ok())
         .map_or(default, |v| v == 1)
+}
+
+fn parse_profile_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 #[inline(always)]
@@ -581,6 +778,14 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
         options.mini_indicator_score_type
     ));
     content.push_str(&format!(
+        "MiniIndicatorSize={}\n",
+        options.mini_indicator_size
+    ));
+    content.push_str(&format!(
+        "MiniIndicatorColor={}\n",
+        options.mini_indicator_color
+    ));
+    content.push_str(&format!(
         "ReverseScroll={}\n",
         i32::from(options.reverse_scroll)
     ));
@@ -613,6 +818,14 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
         i32::from(options.track_early_judgments)
     ));
     content.push_str(&format!(
+        "ScaleScatterplot={}\n",
+        i32::from(options.scale_scatterplot)
+    ));
+    content.push_str(&format!(
+        "ScatterplotMaxWindow={}\n",
+        options.scatterplot_max_window
+    ));
+    content.push_str(&format!(
         "CustomFantasticWindow={}\n",
         i32::from(options.custom_fantastic_window)
     ));
@@ -637,6 +850,14 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
         "DisplayScorebox={}\n",
         i32::from(options.display_scorebox)
     ));
+    content.push_str(&format!(
+        "LiveTimingStats={}\n",
+        i32::from(options.live_timing_stats)
+    ));
+    content.push_str(&format!(
+        "LiveTimingStatsMask={}\n",
+        options.live_timing_stats_mask.bits()
+    ));
     content.push_str(&format!("RainbowMax={}\n", i32::from(options.rainbow_max)));
     content.push_str(&format!(
         "ResponsiveColors={}\n",
@@ -647,10 +868,22 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
         i32::from(options.show_life_percent)
     ));
     content.push_str(&format!("TiltMultiplier={}\n", options.tilt_multiplier));
+    content.push_str(&format!(
+        "TiltMinThresholdMs={}\n",
+        options.tilt_min_threshold_ms
+    ));
+    content.push_str(&format!(
+        "TiltMaxThresholdMs={}\n",
+        options.tilt_max_threshold_ms
+    ));
     content.push_str(&format!("ErrorBar={}\n", options.error_bar));
     content.push_str(&format!(
         "ErrorBarText={}\n",
         i32::from(options.error_bar_text)
+    ));
+    content.push_str(&format!(
+        "TextErrorBar10ms={}\n",
+        i32::from(options.text_error_bar_10ms)
     ));
     content.push_str(&format!(
         "ErrorBarMask={}\n",
@@ -699,6 +932,38 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
     ));
     content.push_str(&format!("ErrorBarTrim={}\n", options.error_bar_trim));
     content.push_str(&format!(
+        "ShortAverageErrorBar={}\n",
+        i32::from(options.short_average_error_bar_enabled)
+    ));
+    content.push_str(&format!(
+        "AverageErrorBarIntensity={:.2}\n",
+        clamp_average_error_bar_intensity(options.average_error_bar_intensity)
+    ));
+    content.push_str(&format!(
+        "AverageErrorBarIntervalMs={}\n",
+        clamp_average_error_bar_interval_ms(options.average_error_bar_interval_ms)
+    ));
+    content.push_str(&format!(
+        "LongErrorBar={}\n",
+        i32::from(options.long_error_bar_enabled)
+    ));
+    content.push_str(&format!(
+        "LongErrorBarIntensity={:.2}\n",
+        clamp_long_error_bar_intensity(options.long_error_bar_intensity)
+    ));
+    content.push_str(&format!(
+        "LongErrorBarThresholdMs={}\n",
+        clamp_long_error_bar_threshold_ms(options.long_error_bar_threshold_ms)
+    ));
+    content.push_str(&format!(
+        "LongErrorBarMinSamples={}\n",
+        clamp_long_error_bar_min_samples(options.long_error_bar_min_samples)
+    ));
+    content.push_str(&format!(
+        "LongErrorBarBufferCap={}\n",
+        clamp_long_error_bar_buffer_cap(options.long_error_bar_buffer_cap)
+    ));
+    content.push_str(&format!(
         "DataVisualizations={}\n",
         options.data_visualizations
     ));
@@ -728,6 +993,7 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
         "HoldJudgmentGraphic={}\n",
         options.hold_judgment_graphic
     ));
+    content.push_str(&format!("HeldGraphic={}\n", options.held_miss_graphic));
     content.push_str(&format!("JudgmentGraphic={}\n", options.judgment_graphic));
     content.push_str(&format!("ComboFont={}\n", options.combo_font));
     content.push_str(&format!("ComboColors={}\n", options.combo_colors));
@@ -755,7 +1021,16 @@ fn write_player_options(content: &mut String, section: &str, options: &PlayerOpt
             .as_ref()
             .map_or("", NoteSkin::as_str)
     ));
+    content.push_str(&format!(
+        "TapExplosionMask={}\n",
+        options.tap_explosion_active_mask.bits()
+    ));
+    content.push_str(&format!(
+        "TapExplosionMaskVersion={}\n",
+        TAP_EXPLOSION_MASK_VERSION
+    ));
     content.push_str(&format!("MiniPercent={}\n", options.mini_percent));
+    content.push_str(&format!("Spacing={}\n", options.spacing_percent));
     content.push_str(&format!("Perspective={}\n", options.perspective));
     content.push_str(&format!(
         "NoteFieldOffsetX={}\n",
@@ -801,6 +1076,11 @@ fn load_player_options(
         .get(section, "HoldJudgmentGraphic")
         .and_then(|s| HoldJudgmentGraphic::from_str(&s).ok())
         .unwrap_or_else(|| options.hold_judgment_graphic.clone());
+    options.held_miss_graphic = profile_conf
+        .get(section, "HeldGraphic")
+        .or_else(|| profile_conf.get(section, "HeldMissGraphic"))
+        .and_then(|s| HeldMissGraphic::from_str(&s).ok())
+        .unwrap_or_else(|| options.held_miss_graphic.clone());
     options.judgment_graphic = profile_conf
         .get(section, "JudgmentGraphic")
         .and_then(|s| JudgmentGraphic::from_str(&s).ok())
@@ -835,10 +1115,23 @@ fn load_player_options(
     options.tap_explosion_noteskin = profile_conf
         .get(section, "TapExplosionSkin")
         .and_then(|s| NoteSkin::from_str(&s).ok());
+    let tap_explosion_mask_version = profile_conf
+        .get(section, "TapExplosionMaskVersion")
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(1);
+    options.tap_explosion_active_mask = profile_conf
+        .get(section, "TapExplosionMask")
+        .and_then(|s| s.parse::<u8>().ok())
+        .map(|bits| normalize_tap_explosion_mask(bits, tap_explosion_mask_version))
+        .unwrap_or(options.tap_explosion_active_mask);
     options.mini_percent = profile_conf
         .get(section, "MiniPercent")
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(options.mini_percent);
+    options.spacing_percent = profile_conf
+        .get(section, "Spacing")
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(options.spacing_percent);
     options.perspective = profile_conf
         .get(section, "Perspective")
         .and_then(|s| Perspective::from_str(&s).ok())
@@ -913,6 +1206,15 @@ fn load_player_options(
         .get(section, "TrackEarlyJudgments")
         .and_then(|s| s.parse::<u8>().ok())
         .map_or(options.track_early_judgments, |v| v != 0);
+    options.scale_scatterplot = profile_conf
+        .get(section, "ScaleScatterplot")
+        .or_else(|| profile_conf.get(section, "ScatterplotGreatMax"))
+        .and_then(|s| s.parse::<u8>().ok())
+        .map_or(options.scale_scatterplot, |v| v != 0);
+    options.scatterplot_max_window = profile_conf
+        .get(section, "ScatterplotMaxWindow")
+        .and_then(|s| ScatterplotMaxWindow::from_str(&s).ok())
+        .unwrap_or(options.scatterplot_max_window);
     options.custom_fantastic_window = profile_conf
         .get(section, "CustomFantasticWindow")
         .and_then(|s| s.parse::<u8>().ok())
@@ -942,6 +1244,23 @@ fn load_player_options(
         .get(section, "DisplayScorebox")
         .and_then(|s| s.parse::<u8>().ok())
         .map_or(options.display_scorebox, |v| v != 0);
+    let legacy_live_timing_stats = profile_conf
+        .get(section, "LiveTimingStats")
+        .and_then(|s| s.parse::<u8>().ok())
+        .map_or(options.live_timing_stats, |v| v != 0);
+    if let Some(mask) = profile_conf
+        .get(section, "LiveTimingStatsMask")
+        .and_then(|s| s.parse::<u8>().ok())
+        .map(LiveTimingStatsMask::from_bits_truncate)
+    {
+        options.live_timing_stats_mask = mask;
+        options.live_timing_stats = legacy_live_timing_stats;
+    } else {
+        options.live_timing_stats = legacy_live_timing_stats;
+        if legacy_live_timing_stats {
+            options.live_timing_stats_mask = LiveTimingStatsMask::all();
+        }
+    }
     options.rainbow_max = profile_conf
         .get(section, "RainbowMax")
         .and_then(|s| s.parse::<u8>().ok())
@@ -959,6 +1278,20 @@ fn load_player_options(
         .and_then(|s| s.parse::<f32>().ok())
         .filter(|v| v.is_finite())
         .unwrap_or(options.tilt_multiplier);
+    options.tilt_min_threshold_ms = profile_conf
+        .get(section, "TiltMinThresholdMs")
+        .or_else(|| profile_conf.get(section, "TiltCutoffMs"))
+        .and_then(|s| s.trim().trim_end_matches("ms").trim().parse::<u32>().ok())
+        .map(clamp_tilt_threshold_ms)
+        .unwrap_or(options.tilt_min_threshold_ms);
+    options.tilt_max_threshold_ms = profile_conf
+        .get(section, "TiltMaxThresholdMs")
+        .and_then(|s| s.trim().trim_end_matches("ms").trim().parse::<u32>().ok())
+        .map(clamp_tilt_threshold_ms)
+        .unwrap_or(options.tilt_max_threshold_ms);
+    if options.tilt_max_threshold_ms < options.tilt_min_threshold_ms {
+        options.tilt_max_threshold_ms = options.tilt_min_threshold_ms;
+    }
     options.error_bar = profile_conf
         .get(section, "ErrorBar")
         .and_then(|s| ErrorBarStyle::from_str(&s).ok())
@@ -967,6 +1300,10 @@ fn load_player_options(
         .get(section, "ErrorBarText")
         .and_then(|s| s.parse::<u8>().ok())
         .map_or(options.error_bar_text, |v| v != 0);
+    options.text_error_bar_10ms = profile_conf
+        .get(section, "TextErrorBar10ms")
+        .and_then(|s| parse_profile_bool(&s))
+        .unwrap_or(options.text_error_bar_10ms);
     let mask_from_key = profile_conf
         .get(section, "ErrorBarMask")
         .and_then(|s| s.parse::<u8>().ok())
@@ -1034,6 +1371,58 @@ fn load_player_options(
         .get(section, "ErrorBarTrim")
         .and_then(|s| ErrorBarTrim::from_str(&s).ok())
         .unwrap_or(options.error_bar_trim);
+    options.short_average_error_bar_enabled = profile_conf
+        .get(section, "ShortAverageErrorBar")
+        .and_then(|s| parse_profile_bool(&s))
+        .or_else(|| {
+            profile_conf
+                .get(section, "LongAvgTickOnly")
+                .and_then(|s| parse_profile_bool(&s))
+                .map(|long_only| !long_only)
+        })
+        .unwrap_or(options.short_average_error_bar_enabled);
+    options.average_error_bar_intensity = profile_conf
+        .get(section, "AverageErrorBarIntensity")
+        .or_else(|| profile_conf.get(section, "HighlightZoom"))
+        .and_then(|s| s.trim().trim_end_matches('x').trim().parse::<f32>().ok())
+        .map(clamp_average_error_bar_intensity)
+        .unwrap_or(options.average_error_bar_intensity);
+    options.average_error_bar_interval_ms = profile_conf
+        .get(section, "AverageErrorBarIntervalMs")
+        .and_then(|s| s.trim().trim_end_matches("ms").trim().parse::<u32>().ok())
+        .map(clamp_average_error_bar_interval_ms)
+        .or_else(|| {
+            profile_conf
+                .get(section, "HighlightAverageMs")
+                .and_then(|s| s.trim().trim_end_matches("ms").trim().parse::<u32>().ok())
+                .filter(|&ms| ms > 0)
+                .map(clamp_average_error_bar_interval_ms)
+        })
+        .unwrap_or(options.average_error_bar_interval_ms);
+    options.long_error_bar_enabled = profile_conf
+        .get(section, "LongErrorBar")
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .map_or(options.long_error_bar_enabled, |v| v != 0);
+    options.long_error_bar_intensity = profile_conf
+        .get(section, "LongErrorBarIntensity")
+        .and_then(|s| s.trim().trim_end_matches('x').trim().parse::<f32>().ok())
+        .map(clamp_long_error_bar_intensity)
+        .unwrap_or(options.long_error_bar_intensity);
+    options.long_error_bar_threshold_ms = profile_conf
+        .get(section, "LongErrorBarThresholdMs")
+        .and_then(|s| s.trim().trim_end_matches("ms").trim().parse::<u32>().ok())
+        .map(clamp_long_error_bar_threshold_ms)
+        .unwrap_or(options.long_error_bar_threshold_ms);
+    options.long_error_bar_min_samples = profile_conf
+        .get(section, "LongErrorBarMinSamples")
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .map(clamp_long_error_bar_min_samples)
+        .unwrap_or(options.long_error_bar_min_samples);
+    options.long_error_bar_buffer_cap = profile_conf
+        .get(section, "LongErrorBarBufferCap")
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .map(clamp_long_error_bar_buffer_cap)
+        .unwrap_or(options.long_error_bar_buffer_cap);
     options.data_visualizations = profile_conf
         .get(section, "DataVisualizations")
         .and_then(|s| DataVisualizations::from_str(&s).ok())
@@ -1212,6 +1601,14 @@ fn load_player_options(
         .get(section, "MiniIndicatorScoreType")
         .and_then(|s| MiniIndicatorScoreType::from_str(&s).ok())
         .unwrap_or(options.mini_indicator_score_type);
+    options.mini_indicator_size = profile_conf
+        .get(section, "MiniIndicatorSize")
+        .and_then(|s| MiniIndicatorSize::from_str(&s).ok())
+        .unwrap_or(options.mini_indicator_size);
+    options.mini_indicator_color = profile_conf
+        .get(section, "MiniIndicatorColor")
+        .and_then(|s| MiniIndicatorColor::from_str(&s).ok())
+        .unwrap_or(options.mini_indicator_color);
     options.scroll_option = profile_conf
         .get(section, "Scroll")
         .and_then(|s| ScrollOption::from_str(&s).ok())
@@ -1275,6 +1672,37 @@ fn write_last_played(content: &mut String, section: &str, last_played: &LastPlay
 }
 
 #[inline(always)]
+fn load_last_played_course(profile_conf: &SimpleIni, section: &str) -> Option<LastPlayedCourse> {
+    let has_any = profile_conf
+        .get_section(section)
+        .is_some_and(|s| !s.is_empty());
+    if !has_any {
+        return None;
+    }
+
+    Some(LastPlayedCourse {
+        course_path: parse_last_played_value(profile_conf.get(section, "CoursePath")),
+        difficulty_name: parse_last_played_value(profile_conf.get(section, "DifficultyName")),
+    })
+}
+
+#[inline(always)]
+fn write_last_played_course(content: &mut String, section: &str, last_played: &LastPlayedCourse) {
+    content.push_str(&format!("[{section}]\n"));
+    if let Some(path) = &last_played.course_path {
+        content.push_str(&format!("CoursePath={path}\n"));
+    } else {
+        content.push_str("CoursePath=\n");
+    }
+    if let Some(name) = &last_played.difficulty_name {
+        content.push_str(&format!("DifficultyName={name}\n"));
+    } else {
+        content.push_str("DifficultyName=\n");
+    }
+    content.push('\n');
+}
+
+#[inline(always)]
 fn profile_stats_tmp_path(id: &str) -> PathBuf {
     local_profile_dir(id).join("stats.bin.tmp")
 }
@@ -1298,36 +1726,92 @@ struct ProfileStats {
     known_pack_names: HashSet<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BackgroundFilter {
-    Off,
-    Dark,
-    Darker,
-    #[default]
-    Darkest,
+/// Background-darkening alpha for the per-notefield underlay quad, expressed
+/// as an integer percentage in `0..=100` (0 = no filter, 100 = fully opaque
+/// black). Reads accept the legacy enum labels (`Off|Dark|Darker|Darkest`) so
+/// existing profiles migrate automatically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackgroundFilter(u8);
+
+impl BackgroundFilter {
+    /// Default for new profiles. Matches the old `Darkest` enum variant.
+    pub const DEFAULT: Self = Self(95);
+    pub const OFF: Self = Self(0);
+    pub const MAX_PERCENT: u8 = 100;
+
+    /// Construct from a raw percentage, clamping to `0..=100`.
+    #[inline]
+    pub const fn from_percent(value: u8) -> Self {
+        let clamped = if value > Self::MAX_PERCENT {
+            Self::MAX_PERCENT
+        } else {
+            value
+        };
+        Self(clamped)
+    }
+
+    /// Construct from any signed integer, clamping to `0..=100`.
+    #[inline]
+    pub fn from_i32(value: i32) -> Self {
+        Self::from_percent(value.clamp(0, Self::MAX_PERCENT as i32) as u8)
+    }
+
+    /// Underlying percentage value `0..=100`.
+    #[inline]
+    pub const fn percent(self) -> u8 {
+        self.0
+    }
+
+    /// Alpha value in `0.0..=1.0` to be passed to `diffuse`.
+    #[inline]
+    pub fn alpha(self) -> f32 {
+        self.0 as f32 / Self::MAX_PERCENT as f32
+    }
+
+    /// Convenience for branches that toggle on the "no filter" case.
+    #[inline]
+    pub const fn is_off(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl Default for BackgroundFilter {
+    #[inline]
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 impl FromStr for BackgroundFilter {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "off" => Ok(Self::Off),
-            "dark" => Ok(Self::Dark),
-            "darker" => Ok(Self::Darker),
-            "darkest" => Ok(Self::Darkest),
-            _ => Err(format!("'{s}' is not a valid BackgroundFilter setting")),
+        let trimmed = s.trim();
+        // Backwards compatibility with the pre-percentage enum labels.
+        match trimmed.to_ascii_lowercase().as_str() {
+            "off" => return Ok(Self(0)),
+            "dark" => return Ok(Self(50)),
+            "darker" => return Ok(Self(75)),
+            "darkest" => return Ok(Self(95)),
+            _ => {}
         }
+        // Numeric form, optionally suffixed with `%`.
+        let numeric = trimmed.trim_end_matches('%').trim();
+        let value: i32 = numeric
+            .parse()
+            .map_err(|_| format!("'{s}' is not a valid BackgroundFilter setting"))?;
+        if !(0..=Self::MAX_PERCENT as i32).contains(&value) {
+            return Err(format!(
+                "BackgroundFilter percent {value} out of range 0..=100"
+            ));
+        }
+        Ok(Self(value as u8))
     }
 }
 
 impl core::fmt::Display for BackgroundFilter {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Off => write!(f, "Off"),
-            Self::Dark => write!(f, "Dark"),
-            Self::Darker => write!(f, "Darker"),
-            Self::Darkest => write!(f, "Darkest"),
-        }
+        // Always emit the numeric form so future reads round-trip cleanly.
+        write!(f, "{}", self.0)
     }
 }
 
@@ -1435,6 +1919,64 @@ impl FromStr for HoldJudgmentGraphic {
 }
 
 impl core::fmt::Display for HoldJudgmentGraphic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldMissGraphic(String);
+
+impl HeldMissGraphic {
+    pub const DEFAULT_KEY: &'static str = "None";
+
+    const STOCK_ALIASES: &'static [(&'static str, &'static str)] = &[
+        ("love", "held_miss/Love (doubleres).png"),
+        ("love (doubleres).png", "held_miss/Love (doubleres).png"),
+        (
+            "held_miss/love (doubleres).png",
+            "held_miss/Love (doubleres).png",
+        ),
+    ];
+
+    #[inline(always)]
+    pub fn new(raw: &str) -> Self {
+        Self(
+            normalize_graphic_key(raw, "held_miss", Self::STOCK_ALIASES)
+                .unwrap_or_else(|_| Self::DEFAULT_KEY.to_string()),
+        )
+    }
+
+    #[inline(always)]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[inline(always)]
+    pub fn is_none(&self) -> bool {
+        self.0.eq_ignore_ascii_case("None")
+    }
+
+    #[inline(always)]
+    pub fn texture_key(&self) -> Option<&str> {
+        (!self.is_none()).then_some(self.as_str())
+    }
+}
+
+impl Default for HeldMissGraphic {
+    fn default() -> Self {
+        Self(Self::DEFAULT_KEY.to_string())
+    }
+}
+
+impl FromStr for HeldMissGraphic {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        normalize_graphic_key(s, "held_miss", Self::STOCK_ALIASES).map(Self)
+    }
+}
+
+impl core::fmt::Display for HeldMissGraphic {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(&self.0)
     }
@@ -1776,6 +2318,44 @@ pub const fn clamp_custom_fantastic_window_ms(ms: u8) -> u8 {
     }
 }
 
+/// Selectable scatter-plot scale boundary used by `ScatterPlotConfig`
+/// in `screens::evaluation`. Mirrors the standard judgment tiers plus
+/// FA+ W0 so the plot floor can be tightened down to the Fantastic+
+/// window when desired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScatterWindow {
+    FantasticPlus,
+    Fantastic,
+    Excellent,
+    Great,
+    Decent,
+    WayOff,
+}
+
+impl ScatterWindow {
+    /// Resolve the window edge in milliseconds against the active
+    /// timing profile (FA+ W0 is layered on top of the standard W1..W5
+    /// in deadsync, so it has its own constant).
+    #[inline]
+    pub fn ms(self) -> f32 {
+        let tw = crate::game::timing::effective_windows_ms();
+        match self {
+            ScatterWindow::FantasticPlus => crate::game::timing::FA_PLUS_W0_MS,
+            ScatterWindow::Fantastic => tw[0],
+            ScatterWindow::Excellent => tw[1],
+            ScatterWindow::Great => tw[2],
+            ScatterWindow::Decent => tw[3],
+            ScatterWindow::WayOff => tw[4],
+        }
+    }
+}
+
+impl Default for ScatterWindow {
+    fn default() -> Self {
+        ScatterWindow::WayOff
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingWindowsOption {
     #[default]
@@ -1995,6 +2575,53 @@ impl core::fmt::Display for DataVisualizations {
     }
 }
 
+/// Hard cap for the evaluation scatter plot's vertical scale, selectable
+/// per profile. When set to anything other than `Off`, the scatter plot's
+/// worst-window ms is capped at the chosen judgment tier (mirroring the
+/// `Scatterplot <Tier> Max` toggle in Chris's Simply-Love-SM5-8ms theme),
+/// overriding the older `scale_scatterplot` floor/cap behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScatterplotMaxWindow {
+    #[default]
+    Off,
+    Fantastic,
+    Excellent,
+    Great,
+}
+
+impl FromStr for ScatterplotMaxWindow {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "" | "off" | "none" | "autoscale" | "0" => Ok(Self::Off),
+            "fantastic" | "fantasticmax" | "fa" => Ok(Self::Fantastic),
+            "excellent" | "excellentmax" | "ex" => Ok(Self::Excellent),
+            "great" | "greatmax" | "gr" => Ok(Self::Great),
+            other => Err(format!(
+                "'{other}' is not a valid ScatterplotMaxWindow setting"
+            )),
+        }
+    }
+}
+
+impl core::fmt::Display for ScatterplotMaxWindow {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Off => write!(f, "Off"),
+            Self::Fantastic => write!(f, "Fantastic"),
+            Self::Excellent => write!(f, "Excellent"),
+            Self::Great => write!(f, "Great"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LifeMeterType {
     #[default]
@@ -2102,6 +2729,7 @@ pub enum ComboFont {
     SourceCode,
     Work,
     WendyCursed,
+    Mega,
     None,
 }
 
@@ -2117,6 +2745,7 @@ impl FromStr for ComboFont {
             "source code" | "sourcecode" => Ok(Self::SourceCode),
             "work" => Ok(Self::Work),
             "wendy (cursed)" | "wendy cursed" | "wendycursed" => Ok(Self::WendyCursed),
+            "mega" => Ok(Self::Mega),
             "none" => Ok(Self::None),
             other => Err(format!("'{other}' is not a valid ComboFont setting")),
         }
@@ -2133,6 +2762,7 @@ impl core::fmt::Display for ComboFont {
             Self::SourceCode => write!(f, "Source Code"),
             Self::Work => write!(f, "Work"),
             Self::WendyCursed => write!(f, "Wendy (Cursed)"),
+            Self::Mega => write!(f, "Mega"),
             Self::None => write!(f, "None"),
         }
     }
@@ -2302,6 +2932,78 @@ impl core::fmt::Display for MiniIndicatorScoreType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MiniIndicatorSize {
+    #[default]
+    Default,
+    Large,
+}
+
+impl FromStr for MiniIndicatorSize {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "" | "default" => Ok(Self::Default),
+            "large" | "big" => Ok(Self::Large),
+            other => Err(format!(
+                "'{other}' is not a valid MiniIndicatorSize setting"
+            )),
+        }
+    }
+}
+
+impl core::fmt::Display for MiniIndicatorSize {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Default => write!(f, "Default"),
+            Self::Large => write!(f, "Large"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MiniIndicatorColor {
+    #[default]
+    Default,
+    Detailed,
+}
+
+impl FromStr for MiniIndicatorColor {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "" | "default" => Ok(Self::Default),
+            "detailed" => Ok(Self::Detailed),
+            other => Err(format!(
+                "'{other}' is not a valid MiniIndicatorColor setting"
+            )),
+        }
+    }
+}
+
+impl core::fmt::Display for MiniIndicatorColor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Default => write!(f, "Default"),
+            Self::Detailed => write!(f, "Detailed"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TargetScoreSetting {
     CMinus,
     C,
@@ -2375,6 +3077,7 @@ impl core::fmt::Display for TargetScoreSetting {
 pub struct PlayerOptionsData {
     pub background_filter: BackgroundFilter,
     pub hold_judgment_graphic: HoldJudgmentGraphic,
+    pub held_miss_graphic: HeldMissGraphic,
     pub judgment_graphic: JudgmentGraphic,
     pub combo_font: ComboFont,
     pub combo_colors: ComboColors,
@@ -2384,6 +3087,7 @@ pub struct PlayerOptionsData {
     pub mine_noteskin: Option<NoteSkin>,
     pub receptor_noteskin: Option<NoteSkin>,
     pub tap_explosion_noteskin: Option<NoteSkin>,
+    pub tap_explosion_active_mask: TapExplosionMask,
     pub scroll_speed: ScrollSpeedSetting,
     pub scroll_option: ScrollOption,
     pub reverse_scroll: bool,
@@ -2407,6 +3111,8 @@ pub struct PlayerOptionsData {
     pub fa_plus_10ms_blue_window: bool,
     pub split_15_10ms: bool,
     pub track_early_judgments: bool,
+    pub scale_scatterplot: bool,
+    pub scatterplot_max_window: ScatterplotMaxWindow,
     pub custom_fantastic_window: bool,
     pub custom_fantastic_window_ms: u8,
     pub judgment_tilt: bool,
@@ -2414,16 +3120,29 @@ pub struct PlayerOptionsData {
     pub judgment_back: bool,
     pub error_ms_display: bool,
     pub display_scorebox: bool,
+    pub live_timing_stats: bool,
+    pub live_timing_stats_mask: LiveTimingStatsMask,
     pub rainbow_max: bool,
     pub responsive_colors: bool,
     pub show_life_percent: bool,
     pub tilt_multiplier: f32,
+    pub tilt_min_threshold_ms: u32,
+    pub tilt_max_threshold_ms: u32,
     pub error_bar_active_mask: ErrorBarMask,
     pub error_bar: ErrorBarStyle,
     pub error_bar_text: bool,
+    pub text_error_bar_10ms: bool,
     pub error_bar_up: bool,
     pub error_bar_multi_tick: bool,
     pub error_bar_trim: ErrorBarTrim,
+    pub short_average_error_bar_enabled: bool,
+    pub average_error_bar_intensity: f32,
+    pub average_error_bar_interval_ms: u32,
+    pub long_error_bar_enabled: bool,
+    pub long_error_bar_intensity: f32,
+    pub long_error_bar_threshold_ms: u32,
+    pub long_error_bar_min_samples: u32,
+    pub long_error_bar_buffer_cap: u32,
     pub data_visualizations: DataVisualizations,
     pub target_score: TargetScoreSetting,
     pub lifemeter_type: LifeMeterType,
@@ -2449,7 +3168,10 @@ pub struct PlayerOptionsData {
     pub transparent_density_graph_bg: bool,
     pub mini_indicator: MiniIndicator,
     pub mini_indicator_score_type: MiniIndicatorScoreType,
+    pub mini_indicator_size: MiniIndicatorSize,
+    pub mini_indicator_color: MiniIndicatorColor,
     pub mini_percent: i32,
+    pub spacing_percent: i32,
     pub perspective: Perspective,
     pub note_field_offset_x: i32,
     pub note_field_offset_y: i32,
@@ -2467,6 +3189,7 @@ fn default_player_options() -> PlayerOptionsData {
     PlayerOptionsData {
         background_filter: BackgroundFilter::default(),
         hold_judgment_graphic: HoldJudgmentGraphic::default(),
+        held_miss_graphic: HeldMissGraphic::default(),
         judgment_graphic: JudgmentGraphic::default(),
         combo_font: ComboFont::default(),
         combo_colors: ComboColors::default(),
@@ -2476,6 +3199,7 @@ fn default_player_options() -> PlayerOptionsData {
         mine_noteskin: None,
         receptor_noteskin: None,
         tap_explosion_noteskin: None,
+        tap_explosion_active_mask: TapExplosionMask::all(),
         scroll_speed: ScrollSpeedSetting::default(),
         scroll_option: ScrollOption::default(),
         reverse_scroll: false,
@@ -2499,6 +3223,8 @@ fn default_player_options() -> PlayerOptionsData {
         fa_plus_10ms_blue_window: false,
         split_15_10ms: false,
         track_early_judgments: false,
+        scale_scatterplot: false,
+        scatterplot_max_window: ScatterplotMaxWindow::Off,
         custom_fantastic_window: false,
         custom_fantastic_window_ms: CUSTOM_FANTASTIC_WINDOW_DEFAULT_MS,
         judgment_tilt: false,
@@ -2506,16 +3232,29 @@ fn default_player_options() -> PlayerOptionsData {
         judgment_back: false,
         error_ms_display: false,
         display_scorebox: true,
+        live_timing_stats: false,
+        live_timing_stats_mask: LiveTimingStatsMask::empty(),
         rainbow_max: false,
         responsive_colors: false,
         show_life_percent: false,
         tilt_multiplier: 1.0,
+        tilt_min_threshold_ms: TILT_MIN_THRESHOLD_DEFAULT_MS,
+        tilt_max_threshold_ms: TILT_MAX_THRESHOLD_DEFAULT_MS,
         error_bar_active_mask: error_bar_mask_from_style(ErrorBarStyle::default(), false),
         error_bar: ErrorBarStyle::default(),
         error_bar_text: false,
+        text_error_bar_10ms: false,
         error_bar_up: false,
         error_bar_multi_tick: false,
         error_bar_trim: ErrorBarTrim::default(),
+        short_average_error_bar_enabled: true,
+        average_error_bar_intensity: AVERAGE_ERROR_BAR_INTENSITY_DEFAULT,
+        average_error_bar_interval_ms: AVERAGE_ERROR_BAR_INTERVAL_MS_DEFAULT,
+        long_error_bar_enabled: true,
+        long_error_bar_intensity: LONG_ERROR_BAR_INTENSITY_DEFAULT,
+        long_error_bar_threshold_ms: LONG_ERROR_BAR_THRESHOLD_MS_DEFAULT,
+        long_error_bar_min_samples: LONG_ERROR_BAR_MIN_SAMPLES_DEFAULT,
+        long_error_bar_buffer_cap: LONG_ERROR_BAR_BUFFER_CAP_DEFAULT,
         data_visualizations: DataVisualizations::default(),
         target_score: TargetScoreSetting::default(),
         lifemeter_type: LifeMeterType::default(),
@@ -2541,7 +3280,10 @@ fn default_player_options() -> PlayerOptionsData {
         transparent_density_graph_bg: false,
         mini_indicator: MiniIndicator::None,
         mini_indicator_score_type: MiniIndicatorScoreType::Itg,
+        mini_indicator_size: MiniIndicatorSize::Default,
+        mini_indicator_color: MiniIndicatorColor::Default,
         mini_percent: 0,
+        spacing_percent: 0,
         perspective: Perspective::default(),
         note_field_offset_x: 0,
         note_field_offset_y: 0,
@@ -2581,6 +3323,7 @@ pub struct Profile {
     // active session play style so existing read paths can stay simple.
     pub background_filter: BackgroundFilter,
     pub hold_judgment_graphic: HoldJudgmentGraphic,
+    pub held_miss_graphic: HeldMissGraphic,
     pub judgment_graphic: JudgmentGraphic,
     pub combo_font: ComboFont,
     pub combo_colors: ComboColors,
@@ -2593,6 +3336,7 @@ pub struct Profile {
     pub mine_noteskin: Option<NoteSkin>,
     pub receptor_noteskin: Option<NoteSkin>,
     pub tap_explosion_noteskin: Option<NoteSkin>,
+    pub tap_explosion_active_mask: TapExplosionMask,
     pub avatar_path: Option<PathBuf>,
     pub avatar_texture_key: Option<String>,
     pub scroll_speed: ScrollSpeedSetting,
@@ -2628,6 +3372,16 @@ pub struct Profile {
     pub split_15_10ms: bool,
     // Track and display per-column early judgment counts on evaluation (zmod/Arrow Cloud semantics).
     pub track_early_judgments: bool,
+    // Constrain the evaluation scatter plot's vertical scale to a Great
+    // upper cap and a Fantastic lower floor (zmod's `ScaleGraph`-style
+    // toggle). Off uses the original behavior of an Excellent floor with
+    // no upper cap.
+    pub scale_scatterplot: bool,
+    // Hard cap for the evaluation scatter plot's vertical scale. When
+    // anything other than `Off`, this overrides `scale_scatterplot`'s
+    // tier-snapped behavior and clamps the worst-window ms to the
+    // selected judgment tier (Chris's SL `ScaleGraph`-per-tier semantics).
+    pub scatterplot_max_window: ScatterplotMaxWindow,
     // Custom blue Fantastic window in milliseconds (1..22), shared by FA+ W0 and H.EX split.
     pub custom_fantastic_window: bool,
     pub custom_fantastic_window_ms: u8,
@@ -2639,20 +3393,35 @@ pub struct Profile {
     // zmod ExtraAesthetics: offset indicator (ErrorMSDisplay).
     pub error_ms_display: bool,
     pub display_scorebox: bool,
+    pub live_timing_stats: bool,
+    pub live_timing_stats_mask: LiveTimingStatsMask,
     // zmod LifeBarOptions (Arrow Cloud semantics).
     pub rainbow_max: bool,
     pub responsive_colors: bool,
     pub show_life_percent: bool,
     pub tilt_multiplier: f32,
+    pub tilt_min_threshold_ms: u32,
+    pub tilt_max_threshold_ms: u32,
     // Error bar (zmod semantics): each bit toggles one submodule in the
     // SelectMultiple row (Colorful/Monochrome/Text/Highlight/Average).
     pub error_bar_active_mask: ErrorBarMask,
     pub error_bar: ErrorBarStyle,
     // Backward-compatible text flag written to profile.ini.
     pub error_bar_text: bool,
+    // Optional Text error bar mode that surfaces >10ms hits independently
+    // of the active judgment windows.
+    pub text_error_bar_10ms: bool,
     pub error_bar_up: bool,
     pub error_bar_multi_tick: bool,
     pub error_bar_trim: ErrorBarTrim,
+    pub short_average_error_bar_enabled: bool,
+    pub average_error_bar_intensity: f32,
+    pub average_error_bar_interval_ms: u32,
+    pub long_error_bar_enabled: bool,
+    pub long_error_bar_intensity: f32,
+    pub long_error_bar_threshold_ms: u32,
+    pub long_error_bar_min_samples: u32,
+    pub long_error_bar_buffer_cap: u32,
     pub data_visualizations: DataVisualizations,
     pub target_score: TargetScoreSetting,
     pub lifemeter_type: LifeMeterType,
@@ -2680,9 +3449,15 @@ pub struct Profile {
     pub transparent_density_graph_bg: bool,
     pub mini_indicator: MiniIndicator,
     pub mini_indicator_score_type: MiniIndicatorScoreType,
+    pub mini_indicator_size: MiniIndicatorSize,
+    pub mini_indicator_color: MiniIndicatorColor,
     // Mini modifier as a percentage, mirroring Simply Love semantics.
     // 0 = normal size, 100 = 100% Mini (smaller), negative values enlarge.
     pub mini_percent: i32,
+    /// Horizontal spacing between note columns as a percentage (zmod parity).
+    /// 0 = noteskin default, +N% scales lateral column offsets by
+    /// `1 + N/100`. Range -100..=100 (capped on read to stay sane).
+    pub spacing_percent: i32,
     pub perspective: Perspective,
     // NoteField positional offsets (Simply Love semantics).
     // X is non-negative and interpreted relative to player side:
@@ -2711,6 +3486,8 @@ pub struct Profile {
     // Singles is shared by Single and Versus. Double uses its own entry.
     pub last_played_singles: LastPlayed,
     pub last_played_doubles: LastPlayed,
+    pub last_played_course_singles: LastPlayedCourse,
+    pub last_played_course_doubles: LastPlayedCourse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2731,6 +3508,12 @@ impl Default for LastPlayed {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LastPlayedCourse {
+    pub course_path: Option<String>,
+    pub difficulty_name: Option<String>,
+}
+
 impl Default for Profile {
     fn default() -> Self {
         let player_options = default_player_options();
@@ -2748,6 +3531,7 @@ impl Default for Profile {
             arrowcloud_api_key: String::new(),
             background_filter: player_options.background_filter,
             hold_judgment_graphic: player_options.hold_judgment_graphic.clone(),
+            held_miss_graphic: player_options.held_miss_graphic.clone(),
             judgment_graphic: player_options.judgment_graphic.clone(),
             combo_font: player_options.combo_font,
             combo_colors: player_options.combo_colors,
@@ -2760,6 +3544,7 @@ impl Default for Profile {
             mine_noteskin: player_options.mine_noteskin.clone(),
             receptor_noteskin: player_options.receptor_noteskin.clone(),
             tap_explosion_noteskin: player_options.tap_explosion_noteskin.clone(),
+            tap_explosion_active_mask: player_options.tap_explosion_active_mask,
             avatar_path: None,
             avatar_texture_key: None,
             scroll_speed: player_options.scroll_speed,
@@ -2785,6 +3570,8 @@ impl Default for Profile {
             fa_plus_10ms_blue_window: player_options.fa_plus_10ms_blue_window,
             split_15_10ms: player_options.split_15_10ms,
             track_early_judgments: player_options.track_early_judgments,
+            scale_scatterplot: player_options.scale_scatterplot,
+            scatterplot_max_window: player_options.scatterplot_max_window,
             custom_fantastic_window: player_options.custom_fantastic_window,
             custom_fantastic_window_ms: player_options.custom_fantastic_window_ms,
             judgment_tilt: player_options.judgment_tilt,
@@ -2792,16 +3579,29 @@ impl Default for Profile {
             judgment_back: player_options.judgment_back,
             error_ms_display: player_options.error_ms_display,
             display_scorebox: player_options.display_scorebox,
+            live_timing_stats: player_options.live_timing_stats,
+            live_timing_stats_mask: player_options.live_timing_stats_mask,
             rainbow_max: player_options.rainbow_max,
             responsive_colors: player_options.responsive_colors,
             show_life_percent: player_options.show_life_percent,
             tilt_multiplier: player_options.tilt_multiplier,
+            tilt_min_threshold_ms: player_options.tilt_min_threshold_ms,
+            tilt_max_threshold_ms: player_options.tilt_max_threshold_ms,
             error_bar: player_options.error_bar,
             error_bar_active_mask: player_options.error_bar_active_mask,
             error_bar_text: player_options.error_bar_text,
+            text_error_bar_10ms: player_options.text_error_bar_10ms,
             error_bar_up: player_options.error_bar_up,
             error_bar_multi_tick: player_options.error_bar_multi_tick,
             error_bar_trim: player_options.error_bar_trim,
+            short_average_error_bar_enabled: player_options.short_average_error_bar_enabled,
+            average_error_bar_intensity: player_options.average_error_bar_intensity,
+            average_error_bar_interval_ms: player_options.average_error_bar_interval_ms,
+            long_error_bar_enabled: player_options.long_error_bar_enabled,
+            long_error_bar_intensity: player_options.long_error_bar_intensity,
+            long_error_bar_threshold_ms: player_options.long_error_bar_threshold_ms,
+            long_error_bar_min_samples: player_options.long_error_bar_min_samples,
+            long_error_bar_buffer_cap: player_options.long_error_bar_buffer_cap,
             data_visualizations: player_options.data_visualizations,
             target_score: player_options.target_score,
             lifemeter_type: player_options.lifemeter_type,
@@ -2827,7 +3627,10 @@ impl Default for Profile {
             transparent_density_graph_bg: player_options.transparent_density_graph_bg,
             mini_indicator: player_options.mini_indicator,
             mini_indicator_score_type: player_options.mini_indicator_score_type,
+            mini_indicator_size: player_options.mini_indicator_size,
+            mini_indicator_color: player_options.mini_indicator_color,
             mini_percent: player_options.mini_percent,
+            spacing_percent: player_options.spacing_percent,
             perspective: player_options.perspective,
             note_field_offset_x: player_options.note_field_offset_x,
             note_field_offset_y: player_options.note_field_offset_y,
@@ -2843,6 +3646,8 @@ impl Default for Profile {
             player_options_doubles: player_options,
             last_played_singles: LastPlayed::default(),
             last_played_doubles: LastPlayed::default(),
+            last_played_course_singles: LastPlayedCourse::default(),
+            last_played_course_doubles: LastPlayedCourse::default(),
         }
     }
 }
@@ -2902,10 +3707,19 @@ impl Profile {
     }
 
     #[inline(always)]
+    pub fn tap_explosion_window_enabled(&self, window: &str) -> bool {
+        let Some(flag) = tap_explosion_mask_for_window(window) else {
+            return false;
+        };
+        self.tap_explosion_active_mask.contains(flag)
+    }
+
+    #[inline(always)]
     pub fn current_player_options(&self) -> PlayerOptionsData {
         PlayerOptionsData {
             background_filter: self.background_filter,
             hold_judgment_graphic: self.hold_judgment_graphic.clone(),
+            held_miss_graphic: self.held_miss_graphic.clone(),
             judgment_graphic: self.judgment_graphic.clone(),
             combo_font: self.combo_font,
             combo_colors: self.combo_colors,
@@ -2915,6 +3729,7 @@ impl Profile {
             mine_noteskin: self.mine_noteskin.clone(),
             receptor_noteskin: self.receptor_noteskin.clone(),
             tap_explosion_noteskin: self.tap_explosion_noteskin.clone(),
+            tap_explosion_active_mask: self.tap_explosion_active_mask,
             scroll_speed: self.scroll_speed,
             scroll_option: self.scroll_option,
             reverse_scroll: self.reverse_scroll,
@@ -2938,6 +3753,8 @@ impl Profile {
             fa_plus_10ms_blue_window: self.fa_plus_10ms_blue_window,
             split_15_10ms: self.split_15_10ms,
             track_early_judgments: self.track_early_judgments,
+            scale_scatterplot: self.scale_scatterplot,
+            scatterplot_max_window: self.scatterplot_max_window,
             custom_fantastic_window: self.custom_fantastic_window,
             custom_fantastic_window_ms: self.custom_fantastic_window_ms,
             judgment_tilt: self.judgment_tilt,
@@ -2945,16 +3762,29 @@ impl Profile {
             judgment_back: self.judgment_back,
             error_ms_display: self.error_ms_display,
             display_scorebox: self.display_scorebox,
+            live_timing_stats: self.live_timing_stats,
+            live_timing_stats_mask: self.live_timing_stats_mask,
             rainbow_max: self.rainbow_max,
             responsive_colors: self.responsive_colors,
             show_life_percent: self.show_life_percent,
             tilt_multiplier: self.tilt_multiplier,
+            tilt_min_threshold_ms: self.tilt_min_threshold_ms,
+            tilt_max_threshold_ms: self.tilt_max_threshold_ms,
             error_bar_active_mask: self.error_bar_active_mask,
             error_bar: self.error_bar,
             error_bar_text: self.error_bar_text,
+            text_error_bar_10ms: self.text_error_bar_10ms,
             error_bar_up: self.error_bar_up,
             error_bar_multi_tick: self.error_bar_multi_tick,
             error_bar_trim: self.error_bar_trim,
+            short_average_error_bar_enabled: self.short_average_error_bar_enabled,
+            average_error_bar_intensity: self.average_error_bar_intensity,
+            average_error_bar_interval_ms: self.average_error_bar_interval_ms,
+            long_error_bar_enabled: self.long_error_bar_enabled,
+            long_error_bar_intensity: self.long_error_bar_intensity,
+            long_error_bar_threshold_ms: self.long_error_bar_threshold_ms,
+            long_error_bar_min_samples: self.long_error_bar_min_samples,
+            long_error_bar_buffer_cap: self.long_error_bar_buffer_cap,
             data_visualizations: self.data_visualizations,
             target_score: self.target_score,
             lifemeter_type: self.lifemeter_type,
@@ -2980,7 +3810,10 @@ impl Profile {
             transparent_density_graph_bg: self.transparent_density_graph_bg,
             mini_indicator: self.mini_indicator,
             mini_indicator_score_type: self.mini_indicator_score_type,
+            mini_indicator_size: self.mini_indicator_size,
+            mini_indicator_color: self.mini_indicator_color,
             mini_percent: self.mini_percent,
+            spacing_percent: self.spacing_percent,
             perspective: self.perspective,
             note_field_offset_x: self.note_field_offset_x,
             note_field_offset_y: self.note_field_offset_y,
@@ -2998,6 +3831,7 @@ impl Profile {
     fn apply_player_options(&mut self, options: &PlayerOptionsData) {
         self.background_filter = options.background_filter;
         self.hold_judgment_graphic = options.hold_judgment_graphic.clone();
+        self.held_miss_graphic = options.held_miss_graphic.clone();
         self.judgment_graphic = options.judgment_graphic.clone();
         self.combo_font = options.combo_font;
         self.combo_colors = options.combo_colors;
@@ -3009,6 +3843,7 @@ impl Profile {
             .clone_from(&options.receptor_noteskin);
         self.tap_explosion_noteskin
             .clone_from(&options.tap_explosion_noteskin);
+        self.tap_explosion_active_mask = options.tap_explosion_active_mask;
         self.scroll_speed = options.scroll_speed;
         self.scroll_option = options.scroll_option;
         self.reverse_scroll = options.reverse_scroll;
@@ -3032,6 +3867,8 @@ impl Profile {
         self.fa_plus_10ms_blue_window = options.fa_plus_10ms_blue_window;
         self.split_15_10ms = options.split_15_10ms;
         self.track_early_judgments = options.track_early_judgments;
+        self.scale_scatterplot = options.scale_scatterplot;
+        self.scatterplot_max_window = options.scatterplot_max_window;
         self.custom_fantastic_window = options.custom_fantastic_window;
         self.custom_fantastic_window_ms = options.custom_fantastic_window_ms;
         self.judgment_tilt = options.judgment_tilt;
@@ -3039,16 +3876,29 @@ impl Profile {
         self.judgment_back = options.judgment_back;
         self.error_ms_display = options.error_ms_display;
         self.display_scorebox = options.display_scorebox;
+        self.live_timing_stats = options.live_timing_stats;
+        self.live_timing_stats_mask = options.live_timing_stats_mask;
         self.rainbow_max = options.rainbow_max;
         self.responsive_colors = options.responsive_colors;
         self.show_life_percent = options.show_life_percent;
         self.tilt_multiplier = options.tilt_multiplier;
+        self.tilt_min_threshold_ms = options.tilt_min_threshold_ms;
+        self.tilt_max_threshold_ms = options.tilt_max_threshold_ms;
         self.error_bar_active_mask = options.error_bar_active_mask;
         self.error_bar = options.error_bar;
         self.error_bar_text = options.error_bar_text;
+        self.text_error_bar_10ms = options.text_error_bar_10ms;
         self.error_bar_up = options.error_bar_up;
         self.error_bar_multi_tick = options.error_bar_multi_tick;
         self.error_bar_trim = options.error_bar_trim;
+        self.short_average_error_bar_enabled = options.short_average_error_bar_enabled;
+        self.average_error_bar_intensity = options.average_error_bar_intensity;
+        self.average_error_bar_interval_ms = options.average_error_bar_interval_ms;
+        self.long_error_bar_enabled = options.long_error_bar_enabled;
+        self.long_error_bar_intensity = options.long_error_bar_intensity;
+        self.long_error_bar_threshold_ms = options.long_error_bar_threshold_ms;
+        self.long_error_bar_min_samples = options.long_error_bar_min_samples;
+        self.long_error_bar_buffer_cap = options.long_error_bar_buffer_cap;
         self.data_visualizations = options.data_visualizations;
         self.target_score = options.target_score;
         self.lifemeter_type = options.lifemeter_type;
@@ -3074,7 +3924,10 @@ impl Profile {
         self.transparent_density_graph_bg = options.transparent_density_graph_bg;
         self.mini_indicator = options.mini_indicator;
         self.mini_indicator_score_type = options.mini_indicator_score_type;
+        self.mini_indicator_size = options.mini_indicator_size;
+        self.mini_indicator_color = options.mini_indicator_color;
         self.mini_percent = options.mini_percent;
+        self.spacing_percent = options.spacing_percent;
         self.perspective = options.perspective;
         self.note_field_offset_x = options.note_field_offset_x;
         self.note_field_offset_y = options.note_field_offset_y;
@@ -3135,9 +3988,25 @@ impl Profile {
             PlayStyle::Double => &mut self.last_played_doubles,
         }
     }
+
+    #[inline(always)]
+    pub const fn last_played_course(&self, style: PlayStyle) -> &LastPlayedCourse {
+        match style {
+            PlayStyle::Single | PlayStyle::Versus => &self.last_played_course_singles,
+            PlayStyle::Double => &self.last_played_course_doubles,
+        }
+    }
+
+    #[inline(always)]
+    pub fn last_played_course_mut(&mut self, style: PlayStyle) -> &mut LastPlayedCourse {
+        match style {
+            PlayStyle::Single | PlayStyle::Versus => &mut self.last_played_course_singles,
+            PlayStyle::Double => &mut self.last_played_course_doubles,
+        }
+    }
 }
 
-const PLAYER_SLOTS: usize = 2;
+pub const PLAYER_SLOTS: usize = 2;
 
 #[inline(always)]
 const fn side_ix(side: PlayerSide) -> usize {
@@ -3547,6 +4416,16 @@ fn save_profile_ini_for_side(side: PlayerSide) {
         "LastPlayedDoubles",
         &profile.last_played_doubles,
     );
+    write_last_played_course(
+        &mut content,
+        "LastPlayedCourseSingles",
+        &profile.last_played_course_singles,
+    );
+    write_last_played_course(
+        &mut content,
+        "LastPlayedCourseDoubles",
+        &profile.last_played_course_doubles,
+    );
 
     content.push_str("[Stats]\n");
     content.push_str(&format!(
@@ -3726,6 +4605,158 @@ fn save_arrowcloud_ini_for_side(side: PlayerSide) {
     }
 }
 
+/// Update the active profile's ArrowCloud API key (in memory + on disk).
+/// No-op when the side has no local profile loaded (Guest).
+pub fn set_arrowcloud_api_key_for_side(side: PlayerSide, api_key: &str) {
+    {
+        let mut profiles = lock_profiles();
+        profiles[side_ix(side)].arrowcloud_api_key = api_key.to_string();
+    }
+    save_arrowcloud_ini_for_side(side);
+}
+
+/// Write a new ArrowCloud API key for a profile identified by ID
+/// (independent of session sides).  Used by the Manage Local Profiles
+/// "Link ArrowCloud" flow where the user picks a profile that isn't
+/// necessarily joined on P1 or P2.  Also refreshes the in-memory copy
+/// on any session side currently loading that profile, so other screens
+/// see the new key immediately.
+pub fn set_arrowcloud_api_key_for_id(profile_id: &str, api_key: &str) {
+    // Update any session side currently bound to this profile id.
+    let matching_sides: Vec<PlayerSide> = {
+        let session = lock_session();
+        [PlayerSide::P1, PlayerSide::P2]
+            .iter()
+            .copied()
+            .filter(|side| {
+                matches!(
+                    &session.active_profiles[side_ix(*side)],
+                    ActiveProfile::Local { id } if id == profile_id
+                )
+            })
+            .collect()
+    };
+    if !matching_sides.is_empty() {
+        let mut profiles = lock_profiles();
+        for side in &matching_sides {
+            profiles[side_ix(*side)].arrowcloud_api_key = api_key.to_string();
+        }
+    }
+
+    // Persist directly to that profile's ArrowCloud.ini, even if the
+    // profile isn't loaded on any side right now.
+    let mut content = String::new();
+    content.push_str("[ArrowCloud]\n");
+    content.push_str(&format!("ApiKey={api_key}\n"));
+    content.push('\n');
+    let path = arrowcloud_ini_path(profile_id);
+    if let Err(e) = fs::write(&path, content) {
+        warn!("Failed to save {}: {}", path.display(), e);
+    }
+}
+
+/// Returns the saved ArrowCloud API key (from disk) for a profile
+/// identified by id, regardless of whether it's currently loaded on a
+/// session side.  Empty string if the profile has no key yet or the
+/// file is missing / malformed.
+pub fn get_arrowcloud_api_key_for_id(profile_id: &str) -> String {
+    let path = arrowcloud_ini_path(profile_id);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return String::new();
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("ApiKey=") {
+            return rest.trim().to_string();
+        }
+        if let Some(rest) = line.strip_prefix("ApiKey =") {
+            return rest.trim().to_string();
+        }
+    }
+    String::new()
+}
+
+/// Update the active profile's GrooveStats credentials (API key,
+/// username, and `IsPadPlayer=true` — Simply Love parity, see
+/// `BGAnimations/ScreenGrooveStatsLogin underlay/default.lua:46`) for
+/// the given session side, persisting to its `GrooveStats.ini` on disk.
+/// No-op when the side has no local profile loaded (Guest).
+pub fn set_groovestats_credentials_for_side(side: PlayerSide, api_key: &str, username: &str) {
+    {
+        let mut profiles = lock_profiles();
+        let p = &mut profiles[side_ix(side)];
+        p.groovestats_api_key = api_key.to_string();
+        p.groovestats_username = username.to_string();
+        p.groovestats_is_pad_player = true;
+    }
+    save_groovestats_ini_for_side(side);
+}
+
+/// Write new GrooveStats credentials for a profile identified by ID
+/// (independent of session sides).  Used by the Manage Local Profiles
+/// "Link GrooveStats" flow.  Also refreshes the in-memory copy on any
+/// session side currently bound to that profile id.
+pub fn set_groovestats_credentials_for_id(profile_id: &str, api_key: &str, username: &str) {
+    let matching_sides: Vec<PlayerSide> = {
+        let session = lock_session();
+        [PlayerSide::P1, PlayerSide::P2]
+            .iter()
+            .copied()
+            .filter(|side| {
+                matches!(
+                    &session.active_profiles[side_ix(*side)],
+                    ActiveProfile::Local { id } if id == profile_id
+                )
+            })
+            .collect()
+    };
+    if !matching_sides.is_empty() {
+        let mut profiles = lock_profiles();
+        for side in &matching_sides {
+            let p = &mut profiles[side_ix(*side)];
+            p.groovestats_api_key = api_key.to_string();
+            p.groovestats_username = username.to_string();
+            p.groovestats_is_pad_player = true;
+        }
+    }
+
+    // Persist directly to that profile's GrooveStats.ini, even if the
+    // profile isn't loaded on any side right now.
+    let mut content = String::new();
+    content.push_str("[GrooveStats]\n");
+    content.push_str(&format!("ApiKey={api_key}\n"));
+    content.push_str("IsPadPlayer=1\n");
+    content.push_str(&format!("Username={username}\n"));
+    content.push('\n');
+    let path = groovestats_ini_path(profile_id);
+    if let Err(e) = fs::write(&path, content) {
+        warn!("Failed to save {}: {}", path.display(), e);
+    }
+}
+
+/// Returns the saved GrooveStats API key (from disk) for a profile
+/// identified by id, regardless of whether it's currently loaded on a
+/// session side.  `None` if the profile has no key yet or the file is
+/// missing / malformed; `Some` always wraps a non-empty trimmed key.
+pub fn get_groovestats_api_key_for_id(profile_id: &str) -> Option<String> {
+    let path = groovestats_ini_path(profile_id);
+    let text = fs::read_to_string(&path).ok()?;
+    for line in text.lines() {
+        let line = line.trim();
+        let rest = line
+            .strip_prefix("ApiKey=")
+            .or_else(|| line.strip_prefix("ApiKey ="));
+        if let Some(rest) = rest {
+            let key = rest.trim();
+            if key.is_empty() {
+                return None;
+            }
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
 fn load_for_side(side: PlayerSide) {
     let profile_id = {
         let session = lock_session();
@@ -3831,6 +4862,14 @@ fn load_for_side(side: PlayerSide) {
                 )
             })
             .unwrap_or_else(|| default_profile.last_played_doubles.clone());
+            profile.last_played_course_singles =
+                load_last_played_course(&profile_conf, "LastPlayedCourseSingles")
+                    .or_else(|| load_last_played_course(&profile_conf, "LastPlayedCourse"))
+                    .unwrap_or_else(|| default_profile.last_played_course_singles.clone());
+            profile.last_played_course_doubles =
+                load_last_played_course(&profile_conf, "LastPlayedCourseDoubles")
+                    .or_else(|| load_last_played_course(&profile_conf, "LastPlayedCourse"))
+                    .unwrap_or_else(|| default_profile.last_played_course_doubles.clone());
 
             profile.weight_pounds = profile_conf
                 .get("Editable", "WeightPounds")
@@ -4628,10 +5667,221 @@ pub fn take_fast_profile_switch_from_select_music() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_BIRTH_YEAR, DEFAULT_WEIGHT_POUNDS, LastPlayed, NoteSkin, PLAYER_INITIALS_MAX_LEN,
-        PlayStyle, Profile, TimingWindowsOption, initials_from_name,
+        AVERAGE_ERROR_BAR_INTENSITY_DEFAULT, AVERAGE_ERROR_BAR_INTENSITY_MAX,
+        AVERAGE_ERROR_BAR_INTENSITY_MIN, AVERAGE_ERROR_BAR_INTENSITY_STEP,
+        AVERAGE_ERROR_BAR_INTERVAL_MS_DEFAULT, AVERAGE_ERROR_BAR_INTERVAL_MS_MAX,
+        AVERAGE_ERROR_BAR_INTERVAL_MS_MIN, AVERAGE_ERROR_BAR_INTERVAL_MS_STEP, BackgroundFilter,
+        DEFAULT_BIRTH_YEAR, DEFAULT_WEIGHT_POUNDS, LONG_ERROR_BAR_INTENSITY_DEFAULT,
+        LONG_ERROR_BAR_INTENSITY_MAX, LONG_ERROR_BAR_INTENSITY_MIN, LONG_ERROR_BAR_INTENSITY_STEP,
+        LastPlayed, LastPlayedCourse, MiniIndicatorColor, MiniIndicatorSize, NoteSkin,
+        PLAYER_INITIALS_MAX_LEN, PlayStyle, Profile, TapExplosionMask, TimingWindowsOption,
+        clamp_average_error_bar_intensity, clamp_average_error_bar_interval_ms,
+        clamp_long_error_bar_intensity, initials_from_name, normalize_tap_explosion_mask,
         parse_groovestats_is_pad_player, sanitize_player_initials,
     };
+    use std::str::FromStr;
+
+    #[test]
+    fn long_error_bar_intensity_clamps_to_supported_range() {
+        assert!((LONG_ERROR_BAR_INTENSITY_DEFAULT - 2.0).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(1.0) - 1.0).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(2.0) - 2.0).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(0.0) - LONG_ERROR_BAR_INTENSITY_MIN).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(5.0) - LONG_ERROR_BAR_INTENSITY_MAX).abs() < 1e-6);
+        assert!(
+            (clamp_long_error_bar_intensity(f32::NAN) - LONG_ERROR_BAR_INTENSITY_DEFAULT).abs()
+                < 1e-6
+        );
+        assert!(
+            (clamp_long_error_bar_intensity(f32::INFINITY) - LONG_ERROR_BAR_INTENSITY_DEFAULT)
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn long_error_bar_intensity_snaps_to_quarter_step_grid() {
+        assert!((clamp_long_error_bar_intensity(1.10) - 1.00).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(1.13) - 1.25).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(1.40) - 1.50).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(1.75) - 1.75).abs() < 1e-6);
+        assert!((clamp_long_error_bar_intensity(1.95) - 2.00).abs() < 1e-6);
+        let count = ((LONG_ERROR_BAR_INTENSITY_MAX - LONG_ERROR_BAR_INTENSITY_MIN)
+            / LONG_ERROR_BAR_INTENSITY_STEP)
+            .round() as usize
+            + 1;
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn average_error_bar_intensity_clamps_to_supported_range() {
+        assert!((AVERAGE_ERROR_BAR_INTENSITY_DEFAULT - 1.0).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(1.0) - 1.0).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(2.0) - 2.0).abs() < 1e-6);
+        assert!(
+            (clamp_average_error_bar_intensity(0.0) - AVERAGE_ERROR_BAR_INTENSITY_MIN).abs() < 1e-6
+        );
+        assert!(
+            (clamp_average_error_bar_intensity(5.0) - AVERAGE_ERROR_BAR_INTENSITY_MAX).abs() < 1e-6
+        );
+        assert!(
+            (clamp_average_error_bar_intensity(f32::NAN) - AVERAGE_ERROR_BAR_INTENSITY_DEFAULT)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (clamp_average_error_bar_intensity(f32::INFINITY)
+                - AVERAGE_ERROR_BAR_INTENSITY_DEFAULT)
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn average_error_bar_intensity_snaps_to_quarter_step_grid() {
+        assert!((clamp_average_error_bar_intensity(1.10) - 1.00).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(1.13) - 1.25).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(1.40) - 1.50).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(1.75) - 1.75).abs() < 1e-6);
+        assert!((clamp_average_error_bar_intensity(1.95) - 2.00).abs() < 1e-6);
+        let count = ((AVERAGE_ERROR_BAR_INTENSITY_MAX - AVERAGE_ERROR_BAR_INTENSITY_MIN)
+            / AVERAGE_ERROR_BAR_INTENSITY_STEP)
+            .round() as usize
+            + 1;
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn average_error_bar_interval_clamps_to_supported_range() {
+        assert_eq!(AVERAGE_ERROR_BAR_INTERVAL_MS_DEFAULT, 400);
+        assert_eq!(clamp_average_error_bar_interval_ms(100), 100);
+        assert_eq!(clamp_average_error_bar_interval_ms(2000), 2000);
+        assert_eq!(
+            clamp_average_error_bar_interval_ms(0),
+            AVERAGE_ERROR_BAR_INTERVAL_MS_MIN
+        );
+        assert_eq!(
+            clamp_average_error_bar_interval_ms(4000),
+            AVERAGE_ERROR_BAR_INTERVAL_MS_MAX
+        );
+    }
+
+    #[test]
+    fn average_error_bar_interval_snaps_to_100ms_step_grid() {
+        assert_eq!(AVERAGE_ERROR_BAR_INTERVAL_MS_STEP, 100);
+        assert_eq!(clamp_average_error_bar_interval_ms(149), 100);
+        assert_eq!(clamp_average_error_bar_interval_ms(150), 200);
+        assert_eq!(clamp_average_error_bar_interval_ms(349), 300);
+        assert_eq!(clamp_average_error_bar_interval_ms(350), 400);
+        assert_eq!(clamp_average_error_bar_interval_ms(1951), 2000);
+    }
+
+    #[test]
+    fn background_filter_default_matches_legacy_darkest_value() {
+        assert_eq!(BackgroundFilter::default(), BackgroundFilter::DEFAULT);
+        assert_eq!(BackgroundFilter::default().percent(), 95);
+    }
+
+    #[test]
+    fn background_filter_from_percent_clamps_above_max() {
+        assert_eq!(BackgroundFilter::from_percent(200).percent(), 100);
+        assert_eq!(BackgroundFilter::from_i32(-5).percent(), 0);
+        assert_eq!(BackgroundFilter::from_i32(250).percent(), 100);
+    }
+
+    #[test]
+    fn background_filter_alpha_maps_percent_to_unit_range() {
+        assert!((BackgroundFilter::from_percent(0).alpha() - 0.0).abs() < 1e-6);
+        assert!((BackgroundFilter::from_percent(100).alpha() - 1.0).abs() < 1e-6);
+        assert!((BackgroundFilter::from_percent(50).alpha() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn background_filter_migrates_legacy_enum_labels() {
+        // Older profile.ini files still hold these labels; new builds must
+        // accept them so saved settings survive the upgrade.
+        assert_eq!(
+            BackgroundFilter::from_str("Off").unwrap(),
+            BackgroundFilter::OFF
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("Dark").unwrap(),
+            BackgroundFilter::from_percent(50)
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("DARKER").unwrap(),
+            BackgroundFilter::from_percent(75)
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("darkest").unwrap(),
+            BackgroundFilter::from_percent(95)
+        );
+    }
+
+    #[test]
+    fn background_filter_parses_numeric_with_optional_percent_suffix() {
+        assert_eq!(
+            BackgroundFilter::from_str("0").unwrap(),
+            BackgroundFilter::OFF
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("42").unwrap(),
+            BackgroundFilter::from_percent(42)
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("42%").unwrap(),
+            BackgroundFilter::from_percent(42)
+        );
+        assert_eq!(
+            BackgroundFilter::from_str("100").unwrap(),
+            BackgroundFilter::from_percent(100)
+        );
+    }
+
+    #[test]
+    fn background_filter_rejects_out_of_range_or_garbage() {
+        assert!(BackgroundFilter::from_str("101").is_err());
+        assert!(BackgroundFilter::from_str("-1").is_err());
+        assert!(BackgroundFilter::from_str("Dimmer").is_err());
+        assert!(BackgroundFilter::from_str("").is_err());
+    }
+
+    #[test]
+    fn background_filter_display_round_trips_through_from_str() {
+        for v in [0u8, 1, 25, 50, 75, 95, 100] {
+            let filter = BackgroundFilter::from_percent(v);
+            let s = filter.to_string();
+            let parsed = BackgroundFilter::from_str(&s).expect("must round-trip");
+            assert_eq!(parsed, filter);
+        }
+    }
+
+    #[test]
+    fn mini_indicator_style_settings_round_trip() {
+        assert_eq!(
+            MiniIndicatorSize::from_str(&MiniIndicatorSize::Default.to_string()).unwrap(),
+            MiniIndicatorSize::Default
+        );
+        assert_eq!(
+            MiniIndicatorSize::from_str(&MiniIndicatorSize::Large.to_string()).unwrap(),
+            MiniIndicatorSize::Large
+        );
+        assert_eq!(
+            MiniIndicatorColor::from_str(&MiniIndicatorColor::Default.to_string()).unwrap(),
+            MiniIndicatorColor::Default
+        );
+        assert_eq!(
+            MiniIndicatorColor::from_str(&MiniIndicatorColor::Detailed.to_string()).unwrap(),
+            MiniIndicatorColor::Detailed
+        );
+    }
+
+    #[test]
+    fn mini_indicator_style_defaults_preserve_legacy_look() {
+        let profile = Profile::default();
+        assert_eq!(profile.mini_indicator_size, MiniIndicatorSize::Default);
+        assert_eq!(profile.mini_indicator_color, MiniIndicatorColor::Default);
+    }
 
     #[test]
     fn groovestats_is_pad_player_requires_explicit_one() {
@@ -4738,6 +5988,27 @@ mod tests {
     }
 
     #[test]
+    fn last_played_course_uses_singles_for_single_and_versus() {
+        let singles = LastPlayedCourse {
+            course_path: Some("Courses/Single.crs".to_string()),
+            difficulty_name: Some("Hard".to_string()),
+        };
+        let doubles = LastPlayedCourse {
+            course_path: Some("Courses/Double.crs".to_string()),
+            difficulty_name: Some("Challenge".to_string()),
+        };
+        let profile = Profile {
+            last_played_course_singles: singles.clone(),
+            last_played_course_doubles: doubles.clone(),
+            ..Profile::default()
+        };
+
+        assert_eq!(profile.last_played_course(PlayStyle::Single), &singles);
+        assert_eq!(profile.last_played_course(PlayStyle::Versus), &singles);
+        assert_eq!(profile.last_played_course(PlayStyle::Double), &doubles);
+    }
+
+    #[test]
     fn player_options_use_singles_for_single_and_versus() {
         let mut profile = Profile::default();
         profile.mini_percent = 12;
@@ -4779,6 +6050,8 @@ mod tests {
         profile.timing_windows = TimingWindowsOption::WayOffs;
         profile.receptor_noteskin = Some(NoteSkin::new("default"));
         profile.tap_explosion_noteskin = Some(NoteSkin::new("metal"));
+        profile.tap_explosion_active_mask =
+            TapExplosionMask::all().difference(TapExplosionMask::HELD);
         profile.store_current_player_options(PlayStyle::Single);
 
         profile.mini_percent = 62;
@@ -4787,6 +6060,7 @@ mod tests {
         profile.timing_windows = TimingWindowsOption::FantasticsAndExcellents;
         profile.receptor_noteskin = Some(NoteSkin::new("cyber"));
         profile.tap_explosion_noteskin = None;
+        profile.tap_explosion_active_mask = TapExplosionMask::HELD;
         profile.store_current_player_options(PlayStyle::Double);
 
         profile.apply_player_options_for_style(PlayStyle::Single);
@@ -4796,6 +6070,10 @@ mod tests {
         assert_eq!(profile.timing_windows, TimingWindowsOption::WayOffs);
         assert_eq!(profile.receptor_noteskin, Some(NoteSkin::new("default")));
         assert_eq!(profile.tap_explosion_noteskin, Some(NoteSkin::new("metal")));
+        assert_eq!(
+            profile.tap_explosion_active_mask,
+            TapExplosionMask::all().difference(TapExplosionMask::HELD)
+        );
 
         profile.apply_player_options_for_style(PlayStyle::Double);
         assert_eq!(profile.mini_percent, 62);
@@ -4807,6 +6085,7 @@ mod tests {
         );
         assert_eq!(profile.receptor_noteskin, Some(NoteSkin::new("cyber")));
         assert_eq!(profile.tap_explosion_noteskin, None);
+        assert_eq!(profile.tap_explosion_active_mask, TapExplosionMask::HELD);
     }
 
     #[test]
@@ -4821,10 +6100,38 @@ mod tests {
     }
 
     #[test]
+    fn tap_explosion_mask_migrates_new_bits_from_old_profiles() {
+        let old_all = TapExplosionMask::FANTASTIC
+            | TapExplosionMask::EXCELLENT
+            | TapExplosionMask::GREAT
+            | TapExplosionMask::DECENT
+            | TapExplosionMask::WAY_OFF
+            | TapExplosionMask::HELD;
+
+        assert_eq!(
+            normalize_tap_explosion_mask(old_all.bits(), 1),
+            TapExplosionMask::all()
+        );
+        assert_eq!(normalize_tap_explosion_mask(old_all.bits(), 2), old_all);
+    }
+
+    #[test]
+    fn tap_explosion_miss_window_uses_miss_mask() {
+        let mut profile = Profile::default();
+        assert!(profile.tap_explosion_window_enabled("Miss"));
+
+        profile
+            .tap_explosion_active_mask
+            .remove(TapExplosionMask::MISS);
+        assert!(!profile.tap_explosion_window_enabled("Miss"));
+        assert!(profile.tap_explosion_window_enabled("Held"));
+    }
+
+    #[test]
     fn persisted_row_mask_bit_layouts_are_stable() {
         use super::{
             AccelEffectsMask, AppearanceEffectsMask, ErrorBarMask, HoldsMask, InsertMask,
-            RemoveMask, VisualEffectsMask,
+            LiveTimingStatsMask, RemoveMask, TapExplosionMask, VisualEffectsMask,
         };
 
         // InsertMask: persisted bits 0..=6 (Mines is runtime-only and
@@ -4888,6 +6195,21 @@ mod tests {
         assert_eq!(ErrorBarMask::HIGHLIGHT.bits(), 1 << 3);
         assert_eq!(ErrorBarMask::AVERAGE.bits(), 1 << 4);
         assert_eq!(ErrorBarMask::all().bits(), 0b0001_1111);
+
+        assert_eq!(LiveTimingStatsMask::MEAN.bits(), 1 << 0);
+        assert_eq!(LiveTimingStatsMask::MEAN_ABS.bits(), 1 << 1);
+        assert_eq!(LiveTimingStatsMask::MAX.bits(), 1 << 2);
+        assert_eq!(LiveTimingStatsMask::all().bits(), 0b0000_0111);
+
+        assert_eq!(TapExplosionMask::FANTASTIC.bits(), 1 << 0);
+        assert_eq!(TapExplosionMask::EXCELLENT.bits(), 1 << 1);
+        assert_eq!(TapExplosionMask::GREAT.bits(), 1 << 2);
+        assert_eq!(TapExplosionMask::DECENT.bits(), 1 << 3);
+        assert_eq!(TapExplosionMask::WAY_OFF.bits(), 1 << 4);
+        assert_eq!(TapExplosionMask::HELD.bits(), 1 << 5);
+        assert_eq!(TapExplosionMask::MISS.bits(), 1 << 6);
+        assert_eq!(TapExplosionMask::HOLDING.bits(), 1 << 7);
+        assert_eq!(TapExplosionMask::all().bits(), 0xFF);
     }
 
     #[test]

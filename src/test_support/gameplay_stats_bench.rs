@@ -25,12 +25,15 @@ pub struct GameplayStatsBenchFixture {
 
 impl GameplayStatsBenchFixture {
     pub fn build(&self) -> Vec<Actor> {
-        gameplay_stats::build(
+        let mut actors = Vec::new();
+        gameplay_stats::push_step_stats(
+            &mut actors,
             &self.state,
             &self.asset_manager,
             self.playfield_center_x,
             profile::PlayerSide::P1,
-        )
+        );
+        actors
     }
 }
 
@@ -105,6 +108,7 @@ pub fn fixture() -> GameplayStatsBenchFixture {
                     },
                 ],
                 itl_self_score: None,
+                itl_self_rank: None,
             }),
         });
     }
@@ -117,14 +121,20 @@ pub fn fixture() -> GameplayStatsBenchFixture {
         asset_manager.register_font(name, font);
     }
 
-    let playfield_center_x = notefield::build(
+    let mut notefield_actors = Vec::new();
+    let mut notefield_hud_actors = Vec::new();
+    let playfield_center_x = notefield::build_bundles(
         &state,
         &bench_profile,
         FieldPlacement::P1,
         profile::PlayStyle::Single,
         false,
+        notefield::ProxyCaptureRequests::default(),
+        notefield::ViewOverride::default(),
+        &mut notefield_actors,
+        &mut notefield_hud_actors,
     )
-    .1;
+    .layout_center_x;
 
     GameplayStatsBenchFixture {
         state,

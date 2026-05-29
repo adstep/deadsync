@@ -1,6 +1,8 @@
 use crate::act;
+use crate::assets::{FontRole, current_machine_font_key_for_text};
+use crate::config::{self, MachineBarColor};
 use crate::engine::present::actors::{self, Actor, Background, SizeSpec};
-use crate::engine::present::cache::{TextCache, cached_text};
+use crate::engine::present::cache::{SharedStrCache, cached_shared_str};
 use crate::engine::present::color;
 use crate::engine::space;
 use crate::engine::space::{screen_center_x, screen_height, screen_width};
@@ -18,7 +20,7 @@ const TOP_TITLE_OFFSET_X: f32 = 10.0;
 const TOP_TITLE_OFFSET_Y: f32 = 15.0;
 
 thread_local! {
-    static STR_REF_CACHE: RefCell<TextCache<(usize, usize)>> =
+    static STR_REF_CACHE: RefCell<SharedStrCache> =
         RefCell::new(HashMap::with_capacity(64));
 }
 
@@ -30,6 +32,14 @@ pub enum ScreenBarPosition {
 pub enum ScreenBarTitlePlacement {
     Left,
     Center,
+}
+
+#[derive(Clone, Copy)]
+enum ScreenBarContext {
+    Normal,
+    SelectMusic,
+    NoBackground,
+    TitleMenu,
 }
 
 #[derive(Clone, Copy)]
@@ -63,22 +73,55 @@ fn wide_scale(normal: f32, wide: f32) -> f32 {
 
 #[inline(always)]
 fn cached_str_ref(text: &str) -> Arc<str> {
-    let key = (text.as_ptr() as usize, text.len());
-    cached_text(&STR_REF_CACHE, key, TEXT_CACHE_LIMIT, || text.to_owned())
+    cached_shared_str(&STR_REF_CACHE, text, TEXT_CACHE_LIMIT)
+}
+
+fn bar_background(transparent: bool, context: ScreenBarContext) -> Option<Background> {
+    if matches!(
+        context,
+        ScreenBarContext::TitleMenu | ScreenBarContext::NoBackground
+    ) {
+        return None;
+    }
+
+    let cfg = config::get();
+    match cfg.machine_bar_color.resolve(cfg.visual_style) {
+        MachineBarColor::Default if transparent => None,
+        MachineBarColor::Default => Some(Background::Color(color::rgba_hex("#a6a6a6"))),
+        MachineBarColor::Colored => {
+            Some(Background::Color(color::srpg9_rgba(cfg.simply_love_color)))
+        }
+        MachineBarColor::Transparent if matches!(context, ScreenBarContext::SelectMusic) => {
+            Some(Background::Color([0.0, 0.0, 0.0, 0.5]))
+        }
+        MachineBarColor::Transparent => None,
+    }
 }
 
 pub fn build(params: ScreenBarParams) -> Actor {
+    build_with_context(params, ScreenBarContext::Normal)
+}
+
+pub fn build_select_music(params: ScreenBarParams) -> Actor {
+    build_with_context(params, ScreenBarContext::SelectMusic)
+}
+
+pub fn build_title_menu(params: ScreenBarParams) -> Actor {
+    build_with_context(params, ScreenBarContext::TitleMenu)
+}
+
+pub fn build_no_background(params: ScreenBarParams) -> Actor {
+    build_with_context(params, ScreenBarContext::NoBackground)
+}
+
+fn build_with_context(params: ScreenBarParams, context: ScreenBarContext) -> Actor {
     // Base placement per bar (height & anchor)
     let (align, offset) = match params.position {
         ScreenBarPosition::Top => ([0.0, 0.0], [0.0, 0.0]),
         ScreenBarPosition::Bottom => ([0.0, 1.0], [0.0, screen_height()]),
     };
 
-    let background = if params.transparent {
-        None
-    } else {
-        Some(Background::Color(color::rgba_hex("#a6a6a6")))
-    };
+    let background = bar_background(params.transparent, context);
 
     let mut children = Vec::with_capacity(4);
     let title = cached_str_ref(params.title);
@@ -114,13 +157,14 @@ pub fn build(params: ScreenBarParams) -> Actor {
             };
 
             // Create the actor first without the horizalign, then modify it.
+            let title_font = current_machine_font_key_for_text(FontRole::Header, &title);
             let mut title_actor = act!(text:
                 align(title_align[0], title_align[1]):
                 xy(title_xy[0], title_xy[1]):
                 zoom(title_scale):
                 z(2):
                 diffuse(params.fg_color[0], params.fg_color[1], params.fg_color[2], params.fg_color[3]):
-                font("wendy"): settext(title.clone())
+                font(title_font): settext(title.clone())
             );
 
             // Now, apply the alignment from the variable.
@@ -133,14 +177,15 @@ pub fn build(params: ScreenBarParams) -> Actor {
 
         /* ============================ BOTTOM BAR ============================ */
         ScreenBarPosition::Bottom => {
-            // Center title (Wendy) uses the same scaling as the top bar
+            // Center title (Wendy by default; Mega when MachineFont = Mega).
+            let bottom_title_font = current_machine_font_key_for_text(FontRole::Header, &title);
             children.push(act!(text:
                 align(0.5, 0.5):
                 xy(screen_center_x(), 16.0):
                 zoom(0.5):
                 z(2):
                 diffuse(params.fg_color[0], params.fg_color[1], params.fg_color[2], params.fg_color[3]):
-                font("wendy"): settext(title): horizalign(center)
+                font(bottom_title_font): settext(title): horizalign(center)
             ));
 
             // Small side texts (Miso), positioned like Simply Love credits
@@ -205,5 +250,34 @@ pub fn build(params: ScreenBarParams) -> Actor {
         children,
         background,
         z: 120i16,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_bar_params() -> ScreenBarParams<'static> {
+        ScreenBarParams {
+            title: "",
+            title_placement: ScreenBarTitlePlacement::Center,
+            position: ScreenBarPosition::Bottom,
+            transparent: false,
+            left_text: None,
+            center_text: None,
+            right_text: None,
+            left_avatar: None,
+            right_avatar: None,
+            fg_color: [1.0; 4],
+        }
+    }
+
+    #[test]
+    fn no_background_bar_has_no_frame_background() {
+        let actor = build_no_background(empty_bar_params());
+        let Actor::Frame { background, .. } = actor else {
+            panic!("screen bar should build a frame");
+        };
+        assert!(background.is_none());
     }
 }

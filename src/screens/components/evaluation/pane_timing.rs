@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::act;
-use crate::engine::gfx::{BlendMode, MeshMode, MeshVertex};
+use crate::assets::{FontRole, current_machine_font_key_for_text};
+use crate::engine::gfx::{BlendMode, MeshVertex};
 use crate::engine::present::actors::{Actor, SizeSpec};
 use crate::engine::present::color;
 use crate::game::profile;
@@ -174,11 +175,11 @@ pub fn build_timing_pane(
 
     // Early/Late text
     let early_late_y = topbar_height + 11.0;
-    children.push(act!(text: font("wendy"): settext("Early"):
+    children.push(act!(text: font(current_machine_font_key_for_text(FontRole::Header, "Early")): settext("Early"):
         align(0.0, 0.0): xy(10.0, early_late_y):
         zoom(0.3):
     ));
-    children.push(act!(text: font("wendy"): settext("Late"):
+    children.push(act!(text: font(current_machine_font_key_for_text(FontRole::Header, "Late")): settext("Late"):
         align(1.0, 0.0): xy(pane_width - 10.0, early_late_y):
         zoom(0.3): horizalign(right)
     ));
@@ -232,7 +233,6 @@ pub fn build_timing_pane(
             offset: [0.0, topbar_height],
             size: [SizeSpec::Px(pane_width), SizeSpec::Px(graph_area_height)],
             vertices: mesh.clone(),
-            mode: MeshMode::Triangles,
             visible: true,
             blend: BlendMode::Alpha,
             z: 0,

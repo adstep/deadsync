@@ -4,15 +4,25 @@ use super::*;
 pub(super) struct RowVisibility {
     pub(super) show_measure_counter_children: bool,
     pub(super) show_judgment_offsets: bool,
-    pub(super) show_judgment_tilt_intensity: bool,
+    pub(super) show_judgment_tilt_options: bool,
     pub(super) show_combo_offsets: bool,
     pub(super) show_error_bar_children: bool,
+    pub(super) show_text_error_bar_children: bool,
+    pub(super) show_average_error_bar_children: bool,
+    pub(super) show_long_error_bar_children: bool,
     pub(super) show_custom_fantastic_window_ms: bool,
     pub(super) show_density_graph_background: bool,
+    pub(super) show_target_score: bool,
+    pub(super) show_early_dw_options: bool,
+    pub(super) show_fa_plus_window_options: bool,
     pub(super) show_combo_rows: bool,
     pub(super) show_lifebar_rows: bool,
     pub(super) show_indicator_score_type: bool,
+    pub(super) show_mini_indicator_size: bool,
+    pub(super) show_mini_indicator_color: bool,
+    pub(super) show_live_timing_stats: bool,
     pub(super) show_global_offset_shift: bool,
+    pub(super) show_tap_explosion_options: bool,
 }
 
 #[inline(always)]
@@ -23,8 +33,11 @@ pub(super) fn row_visible_with_flags(id: RowId, visibility: RowVisibility) -> bo
     if id == RowId::JudgmentOffsetX || id == RowId::JudgmentOffsetY {
         return visibility.show_judgment_offsets;
     }
-    if id == RowId::JudgmentTiltIntensity {
-        return visibility.show_judgment_tilt_intensity;
+    if id == RowId::JudgmentTiltIntensity
+        || id == RowId::JudgmentTiltMinThreshold
+        || id == RowId::JudgmentTiltMaxThreshold
+    {
+        return visibility.show_judgment_tilt_options;
     }
     if id == RowId::ComboOffsetX || id == RowId::ComboOffsetY {
         return visibility.show_combo_offsets;
@@ -36,11 +49,39 @@ pub(super) fn row_visible_with_flags(id: RowId, visibility: RowVisibility) -> bo
     {
         return visibility.show_error_bar_children;
     }
+    if id == RowId::TextErrorBar10ms {
+        return visibility.show_error_bar_children && visibility.show_text_error_bar_children;
+    }
+    if id == RowId::LongErrorBarIntensity
+        || id == RowId::LongErrorBarThreshold
+        || id == RowId::LongErrorBarMinSamples
+        || id == RowId::LongErrorBarBufferCap
+    {
+        return visibility.show_error_bar_children
+            && visibility.show_average_error_bar_children
+            && visibility.show_long_error_bar_children;
+    }
+    if id == RowId::ShortAverageErrorBar
+        || id == RowId::LongErrorBar
+        || id == RowId::AverageErrorBarIntensity
+        || id == RowId::AverageErrorBarInterval
+    {
+        return visibility.show_error_bar_children && visibility.show_average_error_bar_children;
+    }
     if id == RowId::CustomBlueFantasticWindowMs {
         return visibility.show_custom_fantastic_window_ms;
     }
     if id == RowId::DensityGraphBackground {
         return visibility.show_density_graph_background;
+    }
+    if id == RowId::TargetScore {
+        return visibility.show_target_score;
+    }
+    if id == RowId::EarlyDecentWayOffOptions {
+        return visibility.show_early_dw_options;
+    }
+    if id == RowId::FAPlusWindowOptions {
+        return visibility.show_fa_plus_window_options;
     }
     if id == RowId::ComboColors || id == RowId::ComboColorMode || id == RowId::CarryCombo {
         return visibility.show_combo_rows;
@@ -51,8 +92,20 @@ pub(super) fn row_visible_with_flags(id: RowId, visibility: RowVisibility) -> bo
     if id == RowId::IndicatorScoreType {
         return visibility.show_indicator_score_type;
     }
+    if id == RowId::MiniIndicatorSize {
+        return visibility.show_mini_indicator_size;
+    }
+    if id == RowId::MiniIndicatorColor {
+        return visibility.show_mini_indicator_color;
+    }
+    if id == RowId::LiveTimingStats {
+        return visibility.show_live_timing_stats;
+    }
     if id == RowId::GlobalOffsetShift {
         return visibility.show_global_offset_shift;
+    }
+    if id == RowId::TapExplosionOptions {
+        return visibility.show_tap_explosion_options;
     }
     true
 }
@@ -65,7 +118,10 @@ pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
     if id == RowId::JudgmentOffsetX || id == RowId::JudgmentOffsetY {
         return Some(RowId::JudgmentFont);
     }
-    if id == RowId::JudgmentTiltIntensity {
+    if id == RowId::JudgmentTiltIntensity
+        || id == RowId::JudgmentTiltMinThreshold
+        || id == RowId::JudgmentTiltMaxThreshold
+    {
         return Some(RowId::JudgmentTilt);
     }
     if id == RowId::ComboOffsetX || id == RowId::ComboOffsetY {
@@ -75,6 +131,15 @@ pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
         || id == RowId::ErrorBarOptions
         || id == RowId::ErrorBarOffsetX
         || id == RowId::ErrorBarOffsetY
+        || id == RowId::TextErrorBar10ms
+        || id == RowId::ShortAverageErrorBar
+        || id == RowId::LongErrorBar
+        || id == RowId::AverageErrorBarIntensity
+        || id == RowId::AverageErrorBarInterval
+        || id == RowId::LongErrorBarIntensity
+        || id == RowId::LongErrorBarThreshold
+        || id == RowId::LongErrorBarMinSamples
+        || id == RowId::LongErrorBarBufferCap
     {
         return Some(RowId::ErrorBar);
     }
@@ -82,6 +147,9 @@ pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
         return Some(RowId::CustomBlueFantasticWindow);
     }
     if id == RowId::DensityGraphBackground {
+        return Some(RowId::DataVisualizations);
+    }
+    if id == RowId::TargetScore {
         return Some(RowId::DataVisualizations);
     }
     if id == RowId::ComboColors
@@ -92,8 +160,23 @@ pub(super) fn conditional_row_parent(id: RowId) -> Option<RowId> {
     {
         return Some(RowId::Hide);
     }
-    if id == RowId::IndicatorScoreType {
+    if id == RowId::IndicatorScoreType
+        || id == RowId::MiniIndicatorSize
+        || id == RowId::MiniIndicatorColor
+    {
         return Some(RowId::MiniIndicator);
+    }
+    if id == RowId::LiveTimingStats {
+        return Some(RowId::GameplayExtras);
+    }
+    if id == RowId::TapExplosionOptions {
+        return Some(RowId::TapExplosionSkin);
+    }
+    if id == RowId::EarlyDecentWayOffOptions {
+        return Some(RowId::RescoreEarlyHits);
+    }
+    if id == RowId::FAPlusWindowOptions {
+        return Some(RowId::FAPlusOptions);
     }
     None
 }
@@ -135,7 +218,7 @@ pub(super) fn judgment_offsets_visible(row_map: &RowMap, active: [bool; PLAYER_S
 }
 
 #[inline(always)]
-pub(super) fn judgment_tilt_intensity_visible(
+pub(super) fn judgment_tilt_options_visible(
     row_map: &RowMap,
     active: [bool; PLAYER_SLOTS],
 ) -> bool {
@@ -171,14 +254,67 @@ pub(super) fn combo_offsets_visible(row_map: &RowMap, active: [bool; PLAYER_SLOT
     !any_active
 }
 
+pub(super) fn long_error_bar_children_visible(
+    row_map: &RowMap,
+    active: [bool; PLAYER_SLOTS],
+) -> bool {
+    let Some(row) = row_map.get(RowId::LongErrorBar) else {
+        return true;
+    };
+    let max_choice = row.choices.len().saturating_sub(1);
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        let choice_idx = row.selected_choice_index[player_idx].min(max_choice);
+        if choice_idx != 0 {
+            return true;
+        }
+    }
+    !any_active
+}
+
 pub(super) fn error_bar_children_visible(
     active: [bool; PLAYER_SLOTS],
-    error_bar_active_mask: [ErrorBarMask; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
 ) -> bool {
     let mut any_active = false;
     for player_idx in active_player_indices(active) {
         any_active = true;
-        if !error_bar_active_mask[player_idx].is_empty() {
+        if !option_masks[player_idx].error_bar.is_empty() {
+            return true;
+        }
+    }
+    !any_active
+}
+
+pub(super) fn average_error_bar_children_visible(
+    active: [bool; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
+) -> bool {
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if option_masks[player_idx]
+            .error_bar
+            .contains(ErrorBarMask::AVERAGE)
+        {
+            return true;
+        }
+    }
+    !any_active
+}
+
+pub(super) fn text_error_bar_children_visible(
+    active: [bool; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
+) -> bool {
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if option_masks[player_idx]
+            .error_bar
+            .contains(ErrorBarMask::TEXT)
+        {
             return true;
         }
     }
@@ -223,14 +359,85 @@ pub(super) fn density_graph_background_visible(
     !any_active
 }
 
+#[inline(always)]
+fn selected_choice(row_map: &RowMap, id: RowId, player_idx: usize) -> Option<usize> {
+    let row = row_map.get(id)?;
+    let max_choice = row.choices.len().saturating_sub(1);
+    Some(row.selected_choice_index[player_idx].min(max_choice))
+}
+
+pub(super) fn target_score_visible(row_map: &RowMap, active: [bool; PLAYER_SLOTS]) -> bool {
+    let has_trigger_row = row_map.get(RowId::DataVisualizations).is_some()
+        || row_map.get(RowId::MiniIndicator).is_some()
+        || row_map.get(RowId::ActionOnMissedTarget).is_some();
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if selected_choice(row_map, RowId::DataVisualizations, player_idx)
+            .and_then(|idx| DATA_VISUALIZATIONS_VARIANTS.get(idx))
+            .is_some_and(|&v| v == crate::game::profile::DataVisualizations::TargetScoreGraph)
+        {
+            return true;
+        }
+        if selected_choice(row_map, RowId::MiniIndicator, player_idx)
+            .and_then(|idx| MINI_INDICATOR_VARIANTS.get(idx))
+            .is_some_and(|&v| v == crate::game::profile::MiniIndicator::Pacemaker)
+        {
+            return true;
+        }
+        if selected_choice(row_map, RowId::ActionOnMissedTarget, player_idx)
+            .is_some_and(|idx| idx != 0)
+        {
+            return true;
+        }
+    }
+    !any_active || !has_trigger_row
+}
+
+pub(super) fn early_dw_options_visible(row_map: &RowMap, active: [bool; PLAYER_SLOTS]) -> bool {
+    if row_map.get(RowId::RescoreEarlyHits).is_none() {
+        return true;
+    }
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if selected_choice(row_map, RowId::RescoreEarlyHits, player_idx).is_some_and(|idx| idx != 0)
+        {
+            return true;
+        }
+    }
+    !any_active
+}
+
+pub(super) fn fa_plus_window_options_visible(
+    row_map: &RowMap,
+    active: [bool; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
+) -> bool {
+    if row_map.get(RowId::FAPlusOptions).is_none() {
+        return true;
+    }
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if option_masks[player_idx]
+            .fa_plus
+            .contains(FaPlusMask::WINDOW)
+        {
+            return true;
+        }
+    }
+    !any_active
+}
+
 pub(super) fn combo_rows_visible(
     active: [bool; PLAYER_SLOTS],
-    hide_active_mask: [HideMask; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
 ) -> bool {
     let mut any_active = false;
     for player_idx in active_player_indices(active) {
         any_active = true;
-        let hide_combo = hide_active_mask[player_idx].contains(HideMask::COMBO);
+        let hide_combo = option_masks[player_idx].hide.contains(HideMask::COMBO);
         if !hide_combo {
             return true;
         }
@@ -240,12 +447,12 @@ pub(super) fn combo_rows_visible(
 
 pub(super) fn lifebar_rows_visible(
     active: [bool; PLAYER_SLOTS],
-    hide_active_mask: [HideMask; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
 ) -> bool {
     let mut any_active = false;
     for player_idx in active_player_indices(active) {
         any_active = true;
-        let hide_lifebar = hide_active_mask[player_idx].contains(HideMask::LIFE);
+        let hide_lifebar = option_masks[player_idx].hide.contains(HideMask::LIFE);
         if !hide_lifebar {
             return true;
         }
@@ -254,6 +461,31 @@ pub(super) fn lifebar_rows_visible(
 }
 
 pub(super) fn indicator_score_type_visible(row_map: &RowMap, active: [bool; PLAYER_SLOTS]) -> bool {
+    mini_indicator_visible_for(row_map, active, |mode| {
+        matches!(
+            mode,
+            crate::game::profile::MiniIndicator::SubtractiveScoring
+                | crate::game::profile::MiniIndicator::PredictiveScoring
+                | crate::game::profile::MiniIndicator::PaceScoring
+        )
+    })
+}
+
+pub(super) fn mini_indicator_size_visible(row_map: &RowMap, active: [bool; PLAYER_SLOTS]) -> bool {
+    mini_indicator_visible_for(row_map, active, |mode| {
+        mode != crate::game::profile::MiniIndicator::None
+    })
+}
+
+pub(super) fn mini_indicator_color_visible(row_map: &RowMap, active: [bool; PLAYER_SLOTS]) -> bool {
+    indicator_score_type_visible(row_map, active)
+}
+
+fn mini_indicator_visible_for(
+    row_map: &RowMap,
+    active: [bool; PLAYER_SLOTS],
+    visible_for: impl Fn(crate::game::profile::MiniIndicator) -> bool,
+) -> bool {
     let Some(row) = row_map.get(RowId::MiniIndicator) else {
         return true;
     };
@@ -262,8 +494,51 @@ pub(super) fn indicator_score_type_visible(row_map: &RowMap, active: [bool; PLAY
     for player_idx in active_player_indices(active) {
         any_active = true;
         let choice_idx = row.selected_choice_index[player_idx].min(max_choice);
-        // Visible for Subtractive(1), Predictive(2), Pace(3)
-        if (1..=3).contains(&choice_idx) {
+        let Some(mode) = MINI_INDICATOR_VARIANTS.get(choice_idx).copied() else {
+            continue;
+        };
+        if visible_for(mode) {
+            return true;
+        }
+    }
+    !any_active
+}
+
+pub(super) fn live_timing_stats_visible(
+    active: [bool; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
+) -> bool {
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        if option_masks[player_idx]
+            .gameplay_extras
+            .contains(GameplayExtrasMask::LIVE_TIMING_STATS)
+        {
+            return true;
+        }
+    }
+    !any_active
+}
+
+pub(super) fn tap_explosion_options_visible(
+    row_map: &RowMap,
+    active: [bool; PLAYER_SLOTS],
+) -> bool {
+    let Some(row) = row_map.get(RowId::TapExplosionSkin) else {
+        return true;
+    };
+    let no_tap_label = tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL);
+    let max_choice = row.choices.len().saturating_sub(1);
+    let mut any_active = false;
+    for player_idx in active_player_indices(active) {
+        any_active = true;
+        let choice_idx = row.selected_choice_index[player_idx].min(max_choice);
+        if row
+            .choices
+            .get(choice_idx)
+            .is_some_and(|choice| choice.as_str() != no_tap_label.as_ref())
+        {
             return true;
         }
     }
@@ -274,22 +549,31 @@ pub(super) fn indicator_score_type_visible(row_map: &RowMap, active: [bool; PLAY
 pub(super) fn row_visibility(
     row_map: &RowMap,
     active: [bool; PLAYER_SLOTS],
-    hide_active_mask: [HideMask; PLAYER_SLOTS],
-    error_bar_active_mask: [ErrorBarMask; PLAYER_SLOTS],
+    option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
     allow_per_player_global_offsets: bool,
 ) -> RowVisibility {
     RowVisibility {
         show_measure_counter_children: measure_counter_children_visible(row_map, active),
         show_judgment_offsets: judgment_offsets_visible(row_map, active),
-        show_judgment_tilt_intensity: judgment_tilt_intensity_visible(row_map, active),
+        show_judgment_tilt_options: judgment_tilt_options_visible(row_map, active),
         show_combo_offsets: combo_offsets_visible(row_map, active),
-        show_error_bar_children: error_bar_children_visible(active, error_bar_active_mask),
+        show_error_bar_children: error_bar_children_visible(active, option_masks),
+        show_text_error_bar_children: text_error_bar_children_visible(active, option_masks),
+        show_average_error_bar_children: average_error_bar_children_visible(active, option_masks),
+        show_long_error_bar_children: long_error_bar_children_visible(row_map, active),
         show_custom_fantastic_window_ms: custom_fantastic_window_ms_visible(row_map, active),
         show_density_graph_background: density_graph_background_visible(row_map, active),
-        show_combo_rows: combo_rows_visible(active, hide_active_mask),
-        show_lifebar_rows: lifebar_rows_visible(active, hide_active_mask),
+        show_target_score: target_score_visible(row_map, active),
+        show_early_dw_options: early_dw_options_visible(row_map, active),
+        show_fa_plus_window_options: fa_plus_window_options_visible(row_map, active, option_masks),
+        show_combo_rows: combo_rows_visible(active, option_masks),
+        show_lifebar_rows: lifebar_rows_visible(active, option_masks),
         show_indicator_score_type: indicator_score_type_visible(row_map, active),
+        show_mini_indicator_size: mini_indicator_size_visible(row_map, active),
+        show_mini_indicator_color: mini_indicator_color_visible(row_map, active),
+        show_live_timing_stats: live_timing_stats_visible(active, option_masks),
         show_global_offset_shift: allow_per_player_global_offsets,
+        show_tap_explosion_options: tap_explosion_options_visible(row_map, active),
     }
 }
 
@@ -355,6 +639,7 @@ pub(super) fn next_visible_row(
     current_row: usize,
     dir: NavDirection,
     visibility: RowVisibility,
+    wrap: NavWrap,
 ) -> Option<usize> {
     if row_map.display_order().is_empty() {
         return None;
@@ -366,8 +651,26 @@ pub(super) fn next_visible_row(
     }
     for _ in 0..len {
         idx = match dir {
-            NavDirection::Up => (idx + len - 1) % len,
-            NavDirection::Down => (idx + 1) % len,
+            NavDirection::Up => {
+                if idx == 0 {
+                    match wrap {
+                        NavWrap::Wrap => len - 1,
+                        NavWrap::Clamp => return None,
+                    }
+                } else {
+                    idx - 1
+                }
+            }
+            NavDirection::Down => {
+                if idx + 1 >= len {
+                    match wrap {
+                        NavWrap::Wrap => 0,
+                        NavWrap::Clamp => return None,
+                    }
+                } else {
+                    idx + 1
+                }
+            }
             NavDirection::Left | NavDirection::Right => return Some(idx),
         };
         if is_row_visible(row_map, idx, visibility) {
@@ -390,6 +693,16 @@ pub(super) fn parent_anchor_visible_index(
         .map(|idx| idx as i32)
 }
 
+pub(super) fn hidden_row_anchor_visible_index(
+    row_map: &RowMap,
+    row_idx: usize,
+    visibility: RowVisibility,
+) -> Option<i32> {
+    let row = row_map.get_at(row_idx)?;
+    let parent_id = conditional_row_parent(row.id)?;
+    parent_anchor_visible_index(row_map, parent_id, visibility)
+}
+
 pub(super) fn sync_selected_rows_with_visibility(state: &mut State, active: [bool; PLAYER_SLOTS]) {
     if state.pane().row_map.is_empty() {
         state.pane_mut().selected_row = [0; PLAYER_SLOTS];
@@ -399,8 +712,7 @@ pub(super) fn sync_selected_rows_with_visibility(state: &mut State, active: [boo
     let visibility = row_visibility(
         &state.pane().row_map,
         active,
-        state.hide_active_mask,
-        state.error_bar_active_mask,
+        state.option_masks,
         state.allow_per_player_global_offsets,
     );
     for player_idx in [P1, P2] {

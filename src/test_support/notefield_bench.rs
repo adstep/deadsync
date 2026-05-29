@@ -50,14 +50,20 @@ impl NotefieldBenchFixture {
                 cache.borrow_mut().clear();
             }
         }
-        notefield::build(
+        let mut actors = Vec::new();
+        let mut hud_actors = Vec::new();
+        notefield::build_bundles(
             &self.state,
             &self.profile,
             FieldPlacement::P1,
             profile::PlayStyle::Single,
             false,
-        )
-        .0
+            notefield::ProxyCaptureRequests::default(),
+            notefield::ViewOverride::default(),
+            &mut actors,
+            &mut hud_actors,
+        );
+        actors
     }
 }
 
@@ -100,6 +106,7 @@ pub fn fixture() -> NotefieldBenchFixture {
         None,
         None,
         Arc::from("BENCH"),
+        None,
         None,
         None,
         None,
@@ -178,7 +185,8 @@ fn prime_visible_window(state: &mut gameplay::State) {
     }
 
     state.tap_explosions[0] = Some(ActiveTapExplosion {
-        window: "W1".to_string(),
+        window: "W1",
+        bright: false,
         elapsed: 0.08,
         start_beat: beat,
     });
@@ -218,6 +226,8 @@ fn prime_visible_window(state: &mut gameplay::State) {
     state.players[0].error_bar_text = Some(ErrorBarText {
         started_at: state.total_elapsed_in_screen - 0.05,
         early: true,
+        offset_ms: 12.0,
+        scaled: false,
     });
     state.players[0].last_judgment = None;
 }
@@ -235,6 +245,8 @@ fn bench_song() -> SongData {
         banner_path: None,
         background_path: None,
         background_changes: Vec::new(),
+        foreground_changes: Vec::new(),
+        background_lua_changes: Vec::new(),
         foreground_lua_changes: Vec::new(),
         has_lua: false,
         cdtitle_path: None,
@@ -343,6 +355,7 @@ fn bench_chart_bundle() -> (GameplayChartData, u32, u32, u32, u32) {
         speeds: Vec::new(),
         scrolls: Vec::new(),
         fakes: Vec::new(),
+        ..TimingSegments::default()
     };
     let timing = TimingData::from_segments(0.0, 0.0, &timing_segments, &row_to_beat);
     let holds = parsed_notes

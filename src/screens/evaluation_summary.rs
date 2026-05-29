@@ -1,6 +1,7 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::{tr, tr_fmt};
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::{Actor, SizeSpec};
 use crate::engine::present::color;
@@ -14,7 +15,9 @@ use crate::screens::components::evaluation::eval_grades;
 use crate::screens::components::shared::screen_bar::{
     ScreenBarParams, ScreenBarPosition, ScreenBarTitlePlacement,
 };
-use crate::screens::components::shared::{banner as shared_banner, heart_bg, screen_bar};
+use crate::screens::components::shared::{
+    banner as shared_banner, screen_bar, transitions, visual_style_bg,
+};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use chrono::Local;
@@ -29,7 +32,7 @@ const ROWS_PER_PAGE: usize = 4;
 
 pub struct State {
     pub active_color_index: i32,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     pub page: usize,
     pub elapsed: f32,
     pub return_to: Screen,
@@ -44,7 +47,7 @@ pub fn init() -> State {
 pub fn init_for_return(return_to: Screen) -> State {
     State {
         active_color_index: color::DEFAULT_COLOR_INDEX,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         page: 1,
         elapsed: 0.0,
         return_to,
@@ -304,7 +307,7 @@ fn build_player_stats(
         (0.5, -24.0)
     };
     let mut percent_actor = act!(text:
-        font("wendy"):
+        font(current_machine_font_key(FontRole::Header)):
         settext(percent_text):
         align(align1_x, 0.5):
         xy(col1x, percent_y):
@@ -323,7 +326,7 @@ fn build_player_stats(
         let ex_text = format!("{:.2}", p.ex_score_percent.max(0.0));
         let (ex_zoom, ex_y) = if showex { (0.48, -32.0) } else { (0.38, -12.0) };
         let mut ex_actor = act!(text:
-            font("wendy"):
+            font(current_machine_font_key(FontRole::Header)):
             settext(ex_text):
             align(align1_x, 0.5):
             xy(col1x, ex_y):
@@ -366,7 +369,7 @@ fn build_player_stats(
         let diff_color = color::difficulty_rgba(&p.chart.difficulty, active_color_index);
         let (meter_zoom, meter_y) = if show_w0 { (0.3, 5.0) } else { (0.4, -1.0) };
         let mut a = act!(text:
-            font("wendy"):
+            font(current_machine_font_key(FontRole::Header)):
             settext(p.chart.meter.to_string()):
             align(align1_x, 0.5):
             xy(col1x, meter_y):
@@ -406,6 +409,7 @@ fn build_player_stats(
             z: 4,
             zoom: widescale(0.275, 0.3),
             elapsed,
+            ..Default::default()
         },
     ));
 
@@ -439,7 +443,7 @@ fn build_player_stats(
         };
 
         let mut a = act!(text:
-            font("wendy"):
+            font(current_machine_font_key(FontRole::Header)):
             settext(count.to_string()):
             align(align2_x, 0.5):
             xy(col2x, y):
@@ -578,7 +582,7 @@ pub fn get_actors(
     let mut actors: Vec<Actor> = Vec::with_capacity(32);
 
     // Background
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -601,7 +605,7 @@ pub fn get_actors(
 
     if stages.is_empty() {
         actors.push(act!(text:
-            font("wendy"):
+            font(current_machine_font_key(FontRole::Header)):
             settext(tr("EvaluationSummary", "NoStageDataAvailable")):
             align(0.5, 0.5):
             xy(screen_center_x(), screen_height() * 0.5):
@@ -618,7 +622,7 @@ pub fn get_actors(
 
     // Centered "Page x/y"
     actors.push(act!(text:
-        font("wendy"):
+        font(current_machine_font_key(FontRole::Header)):
         settext(tr_fmt("EvaluationSummary", "PageFormat", &[("page", &page.to_string()), ("pages", &pages.to_string())])):
         align(0.5, 0.5):
         xy(screen_center_x(), 15.0):
@@ -632,7 +636,7 @@ pub fn get_actors(
     {
         let itg_text_x = screen_width() - 10.0;
         actors.push(act!(text:
-                font("wendy"):
+                font(current_machine_font_key(FontRole::Header)):
                 settext(tr("EvaluationSummary", "ITGLabel")):
                 align(1.0, 0.5):
             xy(itg_text_x, 15.0):
@@ -711,7 +715,7 @@ pub fn get_actors(
 
         let timestamp_text = Local::now().format("%Y/%m/%d %H:%M").to_string();
         actors.push(act!(text:
-            font("wendy_monospace_numbers"):
+            font(current_machine_font_key(FontRole::Numbers)):
             settext(timestamp_text):
             align(0.5, 1.0):
             xy(screen_center_x(), screen_height() - 14.0):
@@ -725,22 +729,9 @@ pub fn get_actors(
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0): z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0): z(1100):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1100)
 }

@@ -1,19 +1,25 @@
 mod backends;
 pub(crate) mod decode;
+pub mod folder;
+pub mod replaygain;
 mod resample;
 
 use crate::config::dirs;
-use crate::engine::host_time::instant_nanos;
+use crate::engine::host_time::{instant_nanos, now_nanos};
 #[cfg(windows)]
 use crate::engine::windows_rt::current_qpc_nanos;
 use log::{debug, info, warn};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Instant;
+
+const MAX_ACTIVE_SFX: usize = 32;
+const SFX_QUEUE_CAP: usize = 128;
+const ASSIST_TICK_SFX_PATH: &str = "assets/sounds/assist_tick.ogg";
 
 /* ============================== Public API ============================== */
 
@@ -60,18 +66,19 @@ struct OutputDeviceProbe {
 #[derive(Clone, Copy, Debug)]
 enum SfxLane {
     Effect,
+    Screen,
     AssistTick,
 }
 
 #[derive(Clone)]
 struct QueuedSfx {
-    data: Arc<Vec<i16>>,
+    data: Arc<[i16]>,
     lane: SfxLane,
+    stop_generation: u64,
 }
 
 // Commands to the audio engine
 enum AudioCommand {
-    PlaySfx(QueuedSfx),
     // Path, cut, looping, rate (1.0 = normal)
     PlayMusic(PathBuf, Cut, bool, f32),
     StopMusic,
@@ -83,10 +90,12 @@ enum AudioCommand {
 static ENGINE_INIT_CFG: OnceLock<InitConfig> = OnceLock::new();
 static ENGINE: std::sync::LazyLock<AudioEngine> =
     std::sync::LazyLock::new(|| init_engine_and_thread(engine_init_cfg()));
+static ASSIST_TICK_SFX: OnceLock<Arc<[i16]>> = OnceLock::new();
 
 struct AudioEngine {
     command_sender: Sender<AudioCommand>,
-    sfx_cache: Mutex<HashMap<String, Arc<Vec<i16>>>>,
+    sfx_sender: SyncSender<QueuedSfx>,
+    sfx_cache: Mutex<HashMap<String, Arc<[i16]>>>,
     device_sample_rate: u32,
     device_channels: usize,
     startup_output_devices: Vec<OutputDeviceInfo>,
@@ -195,6 +204,11 @@ struct OutputBackendReady {
     fallback_from_native: bool,
     timing_clock: OutputTelemetryClock,
     timing_quality: OutputTimingQuality,
+}
+
+struct AudioThreadReady {
+    backend_ready: OutputBackendReady,
+    sfx_sender: SyncSender<QueuedSfx>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -571,7 +585,28 @@ static MUSIC_TOTAL_FRAMES: AtomicU64 = AtomicU64::new(0);
 static MUSIC_TRACK_START_FRAME: AtomicU64 = AtomicU64::new(0);
 static MUSIC_TRACK_HAS_STARTED: AtomicBool = AtomicBool::new(false);
 static MUSIC_TRACK_ACTIVE: AtomicBool = AtomicBool::new(false);
+// Song-time fallback for the current/pending music stream. The precise
+// packet map is published by the audio callback, but gameplay can query the
+// clock before the first mapped packet has been consumed.
+static MUSIC_CLOCK_SEEDED: AtomicBool = AtomicBool::new(false);
+static MUSIC_CLOCK_CUT_START_BITS: AtomicU64 = AtomicU64::new(0.0f64.to_bits());
+static MUSIC_CLOCK_RATE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+// Per-play monotonic id used to associate asynchronous ReplayGain results
+// with the track that requested them. `set_music_replaygain_if_matches` is
+// a no-op if the id no longer matches the active track, preventing a stale
+// gain value from being applied to a different song.
+static MUSIC_TRACK_ID: AtomicU64 = AtomicU64::new(0);
+// Target linear gain for the music stream. The mixer interpolates its
+// own `current_gain` toward this target across ~80 ms (RAMP_FRAMES at the
+// device sample rate) so cache-miss → cache-hit transitions don't produce
+// an audible step. Default 1.0.
+static MUSIC_TARGET_GAIN_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+// Generation counter incremented whenever a track boundary (play / stop)
+// should snap the mixer's interpolated gain to its target instantly,
+// rather than ramping across the boundary.
+static MUSIC_GAIN_SNAP_GEN: AtomicU64 = AtomicU64::new(0);
 static MUSIC_MAP_GEN: AtomicU64 = AtomicU64::new(1);
+static SCREEN_SFX_STOP_GEN: AtomicU64 = AtomicU64::new(0);
 
 // Last audio callback timing, used to interpolate the playback position
 // between callback invocations so that the reported stream time is
@@ -585,7 +620,6 @@ static LAST_CALLBACK_FRAMES: AtomicU64 = AtomicU64::new(0);
 static PREV_CALLBACK_ELAPSED_NANOS: AtomicU64 = AtomicU64::new(0);
 static PREV_CALLBACK_BASE_FRAMES: AtomicU64 = AtomicU64::new(0);
 static PREV_CALLBACK_FRAMES: AtomicU64 = AtomicU64::new(0);
-static AUDIO_TIMING_DIAG_ENABLED: OnceLock<bool> = OnceLock::new();
 static AUDIO_TIMING_DIAG_LAST_SOURCE: AtomicU8 = AtomicU8::new(0);
 static AUDIO_TIMING_DIAG_LAST_NANOS: AtomicU64 = AtomicU64::new(0);
 static AUDIO_TIMING_DIAG_LAST_GAP_NS: AtomicU64 = AtomicU64::new(0);
@@ -619,6 +653,70 @@ fn music_nanos_from_seconds(seconds: f64) -> i64 {
     }
     let nanos = (seconds * NANOS_PER_SECOND).round();
     nanos.clamp(i64::MIN as f64, i64::MAX as f64) as i64
+}
+
+#[inline(always)]
+fn normalized_music_rate(rate: f32) -> f32 {
+    if rate.is_finite() && rate > 0.0 {
+        rate
+    } else {
+        1.0
+    }
+}
+
+#[inline(always)]
+fn fallback_music_position(stream_seconds: f32, cut_start_sec: f64, rate: f32) -> (f32, f32) {
+    let rate = normalized_music_rate(rate);
+    let stream_seconds = if stream_seconds.is_finite() {
+        stream_seconds.max(0.0)
+    } else {
+        0.0
+    };
+    let cut_start_sec = if cut_start_sec.is_finite() {
+        cut_start_sec
+    } else {
+        0.0
+    };
+    if cut_start_sec < 0.0 {
+        let lead_in = (-cut_start_sec) as f32;
+        if stream_seconds < lead_in {
+            return ((cut_start_sec + f64::from(stream_seconds)) as f32, 1.0);
+        }
+        return ((stream_seconds - lead_in) * rate, rate);
+    }
+    (
+        (cut_start_sec + f64::from(stream_seconds * rate)) as f32,
+        rate,
+    )
+}
+
+#[inline(always)]
+fn music_clock_seed_enabled(cut_start_sec: f64) -> bool {
+    cut_start_sec.is_finite() && cut_start_sec > 0.0
+}
+
+#[inline(always)]
+fn seed_music_stream_clock(cut: Cut, rate: f32) {
+    MUSIC_CLOCK_CUT_START_BITS.store(cut.start_sec.to_bits(), Ordering::Relaxed);
+    MUSIC_CLOCK_RATE_BITS.store(normalized_music_rate(rate).to_bits(), Ordering::Relaxed);
+    MUSIC_CLOCK_SEEDED.store(music_clock_seed_enabled(cut.start_sec), Ordering::Release);
+}
+
+#[inline(always)]
+fn clear_music_stream_clock_seed() {
+    MUSIC_CLOCK_CUT_START_BITS.store(0.0f64.to_bits(), Ordering::Relaxed);
+    MUSIC_CLOCK_RATE_BITS.store(1.0f32.to_bits(), Ordering::Relaxed);
+    MUSIC_CLOCK_SEEDED.store(false, Ordering::Release);
+}
+
+#[inline(always)]
+fn seeded_music_position(stream_seconds: f32) -> Option<(f32, f32)> {
+    if !MUSIC_CLOCK_SEEDED.load(Ordering::Acquire) {
+        return None;
+    }
+    let cut_start_sec = f64::from_bits(MUSIC_CLOCK_CUT_START_BITS.load(Ordering::Relaxed));
+    let rate = f32::from_bits(MUSIC_CLOCK_RATE_BITS.load(Ordering::Relaxed));
+    Some(fallback_music_position(stream_seconds, cut_start_sec, rate))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -655,17 +753,7 @@ impl CallbackClockSource {
 
 #[inline(always)]
 pub(crate) fn timing_diag_enabled() -> bool {
-    *AUDIO_TIMING_DIAG_ENABLED.get_or_init(|| {
-        let Ok(value) = std::env::var("DEADSYNC_AUDIO_TIMING_DIAG") else {
-            return false;
-        };
-        let value = value.trim();
-        !(value.is_empty()
-            || value == "0"
-            || value.eq_ignore_ascii_case("false")
-            || value.eq_ignore_ascii_case("off")
-            || value.eq_ignore_ascii_case("no"))
-    })
+    log::log_enabled!(log::Level::Debug)
 }
 
 #[inline(always)]
@@ -784,7 +872,7 @@ fn note_timing_diag_callback_gap(anchor_nanos: u64, source: CallbackClockSource)
         if stutter_diag && gap_ns >= stutter_diag_callback_gap_threshold_ns() {
             record_stutter_diag_event(
                 StutterDiagAudioEventKind::CallbackGap,
-                anchor_nanos,
+                now_nanos(),
                 gap_ns,
                 OutputTimingQuality::load(),
             );
@@ -851,11 +939,18 @@ impl PlaybackPosMap {
 
     fn cleanup(&mut self) {
         while self.backlog_frames > MUSIC_POS_MAP_BACKLOG_FRAMES {
-            if let Some(front) = self.queue.pop_front() {
-                self.backlog_frames = self.backlog_frames.saturating_sub(front.frames);
-            } else {
+            let Some(front) = self.queue.front_mut() else {
                 self.backlog_frames = 0;
                 break;
+            };
+            let excess = self.backlog_frames - MUSIC_POS_MAP_BACKLOG_FRAMES;
+            let drop = excess.min(front.frames);
+            front.stream_frame_start += drop;
+            front.music_start_sec += front.music_sec_per_frame * drop as f64;
+            front.frames -= drop;
+            self.backlog_frames -= drop;
+            if front.frames <= 0 {
+                self.queue.pop_front();
             }
         }
     }
@@ -962,60 +1057,154 @@ pub fn play_sfx(path: &str) {
     play_sfx_on_lane(path, SfxLane::Effect);
 }
 
+/// Plays a screen-owned sound effect that can be stopped on screen exit.
+pub fn play_screen_sfx(path: &str) {
+    play_sfx_on_lane(path, SfxLane::Screen);
+}
+
+/// Plays a sound effect only if it was already preloaded.
+pub fn play_preloaded_sfx(path: &str) {
+    play_preloaded_sfx_on_lane(path, SfxLane::Effect);
+}
+
+/// Stops active and queued screen-owned sound effects.
+pub fn stop_screen_sfx() {
+    SCREEN_SFX_STOP_GEN.fetch_add(1, Ordering::AcqRel);
+}
+
 /// Plays a gameplay assist tick that uses its own volume lane.
 pub fn play_assist_tick(path: &str) {
+    if path == ASSIST_TICK_SFX_PATH
+        && let Some(sound_data) = ASSIST_TICK_SFX.get().cloned()
+    {
+        let _ = ENGINE.sfx_sender.try_send(QueuedSfx {
+            data: sound_data,
+            lane: SfxLane::AssistTick,
+            stop_generation: 0,
+        });
+        return;
+    }
     play_sfx_on_lane(path, SfxLane::AssistTick);
 }
 
-fn play_sfx_on_lane(path: &str, lane: SfxLane) {
+/// Plays a preloaded gameplay assist tick without decoding on miss.
+pub fn play_preloaded_assist_tick(path: &str) {
+    if path == ASSIST_TICK_SFX_PATH
+        && let Some(sound_data) = ASSIST_TICK_SFX.get().cloned()
+    {
+        let _ = ENGINE.sfx_sender.try_send(QueuedSfx {
+            data: sound_data,
+            lane: SfxLane::AssistTick,
+            stop_generation: 0,
+        });
+        return;
+    }
+    play_preloaded_sfx_on_lane(path, SfxLane::AssistTick);
+}
+
+#[inline(always)]
+fn sfx_stop_generation(lane: SfxLane) -> u64 {
+    match lane {
+        SfxLane::Screen => SCREEN_SFX_STOP_GEN.load(Ordering::Acquire),
+        SfxLane::Effect | SfxLane::AssistTick => 0,
+    }
+}
+
+#[inline(always)]
+fn sfx_is_stale(lane: SfxLane, stop_generation: u64) -> bool {
+    matches!(lane, SfxLane::Screen)
+        && stop_generation != SCREEN_SFX_STOP_GEN.load(Ordering::Acquire)
+}
+
+fn play_cached_sfx_on_lane(path: &str, lane: SfxLane) -> bool {
     #[cfg(test)]
     if !is_initialized() {
+        return true;
+    }
+
+    let cached = { ENGINE.sfx_cache.lock().unwrap().get(path).cloned() };
+    if let Some(sound_data) = cached {
+        let _ = ENGINE.sfx_sender.try_send(QueuedSfx {
+            data: sound_data,
+            lane,
+            stop_generation: sfx_stop_generation(lane),
+        });
+        return true;
+    }
+    false
+}
+
+fn play_preloaded_sfx_on_lane(path: &str, lane: SfxLane) {
+    if !play_cached_sfx_on_lane(path, lane) {
+        warn!("Preloaded SFX cache miss for '{path}'; skipping synchronous decode");
+    }
+}
+
+fn play_sfx_on_lane(path: &str, lane: SfxLane) {
+    if play_cached_sfx_on_lane(path, lane) {
         return;
     }
 
-    let sound_data = {
-        let mut cache = ENGINE.sfx_cache.lock().unwrap();
-        if let Some(data) = cache.get(path) {
-            data.clone()
-        } else {
-            let resolved = dirs::app_dirs().resolve_asset_path(path);
-            let resolved_str = resolved.to_string_lossy();
-            match resample::load_and_resample_sfx(&resolved_str) {
-                Ok(data) => {
-                    cache.insert(path.to_string(), data.clone());
-                    debug!("Cached SFX: {path}");
-                    data
-                }
-                Err(e) => {
-                    warn!("Failed to load SFX '{path}': {e}");
-                    return;
-                }
-            }
+    let resolved = dirs::app_dirs().resolve_asset_path(path);
+    let resolved_str = resolved.to_string_lossy();
+    let decoded = match resample::load_and_resample_sfx(&resolved_str) {
+        Ok(data) => data,
+        Err(e) => {
+            warn!("Failed to load SFX '{path}': {e}");
+            return;
         }
     };
-    let queued = QueuedSfx {
+
+    let sound_data = {
+        let mut cache = ENGINE.sfx_cache.lock().unwrap();
+        cache
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                debug!("Cached SFX: {path}");
+                decoded
+            })
+            .clone()
+    };
+    cache_assist_tick(path, sound_data.clone());
+    let _ = ENGINE.sfx_sender.try_send(QueuedSfx {
         data: sound_data,
         lane,
-    };
-    let _ = ENGINE.command_sender.send(AudioCommand::PlaySfx(queued));
+        stop_generation: sfx_stop_generation(lane),
+    });
 }
 
 /// Preloads a sound effect into cache without playing it.
 pub fn preload_sfx(path: &str) {
-    let mut cache = ENGINE.sfx_cache.lock().unwrap();
-    if cache.contains_key(path) {
+    let cached = { ENGINE.sfx_cache.lock().unwrap().get(path).cloned() };
+    if let Some(data) = cached {
+        cache_assist_tick(path, data);
         return;
     }
+
     let resolved = dirs::app_dirs().resolve_asset_path(path);
     let resolved_str = resolved.to_string_lossy();
-    match resample::load_and_resample_sfx(&resolved_str) {
-        Ok(data) => {
-            cache.insert(path.to_string(), data);
-            debug!("Cached SFX: {path}");
-        }
+    let decoded = match resample::load_and_resample_sfx(&resolved_str) {
+        Ok(data) => data,
         Err(e) => {
             warn!("Failed to preload SFX '{path}': {e}");
+            return;
         }
+    };
+
+    let mut cache = ENGINE.sfx_cache.lock().unwrap();
+    let data = cache
+        .entry(path.to_string())
+        .or_insert_with(|| {
+            debug!("Cached SFX: {path}");
+            decoded
+        })
+        .clone();
+    cache_assist_tick(path, data);
+}
+
+fn cache_assist_tick(path: &str, data: Arc<[i16]>) {
+    if path == ASSIST_TICK_SFX_PATH {
+        let _ = ASSIST_TICK_SFX.set(data);
     }
 }
 
@@ -1035,6 +1224,7 @@ fn reset_music_stream_clock() {
     MUSIC_TRACK_START_FRAME.store(total, Ordering::Release);
     MUSIC_TRACK_HAS_STARTED.store(false, Ordering::Release);
     MUSIC_TRACK_ACTIVE.store(false, Ordering::Release);
+    clear_music_stream_clock_seed();
     clear_music_pos_map();
 }
 
@@ -1073,8 +1263,36 @@ fn i16_to_f32(sample: i16) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CallbackClockWindow, MusicMapSeg, PlaybackPosMap, stream_position_frames_from_window,
+        CallbackClockWindow, MUSIC_POS_MAP_BACKLOG_FRAMES, MusicMapSeg, PlaybackPosMap,
+        fallback_music_position, music_clock_seed_enabled, stream_position_frames_from_window,
     };
+
+    #[test]
+    fn fallback_music_position_uses_positive_cut_origin() {
+        let (music_sec, slope) = fallback_music_position(0.25, 37.5, 1.5);
+
+        assert!((music_sec - 37.875).abs() <= 0.000_01);
+        assert!((slope - 1.5).abs() <= 0.000_01);
+    }
+
+    #[test]
+    fn fallback_music_position_keeps_negative_lead_in_unscaled() {
+        let (lead_music_sec, lead_slope) = fallback_music_position(0.75, -1.0, 2.0);
+        let (song_music_sec, song_slope) = fallback_music_position(1.25, -1.0, 2.0);
+
+        assert!((lead_music_sec - -0.25).abs() <= 0.000_01);
+        assert!((lead_slope - 1.0).abs() <= 0.000_01);
+        assert!((song_music_sec - 0.5).abs() <= 0.000_01);
+        assert!((song_slope - 2.0).abs() <= 0.000_01);
+    }
+
+    #[test]
+    fn music_clock_seed_is_only_for_positive_cuts() {
+        assert!(music_clock_seed_enabled(0.001));
+        assert!(!music_clock_seed_enabled(0.0));
+        assert!(!music_clock_seed_enabled(-1.0));
+        assert!(!music_clock_seed_enabled(f64::NAN));
+    }
 
     #[test]
     fn playback_pos_map_extrapolates_past_last_segment() {
@@ -1092,6 +1310,32 @@ mod tests {
             (sec_per_frame - (1.0 / 48_000.0)).abs() <= 1e-12,
             "sec_per_frame={sec_per_frame}"
         );
+    }
+
+    #[test]
+    fn playback_pos_map_trims_large_segment_without_emptying() {
+        let mut map = PlaybackPosMap::default();
+        map.insert(MusicMapSeg {
+            stream_frame_start: 0,
+            frames: 48_000,
+            music_start_sec: 0.0,
+            music_sec_per_frame: 1.0 / 48_000.0,
+        });
+        map.insert(MusicMapSeg {
+            stream_frame_start: 48_000,
+            frames: 48_000,
+            music_start_sec: 1.0,
+            music_sec_per_frame: 1.0 / 48_000.0,
+        });
+
+        assert_eq!(map.backlog_frames, MUSIC_POS_MAP_BACKLOG_FRAMES);
+        assert_eq!(map.queue.len(), 1);
+        let seg = map.queue.front().unwrap();
+        assert_eq!(seg.stream_frame_start, 16_000);
+        assert_eq!(seg.frames, MUSIC_POS_MAP_BACKLOG_FRAMES);
+
+        let (music_sec, _) = map.search(95_000.0).unwrap();
+        assert!((music_sec - (95_000.0 / 48_000.0)).abs() <= 1e-9);
     }
 
     #[test]
@@ -1297,16 +1541,11 @@ fn stream_position_frames_from_window(
     window.total_frames.saturating_sub(start_frame) as f64
 }
 
-fn drain_played_music_map_segments() {
+fn lookup_music_position(stream_frames: f64, sample_rate: u32) -> Option<(f32, f32)> {
     let mut map = PLAYBACK_POS_MAP.lock().unwrap();
     while let Some(seg) = internal::music_seg_ring_pop(&PLAYED_MUSIC_MAP_SEGS) {
         map.insert(seg);
     }
-}
-
-fn lookup_music_position(stream_frames: f64, sample_rate: u32) -> Option<(f32, f32)> {
-    drain_played_music_map_segments();
-    let map = PLAYBACK_POS_MAP.lock().unwrap();
     map.search(stream_frames).map(|(music_sec, sec_per_frame)| {
         (
             music_sec as f32,
@@ -1317,30 +1556,73 @@ fn lookup_music_position(stream_frames: f64, sample_rate: u32) -> Option<(f32, f
 
 /// Plays a music track from a file path.
 pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
-    let rate = if rate.is_finite() && rate > 0.0 {
-        rate
+    let rate = normalized_music_rate(rate);
+    reset_music_stream_clock();
+    seed_music_stream_clock(cut, rate);
+
+    // Resolve a per-play track id and decide on the initial ReplayGain
+    // value. If the user has the experimental ReplayGain setting on, and we
+    // already have a cached/computed value, apply it immediately; otherwise
+    // queue a background analysis job. If the setting is off, force unity
+    // gain so a previous track's value doesn't leak forward.
+    let track_id = MUSIC_TRACK_ID
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1);
+    let initial_gain: f32 = if crate::config::get().enable_replaygain {
+        replaygain::get_or_queue_gain_linear(&path, track_id).unwrap_or(1.0)
     } else {
         1.0
     };
-    reset_music_stream_clock();
+    MUSIC_TARGET_GAIN_BITS.store(initial_gain.to_bits(), Ordering::Relaxed);
+    // Snap to the new target at the track boundary so the previous track's
+    // gain doesn't audibly bleed into the start of this one.
+    MUSIC_GAIN_SNAP_GEN.fetch_add(1, Ordering::Release);
+
     let _ = ENGINE
         .command_sender
         .send(AudioCommand::PlayMusic(path, cut, looping, rate));
 }
 
+/// Applies a ReplayGain result from the background analyzer, but only if it
+/// still corresponds to the currently active music track. Called by
+/// [`replaygain`]; safe to call from any thread.
+pub fn set_music_replaygain_if_matches(track_id: u64, gain_linear: f32) {
+    let active_id = MUSIC_TRACK_ID.load(Ordering::Acquire);
+    if active_id != track_id {
+        return;
+    }
+    if !MUSIC_TRACK_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let gain = if gain_linear.is_finite() && gain_linear > 0.0 {
+        gain_linear
+    } else {
+        1.0
+    };
+    MUSIC_TARGET_GAIN_BITS.store(gain.to_bits(), Ordering::Relaxed);
+}
+
+/// Called from the config layer when the user toggles the ReplayGain
+/// setting. When disabled, forces unity gain immediately so the change is
+/// audible without requiring track restart.
+pub fn on_replaygain_setting_changed(enabled: bool) {
+    if !enabled {
+        MUSIC_TARGET_GAIN_BITS.store(1.0f32.to_bits(), Ordering::Relaxed);
+    }
+}
+
 /// Stops the currently playing music track.
 pub fn stop_music() {
     reset_music_stream_clock();
+    MUSIC_TARGET_GAIN_BITS.store(1.0f32.to_bits(), Ordering::Relaxed);
+    MUSIC_GAIN_SNAP_GEN.fetch_add(1, Ordering::Release);
     let _ = ENGINE.command_sender.send(AudioCommand::StopMusic);
 }
 
 /// Adjusts the playback rate for the current music stream, if any.
 pub fn set_music_rate(rate: f32) {
-    let rate = if rate.is_finite() && rate > 0.0 {
-        rate
-    } else {
-        1.0
-    };
+    let rate = normalized_music_rate(rate);
+    MUSIC_CLOCK_RATE_BITS.store(rate.to_bits(), Ordering::Relaxed);
     let _ = ENGINE.command_sender.send(AudioCommand::SetMusicRate(rate));
 }
 
@@ -1368,7 +1650,10 @@ fn music_stream_clock_snapshot_at_nanos(
     let (music_seconds, music_seconds_per_second, has_music_mapping) =
         match lookup_music_position(stream_frames, sample_rate) {
             Some((music_seconds, slope)) => (music_seconds, slope, true),
-            None => (stream_seconds, 1.0, false),
+            None => match seeded_music_position(stream_seconds) {
+                Some((music_seconds, slope)) => (music_seconds, slope, true),
+                None => (stream_seconds, 1.0, false),
+            },
         };
     MusicStreamClockSnapshot {
         stream_seconds,
@@ -1388,33 +1673,22 @@ fn music_stream_clock_snapshot_at_nanos(
     }
 }
 
-#[inline(always)]
-fn music_stream_clock_snapshot_at_host_nanos(host_nanos: u64) -> Option<MusicStreamClockSnapshot> {
-    if host_nanos == 0 || !MUSIC_TRACK_HAS_STARTED.load(Ordering::Acquire) {
-        return None;
-    }
-    let sample_rate = ENGINE.device_sample_rate.max(1);
-    let start = MUSIC_TRACK_START_FRAME.load(Ordering::Acquire);
-    let (valid_at, _, source, window) = load_callback_clock_snapshot_now();
-    #[cfg(windows)]
-    if !matches!(source, CallbackClockSource::Qpc) {
-        return None;
-    }
-    Some(music_stream_clock_snapshot_at_nanos(
-        sample_rate,
-        start,
-        valid_at,
-        host_nanos,
-        source,
-        window,
-    ))
-}
-
 /// Returns the current stream position and the `Instant` it is valid for.
 pub fn get_music_stream_clock_snapshot() -> MusicStreamClockSnapshot {
     let sample_rate = ENGINE.device_sample_rate.max(1);
     let has_started = MUSIC_TRACK_HAS_STARTED.load(Ordering::Acquire);
     if !has_started {
+        if let Some((music_seconds, slope)) = seeded_music_position(0.0) {
+            return MusicStreamClockSnapshot {
+                stream_seconds: 0.0,
+                music_seconds,
+                music_nanos: music_nanos_from_seconds(f64::from(music_seconds)),
+                music_seconds_per_second: slope,
+                has_music_mapping: true,
+                valid_at: Instant::now(),
+                valid_at_host_nanos: 0,
+            };
+        }
         return MusicStreamClockSnapshot {
             stream_seconds: 0.0,
             music_seconds: 0.0,
@@ -1428,14 +1702,6 @@ pub fn get_music_stream_clock_snapshot() -> MusicStreamClockSnapshot {
     let start = MUSIC_TRACK_START_FRAME.load(Ordering::Acquire);
     let (valid_at, at_nanos, source, window) = load_callback_clock_snapshot_now();
     music_stream_clock_snapshot_at_nanos(sample_rate, start, valid_at, at_nanos, source, window)
-}
-
-pub fn get_music_stream_position_nanos() -> i64 {
-    get_music_stream_clock_snapshot().music_nanos
-}
-
-pub fn get_music_stream_position_nanos_at_host_nanos(host_nanos: u64) -> Option<i64> {
-    music_stream_clock_snapshot_at_host_nanos(host_nanos).map(|snapshot| snapshot.music_nanos)
 }
 
 pub fn get_output_timing_snapshot() -> OutputTimingSnapshot {
@@ -1511,7 +1777,7 @@ pub(crate) fn note_output_underrun() {
     OUTPUT_TIMING_UNDERRUNS.fetch_add(1, Ordering::Relaxed);
     record_stutter_diag_event(
         StutterDiagAudioEventKind::Underrun,
-        instant_nanos(Instant::now()),
+        now_nanos(),
         0,
         OutputTimingQuality::load(),
     );
@@ -1531,7 +1797,7 @@ pub(crate) fn note_output_timing_sanity_failure(quality: OutputTimingQuality) {
     if !matches!(quality, OutputTimingQuality::Fallback) {
         record_stutter_diag_event(
             StutterDiagAudioEventKind::TimingSanity,
-            instant_nanos(Instant::now()),
+            now_nanos(),
             0,
             quality,
         );
@@ -1545,7 +1811,7 @@ pub(crate) fn note_output_clock_fallback() {
     OUTPUT_TIMING_CLOCK_FALLBACKS.fetch_add(1, Ordering::Relaxed);
     record_stutter_diag_event(
         StutterDiagAudioEventKind::ClockFallback,
-        instant_nanos(Instant::now()),
+        now_nanos(),
         0,
         OutputTimingQuality::Fallback,
     );
@@ -1592,12 +1858,26 @@ struct RenderState {
     device_channels: usize,
     mix_i16: Vec<i16>,
     mix_f32: Vec<f32>,
-    active_sfx: Vec<(Arc<Vec<i16>>, usize, SfxLane)>,
+    active_sfx: Vec<(Arc<[i16]>, usize, SfxLane, u64)>,
     queued_music_map: Arc<internal::SpscRingMusicSeg>,
     played_music_map: Arc<internal::SpscRingMusicSeg>,
     active_music_map: Option<MusicMapSeg>,
     music_map_generation: u64,
+    /// Current music gain as seen by the mixer. Ramps toward
+    /// `MUSIC_TARGET_GAIN_BITS` over [`MUSIC_GAIN_RAMP_FRAMES`] frames so
+    /// asynchronous ReplayGain results don't produce an audible step.
+    music_gain_current: f32,
+    /// Generation of `MUSIC_GAIN_SNAP_GEN` last observed; when it changes
+    /// (e.g. on a track boundary), the mixer snaps `music_gain_current`
+    /// straight to the target instead of ramping.
+    music_gain_snap_seen: u64,
 }
+
+/// Number of device frames over which the music gain ramps when the
+/// target changes. 4000 frames ≈ 83 ms at 48 kHz and ≈ 91 ms at 44.1 kHz —
+/// fast enough to feel instantaneous, slow enough to eliminate the
+/// click/step that an atomic gain swap would produce.
+const MUSIC_GAIN_RAMP_FRAMES: f32 = 4000.0;
 
 impl RenderState {
     fn new(
@@ -1611,11 +1891,13 @@ impl RenderState {
             device_channels,
             mix_i16: Vec::new(),
             mix_f32: Vec::new(),
-            active_sfx: Vec::new(),
+            active_sfx: Vec::with_capacity(MAX_ACTIVE_SFX),
             queued_music_map: QUEUED_MUSIC_MAP_SEGS.clone(),
             played_music_map: PLAYED_MUSIC_MAP_SEGS.clone(),
             active_music_map: None,
             music_map_generation: MUSIC_MAP_GEN.load(Ordering::Acquire),
+            music_gain_current: f32::from_bits(MUSIC_TARGET_GAIN_BITS.load(Ordering::Relaxed)),
+            music_gain_snap_seen: MUSIC_GAIN_SNAP_GEN.load(Ordering::Acquire),
         }
     }
 
@@ -1664,7 +1946,7 @@ impl RenderState {
         )
     }
 
-    fn mix_f32_buffer(&mut self, total_before: u64, len: usize) -> usize {
+    fn mix_f32_buffer(&mut self, total_before: u64, len: usize) -> (usize, bool) {
         self.ensure_mix_buffers(len);
         let popped = internal::callback_fill_from_ring_i16(&self.music_ring, &mut self.mix_i16);
         if MUSIC_TRACK_ACTIVE.load(Ordering::Relaxed)
@@ -1676,29 +1958,65 @@ impl RenderState {
         }
 
         let (music_vol, sfx_vol, assist_tick_vol) = Self::mix_levels();
-        for (dst, src) in self.mix_f32.iter_mut().zip(&self.mix_i16) {
-            *dst = i16_to_f32(*src) * music_vol;
+        let target_gain = f32::from_bits(MUSIC_TARGET_GAIN_BITS.load(Ordering::Relaxed));
+        let snap_gen = MUSIC_GAIN_SNAP_GEN.load(Ordering::Acquire);
+        if snap_gen != self.music_gain_snap_seen {
+            self.music_gain_current = target_gain;
+            self.music_gain_snap_seen = snap_gen;
+        }
+        let device_channels = self.device_channels.max(1);
+        let frames_in_buf = len / device_channels;
+        let max_step = 1.0 / MUSIC_GAIN_RAMP_FRAMES;
+        for f in 0..frames_in_buf {
+            let diff = target_gain - self.music_gain_current;
+            if diff.abs() <= max_step {
+                self.music_gain_current = target_gain;
+            } else {
+                self.music_gain_current += diff.signum() * max_step;
+            }
+            let scale = music_vol * self.music_gain_current;
+            let base = f * device_channels;
+            for ch in 0..device_channels {
+                let idx = base + ch;
+                self.mix_f32[idx] = i16_to_f32(self.mix_i16[idx]) * scale;
+            }
+        }
+        // Zero any tail that doesn't divide evenly into whole frames; the
+        // mixer downstream expects exactly `len` valid f32 samples.
+        for idx in frames_in_buf * device_channels..len {
+            self.mix_f32[idx] = 0.0;
         }
 
         for new_sfx in self.sfx_receiver.try_iter() {
-            self.active_sfx.push((new_sfx.data, 0, new_sfx.lane));
+            if !sfx_is_stale(new_sfx.lane, new_sfx.stop_generation)
+                && self.active_sfx.len() < MAX_ACTIVE_SFX
+            {
+                self.active_sfx
+                    .push((new_sfx.data, 0, new_sfx.lane, new_sfx.stop_generation));
+            }
         }
 
-        self.active_sfx.retain_mut(|(data, cursor, lane)| {
-            let n = (data.len().saturating_sub(*cursor)).min(self.mix_f32.len());
-            let lane_vol = match *lane {
-                SfxLane::Effect => sfx_vol,
-                SfxLane::AssistTick => assist_tick_vol,
-            };
-            for i in 0..n {
-                let sfx_sample_f32 = i16_to_f32(data[*cursor + i]) * lane_vol;
-                self.mix_f32[i] = (self.mix_f32[i] + sfx_sample_f32).clamp(-1.0, 1.0);
-            }
-            *cursor += n;
-            *cursor < data.len()
-        });
+        let mut mixed_sfx = false;
+        self.active_sfx
+            .retain_mut(|(data, cursor, lane, stop_generation)| {
+                if sfx_is_stale(*lane, *stop_generation) {
+                    return false;
+                }
+                let n = (data.len().saturating_sub(*cursor)).min(self.mix_f32.len());
+                mixed_sfx |= n > 0;
+                let lane_vol = match *lane {
+                    SfxLane::Effect | SfxLane::Screen => sfx_vol,
+                    SfxLane::AssistTick => assist_tick_vol,
+                };
+                for i in 0..n {
+                    let sfx_sample_f32 = i16_to_f32(data[*cursor + i]) * lane_vol;
+                    self.mix_f32[i] += sfx_sample_f32;
+                }
+                *cursor += n;
+                *cursor < data.len()
+            });
 
-        popped
+        (popped, mixed_sfx)
     }
 
     #[inline(always)]
@@ -1743,7 +2061,7 @@ impl RenderState {
     #[cfg(windows)]
     fn render_i16_qpc(&mut self, out: &mut [i16], anchor_nanos: u64) {
         let total_before = self.begin_callback_qpc(anchor_nanos);
-        let popped = self.mix_f32_buffer(total_before, out.len());
+        let (popped, _) = self.mix_f32_buffer(total_before, out.len());
         for (dst, src) in out.iter_mut().zip(&self.mix_f32) {
             *dst = f32_to_i16(*src);
         }
@@ -1753,7 +2071,7 @@ impl RenderState {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn render_i16_host_nanos(&mut self, out: &mut [i16], anchor_nanos: u64) {
         let total_before = self.begin_callback_nanos(anchor_nanos, CallbackClockSource::Instant);
-        let popped = self.mix_f32_buffer(total_before, out.len());
+        let (popped, _) = self.mix_f32_buffer(total_before, out.len());
         for (dst, src) in out.iter_mut().zip(&self.mix_f32) {
             *dst = f32_to_i16(*src);
         }
@@ -1766,16 +2084,28 @@ impl RenderState {
     ))]
     fn render_f32_host_nanos(&mut self, out: &mut [f32], anchor_nanos: u64) {
         let total_before = self.begin_callback_nanos(anchor_nanos, CallbackClockSource::Instant);
-        let popped = self.mix_f32_buffer(total_before, out.len());
-        out.copy_from_slice(&self.mix_f32[..out.len()]);
+        let (popped, mixed_sfx) = self.mix_f32_buffer(total_before, out.len());
+        if mixed_sfx {
+            for (dst, src) in out.iter_mut().zip(&self.mix_f32) {
+                *dst = src.clamp(-1.0, 1.0);
+            }
+        } else {
+            out.copy_from_slice(&self.mix_f32[..out.len()]);
+        }
         self.finish_callback(total_before, out.len(), popped);
     }
 
     #[cfg(windows)]
     fn render_f32_qpc(&mut self, out: &mut [f32], anchor_nanos: u64) {
         let total_before = self.begin_callback_qpc(anchor_nanos);
-        let popped = self.mix_f32_buffer(total_before, out.len());
-        out.copy_from_slice(&self.mix_f32[..out.len()]);
+        let (popped, mixed_sfx) = self.mix_f32_buffer(total_before, out.len());
+        if mixed_sfx {
+            for (dst, src) in out.iter_mut().zip(&self.mix_f32) {
+                *dst = src.clamp(-1.0, 1.0);
+            }
+        } else {
+            out.copy_from_slice(&self.mix_f32[..out.len()]);
+        }
         self.finish_callback(total_before, out.len(), popped);
     }
 }
@@ -2151,11 +2481,15 @@ fn init_engine_and_thread(cfg: InitConfig) -> AudioEngine {
         audio_manager_thread(command_receiver, ready_sender, launch);
     });
 
-    let ready = match ready_receiver.recv() {
+    let thread_ready = match ready_receiver.recv() {
         Ok(Ok(ready)) => ready,
         Ok(Err(err)) => panic!("failed to initialize audio engine: {err}"),
         Err(_) => panic!("audio manager thread exited before reporting ready"),
     };
+    let AudioThreadReady {
+        backend_ready: ready,
+        sfx_sender,
+    } = thread_ready;
 
     info!(
         "Audio engine initialized ({} Hz, {} ch, backend={} req={} fallback={} clock={} quality={} device='{}').",
@@ -2171,6 +2505,7 @@ fn init_engine_and_thread(cfg: InitConfig) -> AudioEngine {
     publish_output_backend_ready(ready.clone());
     AudioEngine {
         command_sender,
+        sfx_sender,
         sfx_cache: Mutex::new(HashMap::new()),
         device_sample_rate: ready.device_sample_rate,
         device_channels: ready.device_channels,
@@ -2203,7 +2538,7 @@ enum OutputBackend {
 fn start_linux_alsa_backend(
     alsa: AlsaBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     let access_mode = match alsa.output_mode {
         crate::config::AudioOutputMode::Exclusive => {
             backends::linux_alsa::AlsaAccessMode::Exclusive
@@ -2221,7 +2556,7 @@ fn start_linux_alsa_backend(
     )?;
     let mut ready = prep.ready();
     ready.requested_output_mode = alsa.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::linux_alsa::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::Alsa(stream), ready, sfx_sender))
 }
@@ -2231,7 +2566,7 @@ fn start_linux_alsa_backend(
 fn start_linux_jack_backend(
     jack: JackBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     if matches!(jack.output_mode, crate::config::AudioOutputMode::Exclusive) {
         return Err("JACK does not expose a separate exclusive output mode.".to_string());
     }
@@ -2239,7 +2574,7 @@ fn start_linux_jack_backend(
         backends::linux_jack::prepare(jack.requested_device_name.clone(), jack.requested_rate_hz)?;
     let mut ready = prep.ready();
     ready.requested_output_mode = jack.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::linux_jack::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::Jack(stream), ready, sfx_sender))
 }
@@ -2249,7 +2584,7 @@ fn start_linux_jack_backend(
 fn start_linux_pipewire_backend(
     pipewire: PipeWireBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     if matches!(
         pipewire.output_mode,
         crate::config::AudioOutputMode::Exclusive
@@ -2269,7 +2604,7 @@ fn start_linux_pipewire_backend(
     )?;
     let mut ready = prep.ready();
     ready.requested_output_mode = pipewire.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::linux_pipewire::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::PipeWire(stream), ready, sfx_sender))
 }
@@ -2279,7 +2614,7 @@ fn start_linux_pipewire_backend(
 fn start_linux_pulse_backend(
     pulse: PulseBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     if matches!(pulse.output_mode, crate::config::AudioOutputMode::Exclusive) {
         return Err("PulseAudio does not support exclusive output.".to_string());
     }
@@ -2296,7 +2631,7 @@ fn start_linux_pulse_backend(
     )?;
     let mut ready = prep.ready();
     ready.requested_output_mode = pulse.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::linux_pulse::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::Pulse(stream), ready, sfx_sender))
 }
@@ -2305,7 +2640,7 @@ fn start_linux_pulse_backend(
 fn start_freebsd_pcm_backend(
     pcm: FreeBsdPcmBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     if matches!(pcm.output_mode, crate::config::AudioOutputMode::Exclusive) {
         return Err("FreeBSD PCM exclusive output is not implemented yet.".to_string());
     }
@@ -2317,7 +2652,7 @@ fn start_freebsd_pcm_backend(
     )?;
     let mut ready = prep.ready();
     ready.requested_output_mode = pcm.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::freebsd_pcm::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::FreeBsdPcm(stream), ready, sfx_sender))
 }
@@ -2326,7 +2661,7 @@ fn start_freebsd_pcm_backend(
 fn start_macos_coreaudio_backend(
     coreaudio: CoreAudioBackendHint,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     if matches!(
         coreaudio.output_mode,
         crate::config::AudioOutputMode::Exclusive
@@ -2341,7 +2676,7 @@ fn start_macos_coreaudio_backend(
     )?;
     let mut ready = prep.ready();
     ready.requested_output_mode = coreaudio.output_mode;
-    let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+    let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
     let stream = backends::macos_coreaudio::start(prep, music_ring, sfx_receiver)?;
     Ok((OutputBackend::CoreAudio(stream), ready, sfx_sender))
 }
@@ -2349,7 +2684,7 @@ fn start_macos_coreaudio_backend(
 fn start_output_backend(
     launch: AudioThreadLaunch,
     music_ring: Arc<internal::SpscRingI16>,
-) -> Result<(OutputBackend, OutputBackendReady, Sender<QueuedSfx>), String> {
+) -> Result<(OutputBackend, OutputBackendReady, SyncSender<QueuedSfx>), String> {
     let AudioThreadLaunch {
         #[cfg(target_os = "linux")]
         explicit_device_requested,
@@ -2573,7 +2908,7 @@ fn start_output_backend(
         })?;
         let mut ready = prep.ready();
         ready.requested_output_mode = wasapi.output_mode;
-        let (sfx_sender, sfx_receiver) = channel::<QueuedSfx>();
+        let (sfx_sender, sfx_receiver) = sync_channel::<QueuedSfx>(SFX_QUEUE_CAP);
         let stream =
             backends::windows_wasapi::start(prep, music_ring, sfx_receiver).map_err(|err| {
                 format!(
@@ -2590,10 +2925,10 @@ fn start_output_backend(
     }
 }
 
-/// Manager thread: builds the output backend, mixes SFX, and forwards music via ring.
+/// Manager thread: builds the output backend and manages music decoder lifecycle.
 fn audio_manager_thread(
     command_receiver: Receiver<AudioCommand>,
-    ready_sender: Sender<Result<OutputBackendReady, String>>,
+    ready_sender: Sender<Result<AudioThreadReady, String>>,
     launch: AudioThreadLaunch,
 ) {
     let mut music_stream: Option<MusicStream> = None;
@@ -2606,16 +2941,19 @@ fn audio_manager_thread(
             return;
         }
     };
-    if ready_sender.send(Ok(_ready)).is_err() {
+    if ready_sender
+        .send(Ok(AudioThreadReady {
+            backend_ready: _ready,
+            sfx_sender,
+        }))
+        .is_err()
+    {
         return;
     }
 
-    // Command loop: manage music decoder thread and pass SFX to the callback
+    // Command loop: manage music decoder thread.
     loop {
         match command_receiver.recv() {
-            Ok(AudioCommand::PlaySfx(queued)) => {
-                let _ = sfx_sender.send(queued);
-            }
             Ok(AudioCommand::PlayMusic(path, cut, looping, rate)) => {
                 if let Some(old) = music_stream.take() {
                     old.stop_signal

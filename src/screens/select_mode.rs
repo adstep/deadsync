@@ -1,6 +1,7 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::tr;
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::audio;
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::Actor;
@@ -10,7 +11,7 @@ use crate::engine::space::{screen_center_x, screen_center_y};
 use crate::screens::components::shared::screen_bar::{
     AvatarParams, ScreenBarParams, ScreenBarPosition, ScreenBarTitlePlacement,
 };
-use crate::screens::components::shared::{heart_bg, screen_bar};
+use crate::screens::components::shared::{screen_bar, visual_style_bg};
 use crate::screens::{Screen, ScreenAction};
 
 /* ------------------------------ layout ------------------------------- */
@@ -97,7 +98,7 @@ pub struct State {
     demo_time: f32,
     exit_requested: bool,
     exit_target: Option<Screen>,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
 }
 
 pub fn init() -> State {
@@ -109,7 +110,7 @@ pub fn init() -> State {
         demo_time: 0.0,
         exit_requested: false,
         exit_target: None,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
     }
 }
 
@@ -142,18 +143,14 @@ pub fn out_transition() -> (Vec<Actor>, f32) {
 
 #[inline(always)]
 fn exit_anim_t(exiting: bool) -> f32 {
-    if !exiting {
-        return 0.0;
-    }
-    use crate::engine::present::{anim, runtime};
-    static STEPS: std::sync::OnceLock<Vec<anim::Step>> = std::sync::OnceLock::new();
-    let steps = STEPS.get_or_init(|| vec![anim::linear(EXIT_TOTAL_DUR).x(EXIT_TOTAL_DUR).build()]);
-
-    let mut init = anim::TweenState::default();
-    init.x = 0.0;
-    const SITE_BASE: u64 = runtime::site_base(file!(), line!(), column!());
-    let sid = runtime::site_id(SITE_BASE, 0x53504D4F44455849u64); // "SPMODEXI"
-    runtime::materialize(sid, init, steps).x.max(0.0)
+    static STEPS: std::sync::OnceLock<Vec<crate::engine::present::anim::Step>> =
+        std::sync::OnceLock::new();
+    crate::screens::components::shared::transitions::linear_elapsed(
+        exiting,
+        EXIT_TOTAL_DUR,
+        &STEPS,
+        0x53504D4F44455849u64, // "SPMODEXI"
+    )
 }
 
 #[inline(always)]
@@ -329,7 +326,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     let mut actors = Vec::with_capacity(256);
     let exit_t = exit_anim_t(state.exit_requested);
 
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -465,7 +462,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     let label = &labels[state.selected_index];
     let measured_w = asset_manager.with_fonts(|all_fonts| {
         asset_manager
-            .with_font("wendy", |f| {
+            .with_font(current_machine_font_key(FontRole::Header), |f| {
                 font::measure_line_width_logical(f, label, all_fonts) as f32
             })
             .unwrap_or(0.0)
@@ -510,7 +507,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
         ];
 
         actors.push(act!(text:
-            font("wendy"):
+            font(current_machine_font_key(FontRole::Header)):
             settext(label.clone()):
             align(1.0, 0.5):
             xy(x, y):
@@ -524,7 +521,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
     let score_alpha = fade_after(exit_t, 0.4, 0.2);
     let (sx, sy) = root_pt(124.0, -68.0);
     actors.push(act!(text:
-        font("wendy_monospace_numbers"):
+        font(current_machine_font_key(FontRole::Numbers)):
         settext("77.41"):
         align(0.5, 0.5):
         xy(sx, sy):

@@ -1,6 +1,7 @@
 use crate::assets;
 use crate::engine::gfx::{
-    BlendMode, MeshMode, MeshVertex, ObjectType, RenderList, RenderObject, TexturedMeshVertex,
+    BlendMode, MeshVertex, ObjectType, RenderList, RenderObject, SpriteInstanceRaw,
+    TexturedMeshInstanceRaw, TexturedMeshVertex,
 };
 use crate::engine::present::actors::{
     Actor, Background, SizeSpec, SpriteSource, TextAlign, TextContent,
@@ -157,7 +158,6 @@ pub enum ActorSnapshot {
         offset: [f32; 2],
         size: [SizeSpecSnapshot; 2],
         vertices: Vec<MeshVertex>,
-        mode: MeshModeSnapshot,
         visible: bool,
         blend: BlendModeSnapshot,
         z: i16,
@@ -170,10 +170,11 @@ pub enum ActorSnapshot {
         #[serde(default = "default_textured_mesh_tint")]
         tint: [f32; 4],
         vertices: Vec<TexturedMeshVertex>,
-        mode: MeshModeSnapshot,
         uv_scale: [f32; 2],
         uv_offset: [f32; 2],
         uv_tex_shift: [f32; 2],
+        #[serde(default)]
+        depth_test: bool,
         visible: bool,
         blend: BlendModeSnapshot,
         z: i16,
@@ -186,10 +187,24 @@ pub enum ActorSnapshot {
         background: Option<BackgroundSnapshot>,
         z: i16,
     },
+    SharedFrame {
+        align: [f32; 2],
+        offset: [f32; 2],
+        size: [SizeSpecSnapshot; 2],
+        children: Vec<Self>,
+        background: Option<BackgroundSnapshot>,
+        z: i16,
+        tint: [f32; 4],
+        blend: Option<BlendModeSnapshot>,
+    },
     Camera {
         view_proj: [[f32; 4]; 4],
         children: Vec<Self>,
     },
+    CameraPush {
+        view_proj: [[f32; 4]; 4],
+    },
+    CameraPop,
     Shadow {
         len: [f32; 2],
         color: [f32; 4],
@@ -231,11 +246,6 @@ pub enum BlendModeSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum MeshModeSnapshot {
-    Triangles,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum EffectClockSnapshot {
     Time,
     Beat,
@@ -248,6 +258,9 @@ pub enum EffectModeSnapshot {
     DiffuseShift,
     GlowShift,
     Pulse,
+    Bob,
+    Bounce,
+    Wag,
     Spin,
 }
 
@@ -315,7 +328,6 @@ pub enum RenderObjectTypeSnapshot {
         #[serde(default = "default_mesh_tint")]
         tint: [f32; 4],
         vertices: Vec<MeshVertex>,
-        mode: MeshModeSnapshot,
     },
     TexturedMesh {
         #[serde(default)]
@@ -323,10 +335,11 @@ pub enum RenderObjectTypeSnapshot {
         #[serde(default = "default_textured_mesh_tint")]
         tint: [f32; 4],
         vertices: Vec<TexturedMeshVertex>,
-        mode: MeshModeSnapshot,
         uv_scale: [f32; 2],
         uv_offset: [f32; 2],
         uv_tex_shift: [f32; 2],
+        #[serde(default)]
+        depth_test: bool,
     },
 }
 
@@ -569,6 +582,12 @@ pub fn read_render_snapshot(path: &Path) -> Result<RenderListSnapshot, Box<dyn E
 }
 
 pub fn render_list_runtime(snapshot: &RenderListSnapshot) -> RenderList {
+    let mut sprite_instances = Vec::new();
+    let objects = snapshot
+        .objects
+        .iter()
+        .map(|object| render_object_runtime(object, &mut sprite_instances))
+        .collect();
     RenderList {
         clear_color: snapshot.clear_color,
         cameras: snapshot
@@ -577,7 +596,8 @@ pub fn render_list_runtime(snapshot: &RenderListSnapshot) -> RenderList {
             .copied()
             .map(matrix_runtime)
             .collect(),
-        objects: snapshot.objects.iter().map(render_object_runtime).collect(),
+        sprite_instances,
+        objects,
     }
 }
 
@@ -634,8 +654,17 @@ fn collect_font_names_actor(
                 collect_font_names_actor(child, fonts, out);
             }
         }
+        Actor::SharedFrame { children, .. } => {
+            for child in children.iter() {
+                collect_font_names_actor(child, fonts, out);
+            }
+        }
         Actor::Shadow { child, .. } => collect_font_names_actor(child, fonts, out),
-        Actor::Sprite { .. } | Actor::Mesh { .. } | Actor::TexturedMesh { .. } => {}
+        Actor::Sprite { .. }
+        | Actor::Mesh { .. }
+        | Actor::TexturedMesh { .. }
+        | Actor::CameraPush { .. }
+        | Actor::CameraPop => {}
     }
 }
 
@@ -711,13 +740,25 @@ fn collect_actor_texture_keys(actor: &Actor, out: &mut BTreeSet<String>) {
                 collect_actor_texture_keys(child, out);
             }
         }
+        Actor::SharedFrame {
+            children,
+            background,
+            ..
+        } => {
+            if let Some(Background::Texture(tex)) = background {
+                out.insert((*tex).to_string());
+            }
+            for child in children.iter() {
+                collect_actor_texture_keys(child, out);
+            }
+        }
         Actor::Camera { children, .. } => {
             for child in children {
                 collect_actor_texture_keys(child, out);
             }
         }
         Actor::Shadow { child, .. } => collect_actor_texture_keys(child, out),
-        Actor::Text { .. } | Actor::Mesh { .. } => {}
+        Actor::Text { .. } | Actor::Mesh { .. } | Actor::CameraPush { .. } | Actor::CameraPop => {}
     }
 }
 
@@ -752,22 +793,27 @@ fn font_snapshot(font: &Font) -> FontSnapshot {
 }
 
 fn font_runtime(font: &FontSnapshot, name_map: &HashMap<String, &'static str>) -> Font {
-    let glyph_map = font
-        .glyphs
-        .iter()
-        .filter_map(|entry| {
-            char::from_u32(entry.codepoint).map(|ch| (ch, glyph_runtime(&entry.glyph)))
-        })
-        .collect::<HashMap<_, _>>();
+    let mut texture_keys = HashMap::<String, Arc<str>>::new();
     let stroke_texture_map = font
         .stroke_texture_map
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect::<HashMap<_, _>>();
+    let glyph_map = font
+        .glyphs
+        .iter()
+        .filter_map(|entry| {
+            char::from_u32(entry.codepoint)
+                .map(|ch| (ch, glyph_runtime(&entry.glyph, &mut texture_keys)))
+        })
+        .collect::<HashMap<_, _>>();
     let mut runtime = Font {
         glyph_map,
         ascii_glyphs: Box::new(std::array::from_fn(|_| None)),
-        default_glyph: font.default_glyph.as_ref().map(glyph_runtime),
+        default_glyph: font
+            .default_glyph
+            .as_ref()
+            .map(|glyph| glyph_runtime(glyph, &mut texture_keys)),
         line_spacing: font.line_spacing,
         height: font.height,
         fallback_font_name: font
@@ -788,15 +834,24 @@ fn font_runtime(font: &FontSnapshot, name_map: &HashMap<String, &'static str>) -
         glyph.stroke_texture_key = runtime
             .stroke_texture_map
             .get(glyph.texture_key.as_ref())
-            .map(|key| Arc::<str>::from(key.as_str()));
+            .map(|key| intern_texture_key(&mut texture_keys, key));
     }
     if let Some(glyph) = runtime.default_glyph.as_mut() {
         glyph.stroke_texture_key = runtime
             .stroke_texture_map
             .get(glyph.texture_key.as_ref())
-            .map(|key| Arc::<str>::from(key.as_str()));
+            .map(|key| intern_texture_key(&mut texture_keys, key));
     }
     runtime
+}
+
+fn intern_texture_key(keys: &mut HashMap<String, Arc<str>>, key: &str) -> Arc<str> {
+    if let Some(existing) = keys.get(key) {
+        return existing.clone();
+    }
+    let interned = Arc::<str>::from(key);
+    keys.insert(key.to_string(), interned.clone());
+    interned
 }
 
 fn glyph_snapshot(glyph: &Glyph) -> GlyphSnapshot {
@@ -811,9 +866,9 @@ fn glyph_snapshot(glyph: &Glyph) -> GlyphSnapshot {
     }
 }
 
-fn glyph_runtime(glyph: &GlyphSnapshot) -> Glyph {
+fn glyph_runtime(glyph: &GlyphSnapshot, texture_keys: &mut HashMap<String, Arc<str>>) -> Glyph {
     Glyph {
-        texture_key: Arc::<str>::from(glyph.texture_key.as_ref()),
+        texture_key: intern_texture_key(texture_keys, &glyph.texture_key),
         stroke_texture_key: None,
         tex_rect: glyph.tex_rect,
         uv_scale: glyph.uv_scale,
@@ -902,6 +957,7 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
         Actor::Text {
             align,
             offset,
+            local_transform: _,
             color,
             stroke_color,
             glow,
@@ -913,14 +969,19 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             scale,
             fit_width,
             fit_height,
+            line_spacing: _,
             wrap_width_pixels,
             max_width,
             max_height,
             max_w_pre_zoom,
             max_h_pre_zoom,
+            jitter: _,
+            distortion: _,
             clip,
+            mask_dest: _,
             blend,
             effect,
+            ..
         } => ActorSnapshot::Text {
             align: *align,
             offset: *offset,
@@ -948,7 +1009,6 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             offset,
             size,
             vertices,
-            mode,
             visible,
             blend,
             z,
@@ -957,7 +1017,6 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             offset: *offset,
             size: size.map(SizeSpecSnapshot::from),
             vertices: vertices.to_vec(),
-            mode: MeshModeSnapshot::from(*mode),
             visible: *visible,
             blend: BlendModeSnapshot::from(*blend),
             z: *z,
@@ -969,10 +1028,10 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             texture,
             tint,
             vertices,
-            mode,
             uv_scale,
             uv_offset,
             uv_tex_shift,
+            depth_test,
             visible,
             blend,
             z,
@@ -984,10 +1043,10 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             texture: texture.to_string(),
             tint: *tint,
             vertices: vertices.to_vec(),
-            mode: MeshModeSnapshot::from(*mode),
             uv_scale: *uv_scale,
             uv_offset: *uv_offset,
             uv_tex_shift: *uv_tex_shift,
+            depth_test: *depth_test,
             visible: *visible,
             blend: BlendModeSnapshot::from(*blend),
             z: *z,
@@ -1007,6 +1066,25 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             background: background.as_ref().map(BackgroundSnapshot::from),
             z: *z,
         },
+        Actor::SharedFrame {
+            align,
+            offset,
+            size,
+            children,
+            background,
+            z,
+            tint,
+            blend,
+        } => ActorSnapshot::SharedFrame {
+            align: *align,
+            offset: *offset,
+            size: size.map(SizeSpecSnapshot::from),
+            children: children.iter().map(actor_snapshot).collect(),
+            background: background.as_ref().map(BackgroundSnapshot::from),
+            z: *z,
+            tint: *tint,
+            blend: blend.map(BlendModeSnapshot::from),
+        },
         Actor::Camera {
             view_proj,
             children,
@@ -1014,6 +1092,10 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             view_proj: matrix_snapshot(view_proj),
             children: children.iter().map(actor_snapshot).collect(),
         },
+        Actor::CameraPush { view_proj } => ActorSnapshot::CameraPush {
+            view_proj: matrix_snapshot(view_proj),
+        },
+        Actor::CameraPop => ActorSnapshot::CameraPop,
         Actor::Shadow { len, color, child } => ActorSnapshot::Shadow {
             len: *len,
             color: *color,
@@ -1094,6 +1176,8 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             animate: *animate,
             state_delay: *state_delay,
             scale: *scale,
+            shadow_len: [0.0, 0.0],
+            shadow_color: [0.0, 0.0, 0.0, 0.5],
             effect: EffectState::from(*effect),
         },
         ActorSnapshot::Text {
@@ -1120,6 +1204,7 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
         } => Actor::Text {
             align: *align,
             offset: *offset,
+            local_transform: glam::Mat4::IDENTITY,
             color: *color,
             stroke_color: *stroke_color,
             glow: *glow,
@@ -1133,13 +1218,19 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             scale: *scale,
             fit_width: *fit_width,
             fit_height: *fit_height,
+            line_spacing: None,
             wrap_width_pixels: *wrap_width_pixels,
             max_width: *max_width,
             max_height: *max_height,
             max_w_pre_zoom: *max_w_pre_zoom,
             max_h_pre_zoom: *max_h_pre_zoom,
+            jitter: false,
+            distortion: 0.0,
             clip: *clip,
+            mask_dest: false,
             blend: BlendMode::from(*blend),
+            shadow_len: [0.0, 0.0],
+            shadow_color: [0.0, 0.0, 0.0, 0.5],
             effect: EffectState::from(*effect),
         },
         ActorSnapshot::Mesh {
@@ -1147,7 +1238,6 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             offset,
             size,
             vertices,
-            mode,
             visible,
             blend,
             z,
@@ -1156,7 +1246,6 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             offset: *offset,
             size: size.map(SizeSpec::from),
             vertices: Arc::from(vertices.clone()),
-            mode: MeshMode::from(*mode),
             visible: *visible,
             blend: BlendMode::from(*blend),
             z: *z,
@@ -1168,10 +1257,10 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             texture,
             tint,
             vertices,
-            mode,
             uv_scale,
             uv_offset,
             uv_tex_shift,
+            depth_test,
             visible,
             blend,
             z,
@@ -1183,12 +1272,13 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             local_transform: glam::Mat4::IDENTITY,
             texture: Arc::from(texture.as_str()),
             tint: *tint,
+            glow: [1.0, 1.0, 1.0, 0.0],
             vertices: Arc::from(vertices.clone()),
             geom_cache_key: crate::engine::gfx::INVALID_TMESH_CACHE_KEY,
-            mode: MeshMode::from(*mode),
             uv_scale: *uv_scale,
             uv_offset: *uv_offset,
             uv_tex_shift: *uv_tex_shift,
+            depth_test: *depth_test,
             visible: *visible,
             blend: BlendMode::from(*blend),
             z: *z,
@@ -1211,6 +1301,30 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             background: background.as_ref().map(Background::from),
             z: *z,
         },
+        ActorSnapshot::SharedFrame {
+            align,
+            offset,
+            size,
+            children,
+            background,
+            z,
+            tint,
+            blend,
+        } => Actor::SharedFrame {
+            align: *align,
+            offset: *offset,
+            size: size.map(SizeSpec::from),
+            children: Arc::from(
+                children
+                    .iter()
+                    .map(|child| actor_runtime(child, name_map))
+                    .collect::<Vec<_>>(),
+            ),
+            background: background.as_ref().map(Background::from),
+            z: *z,
+            tint: *tint,
+            blend: blend.map(BlendMode::from),
+        },
         ActorSnapshot::Camera {
             view_proj,
             children,
@@ -1221,6 +1335,10 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
                 .map(|child| actor_runtime(child, name_map))
                 .collect(),
         },
+        ActorSnapshot::CameraPush { view_proj } => Actor::CameraPush {
+            view_proj: matrix_runtime(*view_proj),
+        },
+        ActorSnapshot::CameraPop => Actor::CameraPop,
         ActorSnapshot::Shadow { len, color, child } => Actor::Shadow {
             len: *len,
             color: *color,
@@ -1233,64 +1351,57 @@ pub fn render_list_snapshot(render: &RenderList) -> RenderListSnapshot {
     RenderListSnapshot {
         clear_color: render.clear_color,
         cameras: render.cameras.iter().map(matrix_snapshot).collect(),
-        objects: render.objects.iter().map(render_object_snapshot).collect(),
+        objects: render
+            .objects
+            .iter()
+            .map(|object| render_object_snapshot(object, &render.sprite_instances))
+            .collect(),
     }
 }
 
-fn render_object_snapshot(render: &RenderObject) -> RenderObjectSnapshot {
+fn render_object_snapshot(
+    render: &RenderObject,
+    sprite_instances: &[SpriteInstanceRaw],
+) -> RenderObjectSnapshot {
     let transform = match &render.object_type {
-        ObjectType::Sprite {
-            center,
-            size,
-            rot_sin_cos,
-            ..
-        } => sprite_transform(*center, *size, *rot_sin_cos),
-        _ => render.transform,
+        ObjectType::Sprite(index) => {
+            let sprite = sprite_instances[*index as usize];
+            sprite_transform(sprite.center, sprite.size, sprite.rot_sin_cos)
+        }
+        ObjectType::Mesh { transform, .. } => *transform,
+        ObjectType::TexturedMesh { instance, .. } => instance.transform(),
     };
     RenderObjectSnapshot {
         object_type: match &render.object_type {
-            ObjectType::Sprite {
-                tint,
-                uv_scale,
-                uv_offset,
-                local_offset,
-                local_offset_rot_sin_cos,
-                edge_fade,
-                ..
-            } => RenderObjectTypeSnapshot::Sprite {
-                texture_id: None,
-                tint: *tint,
-                uv_scale: *uv_scale,
-                uv_offset: *uv_offset,
-                local_offset: *local_offset,
-                local_offset_rot_sin_cos: *local_offset_rot_sin_cos,
-                edge_fade: *edge_fade,
-            },
-            ObjectType::Mesh {
-                tint,
-                vertices,
-                mode,
-            } => RenderObjectTypeSnapshot::Mesh {
+            ObjectType::Sprite(index) => {
+                let sprite = sprite_instances[*index as usize];
+                RenderObjectTypeSnapshot::Sprite {
+                    texture_id: None,
+                    tint: sprite.tint,
+                    uv_scale: sprite.uv_scale,
+                    uv_offset: sprite.uv_offset,
+                    local_offset: sprite.local_offset,
+                    local_offset_rot_sin_cos: sprite.local_offset_rot_sin_cos,
+                    edge_fade: sprite.edge_fade,
+                }
+            }
+            ObjectType::Mesh { tint, vertices, .. } => RenderObjectTypeSnapshot::Mesh {
                 tint: *tint,
                 vertices: vertices.to_vec(),
-                mode: MeshModeSnapshot::from(*mode),
             },
             ObjectType::TexturedMesh {
-                tint,
+                instance,
                 vertices,
-                mode,
-                uv_scale,
-                uv_offset,
-                uv_tex_shift,
+                depth_test,
                 ..
             } => RenderObjectTypeSnapshot::TexturedMesh {
                 texture_id: None,
-                tint: *tint,
+                tint: instance.tint,
                 vertices: vertices.to_vec(),
-                mode: MeshModeSnapshot::from(*mode),
-                uv_scale: *uv_scale,
-                uv_offset: *uv_offset,
-                uv_tex_shift: *uv_tex_shift,
+                uv_scale: instance.uv_scale,
+                uv_offset: instance.uv_offset,
+                uv_tex_shift: instance.uv_tex_shift,
+                depth_test: *depth_test,
             },
         },
         texture_handle: render.texture_handle,
@@ -1309,7 +1420,10 @@ fn texture_resolve_object_snapshot(render: &RenderObject) -> TextureResolveObjec
     }
 }
 
-fn render_object_runtime(render: &RenderObjectSnapshot) -> RenderObject {
+fn render_object_runtime(
+    render: &RenderObjectSnapshot,
+    sprite_instances: &mut Vec<SpriteInstanceRaw>,
+) -> RenderObject {
     let snapshot_transform = matrix_runtime(render.transform);
     let texture_handle = if render.texture_handle != crate::engine::gfx::INVALID_TEXTURE_HANDLE {
         render.texture_handle
@@ -1335,7 +1449,8 @@ fn render_object_runtime(render: &RenderObjectSnapshot) -> RenderObject {
                 ..
             } => {
                 let (center, size, rot_sin_cos) = sprite_parts_from_transform(&snapshot_transform);
-                ObjectType::Sprite {
+                let sprite_index = sprite_instances.len() as u32;
+                sprite_instances.push(SpriteInstanceRaw {
                     center,
                     size,
                     rot_sin_cos,
@@ -1345,42 +1460,40 @@ fn render_object_runtime(render: &RenderObjectSnapshot) -> RenderObject {
                     local_offset: *local_offset,
                     local_offset_rot_sin_cos: *local_offset_rot_sin_cos,
                     edge_fade: *edge_fade,
-                }
+                    texture_mask: 0.0,
+                });
+                ObjectType::Sprite(sprite_index)
             }
-            RenderObjectTypeSnapshot::Mesh {
-                tint,
-                vertices,
-                mode,
-            } => ObjectType::Mesh {
+            RenderObjectTypeSnapshot::Mesh { tint, vertices } => ObjectType::Mesh {
+                transform: snapshot_transform,
                 tint: *tint,
                 vertices: Arc::from(vertices.clone()),
-                mode: MeshMode::from(*mode),
             },
             RenderObjectTypeSnapshot::TexturedMesh {
                 tint,
                 vertices,
-                mode,
                 uv_scale,
                 uv_offset,
                 uv_tex_shift,
+                depth_test,
                 ..
             } => ObjectType::TexturedMesh {
-                tint: *tint,
+                instance: TexturedMeshInstanceRaw::new(
+                    snapshot_transform,
+                    *tint,
+                    *uv_scale,
+                    *uv_offset,
+                    *uv_tex_shift,
+                    false,
+                ),
                 vertices: crate::engine::gfx::TexturedMeshVertices::Shared(Arc::from(
                     vertices.clone(),
                 )),
                 geom_cache_key: crate::engine::gfx::INVALID_TMESH_CACHE_KEY,
-                mode: MeshMode::from(*mode),
-                uv_scale: *uv_scale,
-                uv_offset: *uv_offset,
-                uv_tex_shift: *uv_tex_shift,
+                depth_test: *depth_test,
             },
         },
         texture_handle,
-        transform: match &render.object_type {
-            RenderObjectTypeSnapshot::Sprite { .. } => Matrix4::IDENTITY,
-            _ => snapshot_transform,
-        },
         blend: BlendMode::from(render.blend),
         z: render.z,
         order: render.order,
@@ -1475,6 +1588,8 @@ impl From<&SpriteSource> for SpriteSourceSnapshot {
     fn from(value: &SpriteSource) -> Self {
         match value {
             SpriteSource::TextureStatic(key) => Self::Texture((*key).to_string()),
+            SpriteSource::TextureStaticHandle { key, .. } => Self::Texture((*key).to_string()),
+            SpriteSource::TextureHandle { key, .. } => Self::Texture(key.to_string()),
             SpriteSource::Texture(key) => Self::Texture(key.to_string()),
             SpriteSource::Solid => Self::Solid,
         }
@@ -1550,22 +1665,6 @@ impl From<BlendModeSnapshot> for BlendMode {
     }
 }
 
-impl From<MeshMode> for MeshModeSnapshot {
-    fn from(value: MeshMode) -> Self {
-        match value {
-            MeshMode::Triangles => Self::Triangles,
-        }
-    }
-}
-
-impl From<MeshModeSnapshot> for MeshMode {
-    fn from(value: MeshModeSnapshot) -> Self {
-        match value {
-            MeshModeSnapshot::Triangles => Self::Triangles,
-        }
-    }
-}
-
 impl From<EffectClock> for EffectClockSnapshot {
     fn from(value: EffectClock) -> Self {
         match value {
@@ -1592,6 +1691,9 @@ impl From<EffectMode> for EffectModeSnapshot {
             EffectMode::DiffuseShift => Self::DiffuseShift,
             EffectMode::GlowShift => Self::GlowShift,
             EffectMode::Pulse => Self::Pulse,
+            EffectMode::Bob => Self::Bob,
+            EffectMode::Bounce => Self::Bounce,
+            EffectMode::Wag => Self::Wag,
             EffectMode::Spin => Self::Spin,
         }
     }
@@ -1605,6 +1707,9 @@ impl From<EffectModeSnapshot> for EffectMode {
             EffectModeSnapshot::DiffuseShift => Self::DiffuseShift,
             EffectModeSnapshot::GlowShift => Self::GlowShift,
             EffectModeSnapshot::Pulse => Self::Pulse,
+            EffectModeSnapshot::Bob => Self::Bob,
+            EffectModeSnapshot::Bounce => Self::Bounce,
+            EffectModeSnapshot::Wag => Self::Wag,
             EffectModeSnapshot::Spin => Self::Spin,
         }
     }

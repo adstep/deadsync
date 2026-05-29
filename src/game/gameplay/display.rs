@@ -170,6 +170,15 @@ pub(super) fn record_display_window_counts(
 }
 
 #[inline(always)]
+pub(super) fn record_current_combo_window_count(player: &mut PlayerRuntime, judgment: &Judgment) {
+    add_judgment_to_window_counts(
+        &mut player.current_combo_window_counts,
+        judgment,
+        timing::FA_PLUS_W0_MS,
+    );
+}
+
+#[inline(always)]
 pub fn display_totals_for_player(state: &State, player_idx: usize) -> CourseDisplayTotals {
     if player_idx >= MAX_PLAYERS {
         return CourseDisplayTotals::default();
@@ -193,6 +202,13 @@ pub fn display_judgment_count(state: &State, player_idx: usize, grade: JudgeGrad
     let base = state.players[player_idx].judgment_counts[display_judge_ix(grade)];
     let carry = display_carry_for_player(state, player_idx);
     base.saturating_add(carry.judgment_counts[display_judge_ix(grade)])
+}
+
+pub fn display_live_timing_stats(state: &State, player_idx: usize) -> timing::LiveTimingSnapshot {
+    if player_idx >= state.num_players {
+        return timing::LiveTimingSnapshot::default();
+    }
+    timing::live_timing_stats_snapshot(&state.players[player_idx].live_timing_stats)
 }
 
 pub fn display_window_counts(

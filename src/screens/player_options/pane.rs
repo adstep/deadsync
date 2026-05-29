@@ -7,14 +7,21 @@ pub enum NavDirection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavWrap {
+    Wrap,
+    Clamp,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionsPane {
     Main,
+    Display,
     Advanced,
     Uncommon,
 }
 
 impl OptionsPane {
-    pub(super) const COUNT: usize = 3;
+    pub(super) const COUNT: usize = 4;
 
     #[inline(always)]
     pub(super) const fn index(self) -> usize {

@@ -14,8 +14,10 @@ pub use replay::*;
 pub use song_search::*;
 
 use crate::engine::present::actors::Actor;
+use crate::engine::present::actors::TextContent;
+use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     BackToMain,
     SortByGroup,
@@ -34,6 +36,7 @@ pub enum Action {
     SortByRecentP2,
     SortByTopGradesP1,
     SortByTopGradesP2,
+    SortByPlaylist(String),
     ToggleFavorite,
     SortByFavorites,
     SwitchToSingle,
@@ -44,180 +47,204 @@ pub enum Action {
     ReloadSongsCourses,
     ShowLobbies,
     ViewDownloads,
+    NullOrDiePack,
     SyncSong,
     SyncPack,
     PlayReplay,
+    PracticeMode,
     ShowLeaderboard,
     ShowSetSummary,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Item {
-    pub top_label: &'static str,
-    pub bottom_label: &'static str,
+    pub top_label: TextContent,
+    pub bottom_label: TextContent,
     pub action: Action,
 }
 
 const ITEM_SORT_BY_GROUP: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Group",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Group"),
     action: Action::SortByGroup,
 };
 const ITEM_SORT_BY_TITLE: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Title",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Title"),
     action: Action::SortByTitle,
 };
 const ITEM_SORT_BY_ARTIST: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Artist",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Artist"),
     action: Action::SortByArtist,
 };
 const ITEM_SORT_BY_BPM: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "BPM",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("BPM"),
     action: Action::SortByBpm,
 };
 const ITEM_SORT_BY_LENGTH: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Length",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Length"),
     action: Action::SortByLength,
 };
 const ITEM_SORT_BY_METER: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Level",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Level"),
     action: Action::SortByMeter,
 };
 const ITEM_SORT_BY_POPULARITY: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Most Popular",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Most Popular"),
     action: Action::SortByPopularity,
 };
 const ITEM_SORT_BY_RECENT: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Recently Played",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Recently Played"),
     action: Action::SortByRecent,
 };
 pub const ITEM_SORT_BY_GENRE: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Genre",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Genre"),
     action: Action::SortByGenre,
 };
 pub const ITEM_SORT_BY_TOP_GRADES: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "Machine Top Scores",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("Machine Top Scores"),
     action: Action::SortByTopGrades,
 };
 pub const ITEM_SORT_BY_POPULARITY_P1: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P1 Most Played",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P1 Most Played"),
     action: Action::SortByPopularityP1,
 };
 pub const ITEM_SORT_BY_POPULARITY_P2: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P2 Most Played",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P2 Most Played"),
     action: Action::SortByPopularityP2,
 };
 pub const ITEM_SORT_BY_RECENT_P1: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P1 Recent Songs",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P1 Recent Songs"),
     action: Action::SortByRecentP1,
 };
 pub const ITEM_SORT_BY_RECENT_P2: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P2 Recent Songs",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P2 Recent Songs"),
     action: Action::SortByRecentP2,
 };
 pub const ITEM_SORT_BY_TOP_GRADES_P1: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P1 Clear Rank",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P1 Clear Rank"),
     action: Action::SortByTopGradesP1,
 };
 pub const ITEM_SORT_BY_TOP_GRADES_P2: Item = Item {
-    top_label: "Sort By",
-    bottom_label: "P2 Clear Rank",
+    top_label: TextContent::Static("Sort By"),
+    bottom_label: TextContent::Static("P2 Clear Rank"),
     action: Action::SortByTopGradesP2,
 };
 pub const ITEM_SWITCH_TO_SINGLE: Item = Item {
-    top_label: "Change Style To",
-    bottom_label: "Single",
+    top_label: TextContent::Static("Change Style To"),
+    bottom_label: TextContent::Static("Single"),
     action: Action::SwitchToSingle,
 };
 pub const ITEM_SWITCH_TO_DOUBLE: Item = Item {
-    top_label: "Change Style To",
-    bottom_label: "Double",
+    top_label: TextContent::Static("Change Style To"),
+    bottom_label: TextContent::Static("Double"),
     action: Action::SwitchToDouble,
 };
 pub const ITEM_TEST_INPUT: Item = Item {
-    top_label: "Feeling salty?",
-    bottom_label: "Test Input",
+    top_label: TextContent::Static("Feeling salty?"),
+    bottom_label: TextContent::Static("Test Input"),
     action: Action::TestInput,
 };
 pub const ITEM_SONG_SEARCH: Item = Item {
-    top_label: "Wherefore Art Thou?",
-    bottom_label: "Song Search",
+    top_label: TextContent::Static("Wherefore Art Thou?"),
+    bottom_label: TextContent::Static("Song Search"),
     action: Action::SongSearch,
 };
 pub const ITEM_SWITCH_PROFILE: Item = Item {
-    top_label: "Next Please",
-    bottom_label: "Switch Profile",
+    top_label: TextContent::Static("Next Please"),
+    bottom_label: TextContent::Static("Switch Profile"),
     action: Action::SwitchProfile,
 };
 pub const ITEM_RELOAD_SONGS_COURSES: Item = Item {
-    top_label: "Take a Breather~",
-    bottom_label: "Load New Songs",
+    top_label: TextContent::Static("Take a Breather~"),
+    bottom_label: TextContent::Static("Load New Songs"),
     action: Action::ReloadSongsCourses,
 };
 pub const ITEM_SHOW_LOBBIES: Item = Item {
-    top_label: "Friends Online?",
-    bottom_label: "Online Lobbies",
+    top_label: TextContent::Static("Friends Online?"),
+    bottom_label: TextContent::Static("Online Lobbies"),
     action: Action::ShowLobbies,
 };
 pub const ITEM_VIEW_DOWNLOADS: Item = Item {
-    top_label: "Need More RAM",
-    bottom_label: "View Downloads",
+    top_label: TextContent::Static("Need More RAM"),
+    bottom_label: TextContent::Static("View Downloads"),
     action: Action::ViewDownloads,
 };
+pub const ITEM_NULL_OR_DIE_PACK: Item = Item {
+    top_label: TextContent::Static("Sync pack with"),
+    bottom_label: TextContent::Static("NULL-OR-DIE"),
+    action: Action::NullOrDiePack,
+};
 pub const ITEM_SYNC_SONG: Item = Item {
-    top_label: "Sync",
-    bottom_label: "null-or-die",
+    top_label: TextContent::Static("Incorrect offset?"),
+    bottom_label: TextContent::Static("SYNC SONG"),
     action: Action::SyncSong,
 };
 pub const ITEM_SYNC_PACK: Item = Item {
-    top_label: "Sync",
-    bottom_label: "Sync Pack",
+    top_label: TextContent::Static("Incorrect offset?"),
+    bottom_label: TextContent::Static("SYNC PACK"),
     action: Action::SyncPack,
 };
 pub const ITEM_PLAY_REPLAY: Item = Item {
-    top_label: "Machine Data",
-    bottom_label: "Play Replay",
+    top_label: TextContent::Static("Machine Data"),
+    bottom_label: TextContent::Static("Play Replay"),
     action: Action::PlayReplay,
 };
+pub const ITEM_PRACTICE_MODE: Item = Item {
+    top_label: TextContent::Static("Having a hard time?"),
+    bottom_label: TextContent::Static("Practice Mode"),
+    action: Action::PracticeMode,
+};
 pub const ITEM_SHOW_LEADERBOARD: Item = Item {
-    top_label: "GrooveStats",
-    bottom_label: "Leaderboard",
+    top_label: TextContent::Static("GrooveStats"),
+    bottom_label: TextContent::Static("Leaderboard"),
     action: Action::ShowLeaderboard,
 };
 pub const ITEM_TOGGLE_FAVORITE: Item = Item {
-    top_label: "I'm Lovin' It",
-    bottom_label: "Add Favorite",
+    top_label: TextContent::Static("I'm Lovin' It"),
+    bottom_label: TextContent::Static("Add Favorite"),
     action: Action::ToggleFavorite,
 };
 pub const ITEM_SORT_BY_FAVORITES: Item = Item {
-    top_label: "Check Out My Mix Tape",
-    bottom_label: "Favorites",
+    top_label: TextContent::Static("Check Out My Mix Tape"),
+    bottom_label: TextContent::Static("Favorites"),
     action: Action::SortByFavorites,
 };
 pub const ITEM_GO_BACK: Item = Item {
-    top_label: "",
-    bottom_label: "Go Back",
+    top_label: TextContent::Static(""),
+    bottom_label: TextContent::Static("Go Back"),
     action: Action::BackToMain,
 };
 pub const ITEM_SET_SUMMARY: Item = Item {
-    top_label: "Relive Your Memories",
-    bottom_label: "Set Summary",
+    top_label: TextContent::Static("Relive Your Memories"),
+    bottom_label: TextContent::Static("Set Summary"),
     action: Action::ShowSetSummary,
 };
+
+pub fn playlist_item(
+    top_label: impl Into<String>,
+    bottom_label: impl Into<String>,
+    id: impl Into<String>,
+) -> Item {
+    Item {
+        top_label: TextContent::Shared(Arc::<str>::from(top_label.into())),
+        bottom_label: TextContent::Shared(Arc::<str>::from(bottom_label.into())),
+        action: Action::SortByPlaylist(id.into()),
+    }
+}
 
 pub const SORT_ITEMS: [Item; 10] = [
     ITEM_SORT_BY_GROUP,

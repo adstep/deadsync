@@ -38,6 +38,17 @@ pub fn update_arcade_options_navigation(enabled: bool) {
     save_without_keymaps();
 }
 
+pub fn update_delayed_back(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.delayed_back == enabled {
+            return;
+        }
+        cfg.delayed_back = enabled;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_three_key_navigation(enabled: bool) {
     let dedicated = {
         let mut cfg = lock_config();
@@ -55,6 +66,17 @@ pub fn update_three_key_navigation(enabled: bool) {
         cfg.only_dedicated_menu_buttons
     };
     crate::engine::input::set_only_dedicated_menu_buttons(dedicated);
+    save_without_keymaps();
+}
+
+pub fn update_use_fsrs(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.use_fsrs == enabled {
+            return;
+        }
+        cfg.use_fsrs = enabled;
+    }
     save_without_keymaps();
 }
 
@@ -91,6 +113,17 @@ pub fn update_keyboard_features(enabled: bool) {
     save_without_keymaps();
 }
 
+pub fn update_visual_style(style: VisualStyle) {
+    {
+        let mut cfg = lock_config();
+        if cfg.visual_style == style {
+            return;
+        }
+        cfg.visual_style = style;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_machine_show_select_profile(enabled: bool) {
     {
         let mut cfg = lock_config();
@@ -102,6 +135,17 @@ pub fn update_machine_show_select_profile(enabled: bool) {
     save_without_keymaps();
 }
 
+pub fn update_allow_switch_profile_in_menu(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.allow_switch_profile_in_menu == enabled {
+            return;
+        }
+        cfg.allow_switch_profile_in_menu = enabled;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_show_video_backgrounds(enabled: bool) {
     {
         let mut cfg = lock_config();
@@ -109,6 +153,17 @@ pub fn update_show_video_backgrounds(enabled: bool) {
             return;
         }
         cfg.show_video_backgrounds = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_random_background_mode(mode: RandomBackgroundMode) {
+    {
+        let mut cfg = lock_config();
+        if cfg.random_background_mode == mode {
+            return;
+        }
+        cfg.random_background_mode = mode;
     }
     save_without_keymaps();
 }
@@ -234,6 +289,28 @@ pub fn update_machine_allow_per_player_global_offsets(enabled: bool) {
     save_without_keymaps();
 }
 
+pub fn update_machine_pack_ini_offsets(enabled: bool) {
+    {
+        let mut cfg = lock_config();
+        if cfg.machine_pack_ini_offsets == enabled {
+            return;
+        }
+        cfg.machine_pack_ini_offsets = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_machine_default_sync_offset(offset: DefaultSyncOffset) {
+    {
+        let mut cfg = lock_config();
+        if cfg.machine_default_sync_offset == offset {
+            return;
+        }
+        cfg.machine_default_sync_offset = offset;
+    }
+    save_without_keymaps();
+}
+
 pub fn update_enable_groovestats(enabled: bool) {
     {
         let mut cfg = lock_config();
@@ -267,17 +344,6 @@ pub fn update_enable_arrowcloud(enabled: bool) {
     save_without_keymaps();
 }
 
-pub fn update_submit_groovestats_fails(enabled: bool) {
-    {
-        let mut cfg = lock_config();
-        if cfg.submit_groovestats_fails == enabled {
-            return;
-        }
-        cfg.submit_groovestats_fails = enabled;
-    }
-    save_without_keymaps();
-}
-
 pub fn update_submit_arrowcloud_fails(enabled: bool) {
     {
         let mut cfg = lock_config();
@@ -285,6 +351,28 @@ pub fn update_submit_arrowcloud_fails(enabled: bool) {
             return;
         }
         cfg.submit_arrowcloud_fails = enabled;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_arrowcloud_qr_login_when(when: ArrowCloudQrLoginWhen) {
+    {
+        let mut cfg = lock_config();
+        if cfg.arrowcloud_qr_login_when == when {
+            return;
+        }
+        cfg.arrowcloud_qr_login_when = when;
+    }
+    save_without_keymaps();
+}
+
+pub fn update_groovestats_qr_login_when(when: GrooveStatsQrLoginWhen) {
+    {
+        let mut cfg = lock_config();
+        if cfg.groovestats_qr_login_when == when {
+            return;
+        }
+        cfg.groovestats_qr_login_when = when;
     }
     save_without_keymaps();
 }

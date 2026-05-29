@@ -18,6 +18,9 @@ pub use self::keybinds::{
     clear_keymap_binding, update_keymap_binding_unique_gamepad,
     update_keymap_binding_unique_keyboard,
 };
+pub(crate) use self::keybinds::{
+    editable_key_binding_slot_indices, protected_default_key_for_action,
+};
 pub use self::load::{bootstrap_log_to_file, load};
 pub use self::null_or_die_cfg::null_or_die_bias_cfg;
 pub use self::runtime::{
@@ -25,10 +28,13 @@ pub use self::runtime::{
 };
 pub use self::theme::{
     AUTO_SS_CLEARS, AUTO_SS_FAILS, AUTO_SS_FLAG_NAMES, AUTO_SS_NUM_FLAGS, AUTO_SS_PBS,
-    AUTO_SS_QUADS, AUTO_SS_QUINTS, BreakdownStyle, DefaultFailType, GameFlag, LanguageFlag,
-    LogLevel, MachinePreferredPlayMode, MachinePreferredPlayStyle, NewPackMode,
+    AUTO_SS_QUADS, AUTO_SS_QUINTS, ArrowCloudQrLoginWhen, BreakdownStyle, DefaultFailType,
+    DefaultSyncOffset, GameFlag, GrooveStatsQrLoginWhen, LanguageFlag, LogLevel,
+    MACHINE_FONT_VARIANTS, MachineBarColor, MachineFont, MachinePreferredPlayMode,
+    MachinePreferredPlayStyle, NewPackMode, RandomBackgroundMode, SelectMusicItlRankMode,
     SelectMusicItlWheelMode, SelectMusicPatternInfoMode, SelectMusicScoreboxPlacement,
-    SelectMusicWheelStyle, SyncGraphMode, ThemeFlag, auto_screenshot_bit,
+    SelectMusicSongSelectBgMode, SelectMusicStepArtistBoxMode, SelectMusicWheelStyle,
+    SyncGraphMode, ThemeFlag, VersionOverlaySide, VisualStyle, auto_screenshot_bit,
     auto_screenshot_mask_from_str, auto_screenshot_mask_to_str,
 };
 pub use self::update::*;
@@ -48,6 +54,7 @@ use self::runtime::{
 use self::store::{normalize_machine_default_noteskin, save_without_keymaps};
 use crate::engine::gfx::{BackendType, PresentModePolicy};
 use crate::engine::input::WindowsPadBackend;
+use crate::engine::lights::{DriverKind as LightsDriverKind, GameplayPadLightMode, SerialPortName};
 use crate::engine::logging;
 use log::{info, warn};
 use null_or_die::{BiasCfg, BiasKernel, KernelTarget};
@@ -123,6 +130,10 @@ pub struct Config {
     pub display_width: u32,
     pub display_height: u32,
     pub video_renderer: BackendType,
+    /// Native high-DPI/Retina rendering. Currently affects macOS OpenGL only.
+    pub high_dpi: bool,
+    /// Hide the OS mouse cursor while it is inside the DeadSync window.
+    pub hide_mouse_cursor: bool,
     pub gfx_debug: bool,
     /// Windows-only: choose which gamepad backend to use.
     pub windows_gamepad_backend: WindowsPadBackend,
@@ -138,23 +149,41 @@ pub struct Config {
     pub song_parsing_threads: u8,
     pub simply_love_color: i32,
     pub show_select_music_gameplay_timer: bool,
+    pub show_select_music_stage_display: bool,
     pub show_select_music_banners: bool,
     pub show_select_music_video_banners: bool,
     pub show_select_music_breakdown: bool,
     pub show_select_music_cdtitles: bool,
     pub show_music_wheel_grades: bool,
     pub show_music_wheel_lamps: bool,
+    pub select_music_itl_rank_mode: SelectMusicItlRankMode,
     pub select_music_itl_wheel_mode: SelectMusicItlWheelMode,
     /// Simply Love MusicWheelStyle parity: IIDX only shows the active pack when expanded.
     pub select_music_wheel_style: SelectMusicWheelStyle,
+    /// Arrow Cloud SongSelectBG parity: show song/pack art behind wheel rows.
+    pub select_music_song_select_bg_mode: SelectMusicSongSelectBgMode,
     pub select_music_new_pack_mode: NewPackMode,
+    /// Arrow Cloud FolderStats parity: pack clear summary box on Select Music.
+    pub show_select_music_folder_stats: bool,
     pub show_select_music_previews: bool,
     pub show_select_music_preview_marker: bool,
     pub select_music_preview_loop: bool,
     /// zmod parity: enable keyboard-only shortcuts like Ctrl+R restart in gameplay/evaluation.
     pub keyboard_features: bool,
+    /// Show a small build-version watermark in the bottom-right corner of
+    /// every screen so the running version is visible in any
+    /// screenshot/video. Default on; disablable via the Options menu.
+    pub show_version_overlay: bool,
+    /// Which side of the screen the version watermark anchors to. Stored
+    /// separately from `show_version_overlay` so toggling visibility
+    /// doesn't forget the preferred side.
+    pub version_overlay_side: VersionOverlaySide,
+    /// Simply Love visual style used by shared menu art.
+    pub visual_style: VisualStyle,
     /// Enable or disable animated gameplay background videos.
     pub show_video_backgrounds: bool,
+    /// ITGmania RandomBackgroundMode. DeadSync currently implements RandomMovies.
+    pub random_background_mode: RandomBackgroundMode,
     /// Startup flow: show Select Profile before continuing.
     pub machine_show_select_profile: bool,
     /// Whether "Switch Profile" appears in the select music sort menu.
@@ -169,10 +198,21 @@ pub struct Config {
     pub machine_preferred_style: MachinePreferredPlayStyle,
     /// Startup flow fallback mode used when Select Play Mode is disabled.
     pub machine_preferred_play_mode: MachinePreferredPlayMode,
+    /// Machine font for Bold/Header/Footer/numbers/ScreenEval roles.
+    /// Default `Wendy` keeps Wendy; `Mega` swaps those roles to Mega.
+    /// Body text (Normal role) stays Miso regardless.
+    pub machine_font: MachineFont,
+    /// Machine-wide screen bar color behavior.
+    /// Default preserves each screen's current bar background choice.
+    pub machine_bar_color: MachineBarColor,
     /// Machine-wide replay recording and replay menu visibility.
     pub machine_enable_replays: bool,
     /// Allow players to add a personal timing shift on top of machine global offset.
     pub machine_allow_per_player_global_offsets: bool,
+    /// Apply ITGmania Pack.ini SyncOffset values to gameplay timing.
+    pub machine_pack_ini_offsets: bool,
+    /// Sync offset to assume for packs without a Pack.ini SyncOffset value.
+    pub machine_default_sync_offset: DefaultSyncOffset,
     /// Post-session flow from Select Music/Course: show Evaluation Summary.
     pub machine_show_eval_summary: bool,
     /// Post-session flow from Select Music/Course: show Name Entry.
@@ -183,6 +223,8 @@ pub struct Config {
     pub zmod_rating_box_text: bool,
     /// Show one decimal place for live gameplay BPM when BPM is non-integer.
     pub show_bpm_decimal: bool,
+    /// Require holding Back to leave gameplay instead of exiting on first press.
+    pub delayed_back: bool,
     /// Machine default fail behavior (ITGmania DefaultFailType).
     pub default_fail_type: DefaultFailType,
     /// Choose which null-or-die sync graph the Select Music overlay displays.
@@ -200,6 +242,7 @@ pub struct Config {
     pub null_or_die_full_spectrogram: bool,
     pub select_music_breakdown_style: BreakdownStyle,
     pub select_music_pattern_info_mode: SelectMusicPatternInfoMode,
+    pub select_music_step_artist_box_mode: SelectMusicStepArtistBoxMode,
     pub show_select_music_scorebox: bool,
     pub select_music_scorebox_placement: SelectMusicScoreboxPlacement,
     pub select_music_scorebox_cycle_itg: bool,
@@ -207,6 +250,7 @@ pub struct Config {
     pub select_music_scorebox_cycle_hard_ex: bool,
     pub select_music_scorebox_cycle_tournaments: bool,
     pub select_music_chart_info_peak_nps: bool,
+    pub select_music_chart_info_effective_bpm: bool,
     pub select_music_chart_info_matrix_rating: bool,
     pub show_random_courses: bool,
     pub show_most_played_courses: bool,
@@ -216,6 +260,7 @@ pub struct Config {
     pub visual_delay_seconds: f32,
     pub master_volume: u8,
     pub menu_music: bool,
+    pub custom_sounds_enabled: bool,
     pub music_volume: u8,
     // ITGmania PrefsManager "MusicWheelSwitchSpeed" (default 15).
     pub music_wheel_switch_speed: u8,
@@ -229,17 +274,35 @@ pub struct Config {
     pub audio_sample_rate_hz: Option<u32>,
     pub auto_download_unlocks: bool,
     pub auto_populate_gs_scores: bool,
+    /// Allows the in-app updater to download and install updates.
+    /// Disable this for builds distributed through a channel that owns
+    /// updates itself, such as a package manager or storefront.
+    pub updater_install_enabled: bool,
     pub rate_mod_preserves_pitch: bool,
+    /// Experimental: apply ReplayGain 2.0 / EBU R 128 loudness normalization
+    /// to music playback. Loudness is computed in the background and cached
+    /// on disk per song.
+    pub enable_replaygain: bool,
     pub enable_arrowcloud: bool,
     pub enable_boogiestats: bool,
     pub enable_groovestats: bool,
     pub submit_arrowcloud_fails: bool,
-    pub submit_groovestats_fails: bool,
+    /// When to auto-show the ArrowCloud QR-login screen after Select
+    /// Profile.  Mirrors Simply Love's `QRLogin` theme pref.
+    pub arrowcloud_qr_login_when: ArrowCloudQrLoginWhen,
+    /// When to auto-show the GrooveStats QR-login screen after Select
+    /// Profile.  Mirrors Simply Love's `QRLogin` theme pref.
+    pub groovestats_qr_login_when: GrooveStatsQrLoginWhen,
     pub separate_unlocks_by_player: bool,
     pub fastload: bool,
     pub cachesongs: bool,
     // Whether to apply Gaussian smoothing to the eval histogram (Simply Love style)
     pub smooth_histogram: bool,
+    /// Tint the evaluation scatterplot background in horizontal bands matching
+    /// the active scoring scale's judgment timing windows. Mirrors the
+    /// Simply-Love-SM5-8ms judgment-region shading; off by default to preserve
+    /// the existing solid background.
+    pub shade_scatterplot_judgments: bool,
     /// Conditions for auto-screenshotting the Evaluation screen.
     pub auto_screenshot_eval: u8,
     /// ITGmania InputFilter parity: per-input debounce window in seconds.
@@ -248,6 +311,14 @@ pub struct Config {
     pub arcade_options_navigation: bool,
     /// ITGmania/Simply Love parity: use left/right/start style menu navigation.
     pub three_key_navigation: bool,
+    /// Enable direct FSR device diagnostics in Test Input for supported controllers.
+    pub use_fsrs: bool,
+    /// Native cabinet/pad light output driver.
+    pub lights_driver: LightsDriverKind,
+    /// Source for gameplay arrow pad lights.
+    pub lights_gameplay_pad_lights: GameplayPadLightMode,
+    /// Serial port used by the Litboard/Win32Serial/Sextet lights drivers.
+    pub lights_com_port: SerialPortName,
     /// When true, gameplay arrow buttons (p*_up/down/left/right) are excluded from
     /// menu navigation. Only explicitly-bound menu buttons (p*_menu_*) work in menus.
     pub only_dedicated_menu_buttons: bool,
@@ -258,7 +329,7 @@ impl Default for Config {
         Self {
             vsync: false,
             max_fps: 0,
-            present_mode_policy: PresentModePolicy::Immediate,
+            present_mode_policy: PresentModePolicy::Mailbox,
             windowed: true,
             fullscreen_type: FullscreenType::Exclusive,
             display_monitor: 0,
@@ -279,26 +350,36 @@ impl Default for Config {
             display_width: 1600,
             display_height: 900,
             video_renderer: BackendType::OpenGL,
+            high_dpi: false,
+            hide_mouse_cursor: true,
             gfx_debug: false,
             windows_gamepad_backend: WindowsPadBackend::RawInput,
             software_renderer_threads: 1,
             song_parsing_threads: 0,
             simply_love_color: 2, // Corresponds to DEFAULT_COLOR_INDEX
             show_select_music_gameplay_timer: true,
+            show_select_music_stage_display: true,
             show_select_music_banners: true,
             show_select_music_video_banners: true,
             show_select_music_breakdown: true,
             show_select_music_cdtitles: true,
             show_music_wheel_grades: true,
             show_music_wheel_lamps: true,
+            select_music_itl_rank_mode: SelectMusicItlRankMode::None,
             select_music_itl_wheel_mode: SelectMusicItlWheelMode::Score,
             select_music_wheel_style: SelectMusicWheelStyle::Itg,
+            select_music_song_select_bg_mode: SelectMusicSongSelectBgMode::Off,
             select_music_new_pack_mode: NewPackMode::Disabled,
+            show_select_music_folder_stats: false,
             show_select_music_previews: true,
             show_select_music_preview_marker: false,
             select_music_preview_loop: true,
             keyboard_features: true,
+            show_version_overlay: true,
+            version_overlay_side: VersionOverlaySide::Right,
+            visual_style: VisualStyle::Hearts,
             show_video_backgrounds: true,
+            random_background_mode: RandomBackgroundMode::Off,
             machine_show_select_profile: true,
             allow_switch_profile_in_menu: false,
             machine_show_select_color: true,
@@ -306,8 +387,13 @@ impl Default for Config {
             machine_show_select_play_mode: true,
             machine_preferred_style: MachinePreferredPlayStyle::Single,
             machine_preferred_play_mode: MachinePreferredPlayMode::Regular,
+            machine_font: MachineFont::Wendy,
+            machine_bar_color: MachineBarColor::Default,
+            delayed_back: true,
             machine_enable_replays: true,
             machine_allow_per_player_global_offsets: false,
+            machine_pack_ini_offsets: false,
+            machine_default_sync_offset: DefaultSyncOffset::Null,
             machine_show_eval_summary: true,
             machine_show_name_entry: true,
             machine_show_gameover: true,
@@ -326,6 +412,7 @@ impl Default for Config {
             null_or_die_full_spectrogram: false,
             select_music_breakdown_style: BreakdownStyle::Sl,
             select_music_pattern_info_mode: SelectMusicPatternInfoMode::Tech,
+            select_music_step_artist_box_mode: SelectMusicStepArtistBoxMode::Default,
             show_select_music_scorebox: true,
             select_music_scorebox_placement: SelectMusicScoreboxPlacement::Auto,
             select_music_scorebox_cycle_itg: true,
@@ -333,6 +420,7 @@ impl Default for Config {
             select_music_scorebox_cycle_hard_ex: true,
             select_music_scorebox_cycle_tournaments: true,
             select_music_chart_info_peak_nps: true,
+            select_music_chart_info_effective_bpm: false,
             select_music_chart_info_matrix_rating: false,
             show_random_courses: true,
             show_most_played_courses: true,
@@ -342,6 +430,7 @@ impl Default for Config {
             visual_delay_seconds: 0.0,
             master_volume: 90,
             menu_music: true,
+            custom_sounds_enabled: true,
             music_volume: 100,
             music_wheel_switch_speed: 15,
             assist_tick_volume: 100,
@@ -352,20 +441,28 @@ impl Default for Config {
             audio_sample_rate_hz: None,
             auto_download_unlocks: false,
             auto_populate_gs_scores: false,
+            updater_install_enabled: true,
             rate_mod_preserves_pitch: true,
+            enable_replaygain: false,
             enable_arrowcloud: false,
             enable_boogiestats: false,
             enable_groovestats: false,
             submit_arrowcloud_fails: false,
-            submit_groovestats_fails: false,
+            arrowcloud_qr_login_when: ArrowCloudQrLoginWhen::Sometimes,
+            groovestats_qr_login_when: GrooveStatsQrLoginWhen::Sometimes,
             separate_unlocks_by_player: false,
             fastload: true,
             cachesongs: true,
             smooth_histogram: true,
+            shade_scatterplot_judgments: false,
             auto_screenshot_eval: 0,
             input_debounce_seconds: 0.02,
             arcade_options_navigation: false,
             three_key_navigation: false,
+            use_fsrs: false,
+            lights_driver: LightsDriverKind::Off,
+            lights_gameplay_pad_lights: GameplayPadLightMode::Input,
+            lights_com_port: SerialPortName::default(),
             only_dedicated_menu_buttons: false,
         }
     }

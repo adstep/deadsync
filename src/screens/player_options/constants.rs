@@ -22,11 +22,64 @@ pub(super) const TILT_INTENSITY_MAX: f32 = 10.00;
 
 pub(super) const TILT_INTENSITY_STEP: f32 = 0.05;
 
+pub(super) const LONG_ERROR_BAR_INTENSITY_MIN: f32 =
+    crate::game::profile::LONG_ERROR_BAR_INTENSITY_MIN;
+
+pub(super) const LONG_ERROR_BAR_INTENSITY_MAX: f32 =
+    crate::game::profile::LONG_ERROR_BAR_INTENSITY_MAX;
+
+pub(super) const LONG_ERROR_BAR_INTENSITY_STEP: f32 =
+    crate::game::profile::LONG_ERROR_BAR_INTENSITY_STEP;
+
+pub(super) const AVERAGE_ERROR_BAR_INTENSITY_MIN: f32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTENSITY_MIN;
+
+pub(super) const AVERAGE_ERROR_BAR_INTENSITY_MAX: f32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTENSITY_MAX;
+
+pub(super) const AVERAGE_ERROR_BAR_INTENSITY_STEP: f32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTENSITY_STEP;
+
+pub(super) const AVERAGE_ERROR_BAR_INTERVAL_MS_MIN: u32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTERVAL_MS_MIN;
+
+pub(super) const AVERAGE_ERROR_BAR_INTERVAL_MS_MAX: u32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTERVAL_MS_MAX;
+
+pub(super) const AVERAGE_ERROR_BAR_INTERVAL_MS_STEP: u32 =
+    crate::game::profile::AVERAGE_ERROR_BAR_INTERVAL_MS_STEP;
+
+pub(super) const LONG_ERROR_BAR_THRESHOLD_MS_MIN: u32 =
+    crate::game::profile::LONG_ERROR_BAR_THRESHOLD_MS_MIN;
+
+pub(super) const LONG_ERROR_BAR_THRESHOLD_MS_MAX: u32 =
+    crate::game::profile::LONG_ERROR_BAR_THRESHOLD_MS_MAX;
+
+pub(super) const LONG_ERROR_BAR_MIN_SAMPLES_MIN: u32 =
+    crate::game::profile::LONG_ERROR_BAR_MIN_SAMPLES_MIN;
+
+pub(super) const LONG_ERROR_BAR_MIN_SAMPLES_MAX: u32 =
+    crate::game::profile::LONG_ERROR_BAR_MIN_SAMPLES_MAX;
+
+pub(super) const LONG_ERROR_BAR_BUFFER_CAP_MIN: u32 =
+    crate::game::profile::LONG_ERROR_BAR_BUFFER_CAP_MIN;
+
+pub(super) const LONG_ERROR_BAR_BUFFER_CAP_MAX: u32 =
+    crate::game::profile::LONG_ERROR_BAR_BUFFER_CAP_MAX;
+
+pub(super) const TILT_THRESHOLD_MIN_MS: u32 = crate::game::profile::TILT_THRESHOLD_MIN_MS;
+
+pub(super) const TILT_THRESHOLD_MAX_MS: u32 = crate::game::profile::TILT_THRESHOLD_MAX_MS;
+
 pub(super) const HUD_OFFSET_MIN: i32 = crate::game::profile::HUD_OFFSET_MIN;
 
 pub(super) const HUD_OFFSET_MAX: i32 = crate::game::profile::HUD_OFFSET_MAX;
 
 pub(super) const HUD_OFFSET_ZERO_INDEX: usize = (-HUD_OFFSET_MIN) as usize;
+
+pub(super) const SPACING_PERCENT_MIN: i32 = crate::game::profile::SPACING_PERCENT_MIN;
+
+pub(super) const SPACING_PERCENT_MAX: i32 = crate::game::profile::SPACING_PERCENT_MAX;
 
 pub(super) const VISIBLE_ROWS: usize = 10;
 
@@ -57,9 +110,10 @@ pub(super) const MATCH_NOTESKIN_LABEL: &str = "MatchNoteSkinLabel";
 pub(super) const NO_TAP_EXPLOSION_LABEL: &str = "NoTapExplosionLabel";
 
 use crate::game::profile::{
-    AttackMode, BackgroundFilter, ComboColors, ComboFont, ComboMode, DataVisualizations,
-    ErrorBarTrim, HideLightType, LifeMeterType, MeasureCounter, MeasureLines, MiniIndicator,
-    MiniIndicatorScoreType, Perspective, TargetScoreSetting, TimingWindowsOption, TurnOption,
+    AttackMode, ComboColors, ComboFont, ComboMode, DataVisualizations, ErrorBarTrim, HideLightType,
+    LifeMeterType, MeasureCounter, MeasureLines, MiniIndicator, MiniIndicatorColor,
+    MiniIndicatorScoreType, MiniIndicatorSize, Perspective, ScatterplotMaxWindow,
+    TargetScoreSetting, TimingWindowsOption, TurnOption,
 };
 
 /// MiniIndicator variants in row-choice order (index ↔ enum).
@@ -85,13 +139,6 @@ pub(super) const TURN_OPTION_VARIANTS: [TurnOption; 9] = [
     TurnOption::Random,
 ];
 
-pub(super) const BACKGROUND_FILTER_VARIANTS: [BackgroundFilter; 4] = [
-    BackgroundFilter::Off,
-    BackgroundFilter::Dark,
-    BackgroundFilter::Darker,
-    BackgroundFilter::Darkest,
-];
-
 pub(super) const PERSPECTIVE_VARIANTS: [Perspective; 5] = [
     Perspective::Overhead,
     Perspective::Hallway,
@@ -100,7 +147,7 @@ pub(super) const PERSPECTIVE_VARIANTS: [Perspective; 5] = [
     Perspective::Space,
 ];
 
-pub(super) const COMBO_FONT_VARIANTS: [ComboFont; 8] = [
+pub(super) const COMBO_FONT_VARIANTS: [ComboFont; 9] = [
     ComboFont::Wendy,
     ComboFont::ArialRounded,
     ComboFont::Asap,
@@ -108,6 +155,7 @@ pub(super) const COMBO_FONT_VARIANTS: [ComboFont; 8] = [
     ComboFont::SourceCode,
     ComboFont::Work,
     ComboFont::WendyCursed,
+    ComboFont::Mega,
     ComboFont::None,
 ];
 
@@ -126,6 +174,13 @@ pub(super) const DATA_VISUALIZATIONS_VARIANTS: [DataVisualizations; 3] = [
     DataVisualizations::None,
     DataVisualizations::TargetScoreGraph,
     DataVisualizations::StepStatistics,
+];
+
+pub(super) const SCATTERPLOT_MAX_WINDOW_VARIANTS: [ScatterplotMaxWindow; 4] = [
+    ScatterplotMaxWindow::Off,
+    ScatterplotMaxWindow::Fantastic,
+    ScatterplotMaxWindow::Excellent,
+    ScatterplotMaxWindow::Great,
 ];
 
 pub(super) const TARGET_SCORE_VARIANTS: [TargetScoreSetting; 14] = [
@@ -186,6 +241,12 @@ pub(super) const MINI_INDICATOR_SCORE_TYPE_VARIANTS: [MiniIndicatorScoreType; 3]
     MiniIndicatorScoreType::Ex,
     MiniIndicatorScoreType::HardEx,
 ];
+
+pub(super) const MINI_INDICATOR_SIZE_VARIANTS: [MiniIndicatorSize; 2] =
+    [MiniIndicatorSize::Default, MiniIndicatorSize::Large];
+
+pub(super) const MINI_INDICATOR_COLOR_VARIANTS: [MiniIndicatorColor; 2] =
+    [MiniIndicatorColor::Default, MiniIndicatorColor::Detailed];
 
 pub(super) const ATTACK_MODE_VARIANTS: [AttackMode; 3] =
     [AttackMode::On, AttackMode::Random, AttackMode::Off];

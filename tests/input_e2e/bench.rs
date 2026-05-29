@@ -365,8 +365,9 @@ fn prepare_gameplay_state(state: &mut gameplay::State) {
     state.current_beat_visible.fill(0.0);
     state.current_music_time_visible.fill(0.0);
     state.current_background_path = None;
+    state.current_background_key = None;
     state.next_background_change_ix = 0;
-    state.background_texture_key.clear();
+    state.background_texture_key = std::sync::Arc::from("__black");
     state.notes.clear();
     state.note_ranges.fill((0, 0));
     state.row_entry_ranges.fill((0, 0));
@@ -381,9 +382,7 @@ fn prepare_gameplay_state(state: &mut gameplay::State) {
     state.note_row_entry_indices.clear();
     state.tap_row_hold_roll_flags.clear();
     state.note_time_cache_ns.clear();
-    state.note_display_beat_cache.clear();
     state.hold_end_time_cache_ns.clear();
-    state.hold_end_display_beat_cache.clear();
     state.notes_end_time_ns = 3_600_000_000_000;
     state.music_end_time_ns = 3_600_000_000_000;
     state.decaying_hold_indices.clear();

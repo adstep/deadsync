@@ -1,7 +1,7 @@
 use super::*;
 pub use crate::game::profile::{
-    AccelEffectsMask, AppearanceEffectsMask, ErrorBarMask, HoldsMask, InsertMask, RemoveMask,
-    VisualEffectsMask,
+    AccelEffectsMask, AppearanceEffectsMask, ErrorBarMask, HoldsMask, InsertMask,
+    LiveTimingStatsMask, RemoveMask, TapExplosionMask, VisualEffectsMask,
 };
 use bitflags::bitflags;
 
@@ -32,7 +32,7 @@ bitflags! {
 }
 
 bitflags! {
-    /// Active toggles for the FA+ Options row.
+    /// Active toggles for the FA+ Options rows.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct FaPlusMask: u8 {
         const WINDOW           = 1 << 0;
@@ -60,7 +60,8 @@ bitflags! {
         const FLASH_COLUMN_FOR_MISS = 1 << 0;
         const DENSITY_GRAPH_AT_TOP  = 1 << 1;
         const COLUMN_CUES           = 1 << 2;
-        const DISPLAY_SCOREBOX      = 1 << 3;
+        const LIVE_TIMING_STATS     = 1 << 3;
+        const DISPLAY_SCOREBOX      = 1 << 4;
     }
 }
 
@@ -78,6 +79,7 @@ bitflags! {
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct ResultsExtrasMask: u8 {
         const TRACK_EARLY_JUDGMENTS = 1 << 0;
+        const SCALE_SCATTERPLOT     = 1 << 1;
     }
 }
 
@@ -110,6 +112,72 @@ bitflags! {
         const BROKEN_RUN_TOTAL   = 1 << 3;
         const RUN_TIMER          = 1 << 4;
     }
+}
+
+/// All per-player active bitmasks for option rows.
+///
+/// Stored as `[PlayerOptionMasks; PLAYER_SLOTS]` on `State` (one entry per
+/// player slot). Adding a new mask row only requires adding one field here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlayerOptionMasks {
+    pub scroll: ScrollMask,
+    pub hide: HideMask,
+    pub insert: InsertMask,
+    pub remove: RemoveMask,
+    pub holds: HoldsMask,
+    pub accel_effects: AccelEffectsMask,
+    pub visual_effects: VisualEffectsMask,
+    pub appearance_effects: AppearanceEffectsMask,
+    pub fa_plus: FaPlusMask,
+    pub early_dw: EarlyDwMask,
+    pub gameplay_extras: GameplayExtrasMask,
+    pub live_timing_stats: LiveTimingStatsMask,
+    pub gameplay_extras_more: GameplayExtrasMoreMask,
+    pub results_extras: ResultsExtrasMask,
+    pub life_bar_options: LifeBarOptionsMask,
+    pub error_bar: ErrorBarMask,
+    pub error_bar_options: ErrorBarOptionsMask,
+    pub measure_counter_options: MeasureCounterOptionsMask,
+    pub tap_explosion: TapExplosionMask,
+}
+
+/// Loaded noteskin previews for a single player slot.
+///
+/// Stored as `[PlayerNoteskinPreviews; PLAYER_SLOTS]` on `NoteskinState` (one
+/// entry per player slot).
+#[derive(Clone, Default)]
+pub(super) struct PlayerNoteskinPreviews {
+    pub(super) base: Option<Arc<Noteskin>>,
+    pub(super) mine: Option<Arc<Noteskin>>,
+    pub(super) receptor: Option<Arc<Noteskin>>,
+    pub(super) tap_explosion: Option<Arc<Noteskin>>,
+}
+
+/// Owns the noteskin loading subsystem: the shared cache and the per-player
+/// resolved previews.
+pub(super) struct NoteskinState {
+    pub(super) cache: HashMap<String, Arc<Noteskin>>,
+    pub(super) previews: [PlayerNoteskinPreviews; PLAYER_SLOTS],
+}
+
+/// Per-player navigation key hold/repeat timing.
+///
+/// Stored as `[PlayerNavInput; PLAYER_SLOTS]` on `State`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlayerNavInput {
+    pub held_direction: Option<NavDirection>,
+    pub held_for: Duration,
+    pub next_repeat_at: Duration,
+}
+
+/// Per-player Start button hold/repeat timing.
+///
+/// Stored as `[PlayerStartInput; PLAYER_SLOTS]` on `State`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlayerStartInput {
+    pub held: bool,
+    pub held_for: Duration,
+    pub next_repeat_at: Duration,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -168,60 +236,18 @@ pub struct State {
     pub chart_steps_index: [usize; PLAYER_SLOTS],
     pub chart_difficulty_index: [usize; PLAYER_SLOTS],
     pub(super) panes: [PaneState; OptionsPane::COUNT],
-    pub scroll_active_mask: [ScrollMask; PLAYER_SLOTS],
-    pub hide_active_mask: [HideMask; PLAYER_SLOTS],
-    pub fa_plus_active_mask: [FaPlusMask; PLAYER_SLOTS],
-    pub early_dw_active_mask: [EarlyDwMask; PLAYER_SLOTS],
-    pub gameplay_extras_active_mask: [GameplayExtrasMask; PLAYER_SLOTS],
-    pub gameplay_extras_more_active_mask: [GameplayExtrasMoreMask; PLAYER_SLOTS],
-    pub results_extras_active_mask: [ResultsExtrasMask; PLAYER_SLOTS],
-    pub life_bar_options_active_mask: [LifeBarOptionsMask; PLAYER_SLOTS],
-    // For Error Bar row: bitmask of which options are enabled.
-    // bit0 = Colorful, bit1 = Monochrome, bit2 = Text, bit3 = Highlight, bit4 = Average.
-    pub error_bar_active_mask: [ErrorBarMask; PLAYER_SLOTS],
-    pub error_bar_options_active_mask: [ErrorBarOptionsMask; PLAYER_SLOTS],
-    pub measure_counter_options_active_mask: [MeasureCounterOptionsMask; PLAYER_SLOTS],
-    // For Insert row: bitmask of enabled chart insert transforms.
-    // bit0 = Wide, bit1 = Big, bit2 = Quick, bit3 = BMRize,
-    // bit4 = Skippy, bit5 = Echo, bit6 = Stomp.
-    pub insert_active_mask: [InsertMask; PLAYER_SLOTS],
-    // For Remove row: bitmask of enabled chart removal transforms.
-    // bit0 = Little, bit1 = No Mines, bit2 = No Holds, bit3 = No Jumps,
-    // bit4 = No Hands, bit5 = No Quads, bit6 = No Lifts, bit7 = No Fakes.
-    pub remove_active_mask: [RemoveMask; PLAYER_SLOTS],
-    // For Holds row: bitmask of enabled hold transforms.
-    // bit0 = Planted, bit1 = Floored, bit2 = Twister,
-    // bit3 = No Rolls, bit4 = Holds To Rolls.
-    pub holds_active_mask: [HoldsMask; PLAYER_SLOTS],
-    // For Accel Effects row: bitmask of enabled acceleration transforms.
-    // bit0 = Boost, bit1 = Brake, bit2 = Wave, bit3 = Expand, bit4 = Boomerang.
-    pub accel_effects_active_mask: [AccelEffectsMask; PLAYER_SLOTS],
-    // For Visual Effects row: bitmask of enabled visual transforms.
-    // bit0 = Drunk, bit1 = Dizzy, bit2 = Confusion, bit3 = Big,
-    // bit4 = Flip, bit5 = Invert, bit6 = Tornado, bit7 = Tipsy,
-    // bit8 = Bumpy, bit9 = Beat.
-    pub visual_effects_active_mask: [VisualEffectsMask; PLAYER_SLOTS],
-    // For Appearance Effects row: bitmask of enabled appearance transforms.
-    // bit0 = Hidden, bit1 = Sudden, bit2 = Stealth, bit3 = Blink, bit4 = R.Vanish.
-    pub appearance_effects_active_mask: [AppearanceEffectsMask; PLAYER_SLOTS],
+    /// All per-player option bitmasks. See `PlayerOptionMasks` for field meanings.
+    pub option_masks: [PlayerOptionMasks; PLAYER_SLOTS],
     pub active_color_index: i32,
     pub speed_mod: [SpeedMod; PLAYER_SLOTS],
     pub music_rate: f32,
     pub current_pane: OptionsPane,
-    pub scroll_focus_player: usize,
-    pub(super) bg: heart_bg::State,
-    pub nav_key_held_direction: [Option<NavDirection>; PLAYER_SLOTS],
-    pub nav_key_held_since: [Option<Instant>; PLAYER_SLOTS],
-    pub nav_key_last_scrolled_at: [Option<Instant>; PLAYER_SLOTS],
-    pub start_held_since: [Option<Instant>; PLAYER_SLOTS],
-    pub start_last_triggered_at: [Option<Instant>; PLAYER_SLOTS],
+    pub(super) bg: visual_style_bg::State,
+    pub nav_input: [PlayerNavInput; PLAYER_SLOTS],
+    pub start_input: [PlayerStartInput; PLAYER_SLOTS],
     pub(super) allow_per_player_global_offsets: bool,
     pub player_profiles: [crate::game::profile::Profile; PLAYER_SLOTS],
-    pub(super) noteskin_cache: HashMap<String, Arc<Noteskin>>,
-    pub(super) noteskin: [Option<Arc<Noteskin>>; PLAYER_SLOTS],
-    pub(super) mine_noteskin: [Option<Arc<Noteskin>>; PLAYER_SLOTS],
-    pub(super) receptor_noteskin: [Option<Arc<Noteskin>>; PLAYER_SLOTS],
-    pub(super) tap_explosion_noteskin: [Option<Arc<Noteskin>>; PLAYER_SLOTS],
+    pub(super) noteskin: NoteskinState,
     pub(super) preview_time: f32,
     pub(super) preview_beat: f32,
     pub(super) help_anim_time: [f32; PLAYER_SLOTS],

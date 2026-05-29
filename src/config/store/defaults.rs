@@ -25,6 +25,11 @@ fn push_default_options(content: &mut String, default: &Config) {
         "AutoPopulateGrooveStatsScores",
         default.auto_populate_gs_scores,
     );
+    push_bool(
+        content,
+        "UpdaterInstallEnabled",
+        default.updater_install_enabled,
+    );
     push_line(content, "BGBrightness", default.bg_brightness);
     push_bool(content, "BannerCache", default.banner_cache);
     push_bool(content, "CacheSongs", default.cachesongs);
@@ -63,16 +68,23 @@ fn push_default_options(content: &mut String, default: &Config) {
         "SubmitArrowCloudFails",
         default.submit_arrowcloud_fails,
     );
-    push_bool(
+    push_line(
         content,
-        "SubmitGrooveStatsFails",
-        default.submit_groovestats_fails,
+        "ArrowCloudQrLoginWhen",
+        default.arrowcloud_qr_login_when.as_str(),
+    );
+    push_line(
+        content,
+        "GrooveStatsQrLoginWhen",
+        default.groovestats_qr_login_when.as_str(),
     );
     push_bool(content, "FastLoad", default.fastload);
     push_line(content, "FullscreenType", default.fullscreen_type.as_str());
     push_line(content, "Game", default.game_flag.as_str());
     push_line(content, "GamepadBackend", default.windows_gamepad_backend);
     push_bool(content, "GfxDebug", default.gfx_debug);
+    push_bool(content, "HighDPI", default.high_dpi);
+    push_bool(content, "HideMouseCursor", default.hide_mouse_cursor);
     push_line(
         content,
         "GlobalOffsetSeconds",
@@ -91,6 +103,11 @@ fn push_default_options(content: &mut String, default: &Config) {
     push_line(content, "VisualDelaySeconds", default.visual_delay_seconds);
     push_line(content, "MasterVolume", default.master_volume);
     push_bool(content, "MenuMusic", default.menu_music);
+    push_bool(
+        content,
+        "CustomSoundsEnabled",
+        default.custom_sounds_enabled,
+    );
     push_bool(content, "MineHitSound", default.mine_hit_sound);
     push_line(content, "MusicVolume", default.music_volume);
     push_line(
@@ -103,6 +120,7 @@ fn push_default_options(content: &mut String, default: &Config) {
         "RateModPreservesPitch",
         default.rate_mod_preserves_pitch,
     );
+    push_bool(content, "ReplayGain", default.enable_replaygain);
     push_line(
         content,
         "SelectMusicBreakdown",
@@ -113,6 +131,12 @@ fn push_default_options(content: &mut String, default: &Config) {
         "SelectMusicShowBanners",
         default.show_select_music_banners,
     );
+    push_bool(content, "ShowVersionOverlay", default.show_version_overlay);
+    push_line(
+        content,
+        "VersionOverlaySide",
+        default.version_overlay_side.as_str(),
+    );
     push_bool(
         content,
         "SelectMusicShowVideoBanners",
@@ -122,6 +146,11 @@ fn push_default_options(content: &mut String, default: &Config) {
         content,
         "SelectMusicShowBreakdown",
         default.show_select_music_breakdown,
+    );
+    push_bool(
+        content,
+        "SelectMusicShowStageDisplay",
+        default.show_select_music_stage_display,
     );
     push_bool(
         content,
@@ -140,13 +169,33 @@ fn push_default_options(content: &mut String, default: &Config) {
     );
     push_line(
         content,
+        "SelectMusicWheelITLRank",
+        default.select_music_itl_rank_mode.as_str(),
+    );
+    push_line(
+        content,
+        "SelectMusicWheelITL",
+        default.select_music_itl_wheel_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicWheelStyle",
         default.select_music_wheel_style.as_str(),
     );
     push_line(
         content,
+        "SongSelectBG",
+        default.select_music_song_select_bg_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicNewPackMode",
         default.select_music_new_pack_mode.as_str(),
+    );
+    push_bool(
+        content,
+        "SelectMusicFolderStats",
+        default.show_select_music_folder_stats,
     );
     push_bool(
         content,
@@ -167,6 +216,11 @@ fn push_default_options(content: &mut String, default: &Config) {
         content,
         "SelectMusicPatternInfo",
         default.select_music_pattern_info_mode.as_str(),
+    );
+    push_line(
+        content,
+        "SelectMusicStepArtistBox",
+        default.select_music_step_artist_box_mode.as_str(),
     );
     push_bool(
         content,
@@ -205,6 +259,11 @@ fn push_default_options(content: &mut String, default: &Config) {
     );
     push_bool(
         content,
+        "SelectMusicChartInfoEffectiveBpm",
+        default.select_music_chart_info_effective_bpm,
+    );
+    push_bool(
+        content,
         "SelectMusicChartInfoMatrixRating",
         default.select_music_chart_info_matrix_rating,
     );
@@ -221,6 +280,11 @@ fn push_default_options(content: &mut String, default: &Config) {
     push_bool(content, "ShowStats", default.show_stats_mode != 0);
     push_line(content, "ShowStatsMode", default.show_stats_mode.min(3));
     push_bool(content, "SmoothHistogram", default.smooth_histogram);
+    push_bool(
+        content,
+        "ShadeScatterplotJudgments",
+        default.shade_scatterplot_judgments,
+    );
     push_line(
         content,
         "InputDebounceTime",
@@ -231,7 +295,16 @@ fn push_default_options(content: &mut String, default: &Config) {
         "ArcadeOptionsNavigation",
         default.arcade_options_navigation,
     );
+    push_bool(content, "DelayedBack", default.delayed_back);
     push_bool(content, "ThreeKeyNavigation", default.three_key_navigation);
+    push_bool(content, "UseFSRs", default.use_fsrs);
+    push_line(content, "LightsDriver", default.lights_driver.as_str());
+    push_line(
+        content,
+        "GameplayPadLights",
+        default.lights_gameplay_pad_lights.as_str(),
+    );
+    push_line(content, "LightsComPort", default.lights_com_port.as_str());
     push_bool(
         content,
         "OnlyDedicatedMenuButtons",
@@ -266,7 +339,13 @@ fn push_default_keymaps(content: &mut String) {
 fn push_default_theme(content: &mut String, default: &Config) {
     push_section(content, "[Theme]");
     push_bool(content, "KeyboardFeatures", default.keyboard_features);
+    push_line(content, "VisualStyle", default.visual_style.as_str());
     push_bool(content, "VideoBackgrounds", default.show_video_backgrounds);
+    push_line(
+        content,
+        "RandomBackgroundMode",
+        default.random_background_mode.as_str(),
+    );
     push_bool(
         content,
         "MachineShowEvalSummary",
@@ -317,6 +396,16 @@ fn push_default_theme(content: &mut String, default: &Config) {
         "MachineAllowPerPlayerGlobalOffsets",
         default.machine_allow_per_player_global_offsets,
     );
+    push_bool(
+        content,
+        "MachinePackIniOffsets",
+        default.machine_pack_ini_offsets,
+    );
+    push_line(
+        content,
+        "MachineDefaultSyncOffset",
+        default.machine_default_sync_offset.as_str(),
+    );
     push_line(
         content,
         "MachinePreferredStyle",
@@ -326,6 +415,12 @@ fn push_default_theme(content: &mut String, default: &Config) {
         content,
         "MachinePreferredPlayMode",
         default.machine_preferred_play_mode.as_str(),
+    );
+    push_line(content, "MachineFont", default.machine_font.as_str());
+    push_line(
+        content,
+        "MachineBarColor",
+        default.machine_bar_color.as_str(),
     );
     push_bool(
         content,

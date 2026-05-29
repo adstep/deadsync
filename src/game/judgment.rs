@@ -38,7 +38,7 @@ pub const fn judge_grade_ix(grade: JudgeGrade) -> usize {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Judgment {
     pub time_error_ms: f32,
     // Signed offset in music-time nanoseconds; authoritative gameplay timing unit.
@@ -151,6 +151,17 @@ pub fn calculate_itg_score_percent_from_counts(
         rolls_held_for_score,
         mines_hit_for_score,
     );
+
+    calculate_itg_score_percent_from_points(total_points, possible_grade_points)
+}
+
+pub fn calculate_itg_score_percent_from_points(
+    total_points: i32,
+    possible_grade_points: i32,
+) -> f64 {
+    if possible_grade_points <= 0 {
+        return 0.0;
+    }
 
     if total_points <= 0 {
         return 0.0;

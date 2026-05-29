@@ -1,6 +1,6 @@
 use crate::engine::gfx::{
-    BlendMode, DrawStats, MeshMode, ObjectType, RenderList, RenderObject, SamplerDesc,
-    SamplerFilter, SamplerWrap, Texture as RendererTexture, TextureHandleMap,
+    BlendMode, DrawStats, ObjectType, RenderList, RenderObject, SamplerDesc, SamplerFilter,
+    SamplerWrap, SpriteInstanceRaw, Texture as RendererTexture, TextureHandleMap,
 };
 use crate::engine::space::ortho_for_window;
 use glam::{Mat4 as Matrix4, Vec4 as Vector4};
@@ -112,6 +112,7 @@ pub fn draw(
     let default_proj = state.projection;
     let cameras = render_list.cameras.as_slice();
     let objects = render_list.objects.as_slice();
+    let sprite_instances = render_list.sprite_instances.as_slice();
     let vertex_counter = AtomicU32::new(0);
 
     let threads_auto = thread::available_parallelism()
@@ -161,6 +162,7 @@ pub fn draw(
                         };
                         local_vertices = local_vertices.saturating_add(draw_rows(
                             objects,
+                            sprite_instances,
                             cameras,
                             default_proj,
                             textures,
@@ -180,6 +182,7 @@ pub fn draw(
         vertex_counter.store(
             draw_rows(
                 objects,
+                sprite_instances,
                 cameras,
                 default_proj,
                 textures,
@@ -205,6 +208,7 @@ pub fn draw(
 
 fn draw_rows(
     objects: &[RenderObject],
+    sprite_instances: &[SpriteInstanceRaw],
     cameras: &[Matrix4],
     default_proj: Matrix4,
     textures: &TextureHandleMap<RendererTexture>,
@@ -222,31 +226,24 @@ fn draw_rows(
             .copied()
             .unwrap_or(default_proj);
         let drawn = match &obj.object_type {
-            ObjectType::Sprite {
-                center,
-                size,
-                rot_sin_cos,
-                tint,
-                uv_scale,
-                uv_offset,
-                local_offset,
-                local_offset_rot_sin_cos,
-                edge_fade: _,
-                ..
-            } => {
+            ObjectType::Sprite(sprite_index) => {
+                let Some(sprite) = sprite_instances.get(*sprite_index as usize) else {
+                    continue;
+                };
                 let Some(RendererTexture::Software(tex)) = textures.get(&obj.texture_handle) else {
                     continue;
                 };
                 rasterize_sprite(
                     &proj,
-                    *center,
-                    *size,
-                    *rot_sin_cos,
-                    *tint,
-                    *uv_scale,
-                    *uv_offset,
-                    *local_offset,
-                    *local_offset_rot_sin_cos,
+                    sprite.center,
+                    sprite.size,
+                    sprite.rot_sin_cos,
+                    sprite.tint,
+                    sprite.uv_scale,
+                    sprite.uv_offset,
+                    sprite.local_offset,
+                    sprite.local_offset_rot_sin_cos,
+                    sprite.texture_mask != 0.0,
                     obj.blend,
                     &tex.image,
                     tex.sampler,
@@ -258,56 +255,47 @@ fn draw_rows(
                 )
             }
             ObjectType::Mesh {
+                transform,
                 tint,
                 vertices,
-                mode,
-            } => match mode {
-                MeshMode::Triangles => rasterize_mesh_triangles(
+            } => rasterize_mesh_triangles(
+                &proj,
+                transform,
+                *tint,
+                vertices.as_ref(),
+                obj.blend,
+                width,
+                height,
+                stripe_y_start,
+                stripe_y_end,
+                buffer,
+            ),
+            ObjectType::TexturedMesh {
+                instance, vertices, ..
+            } => {
+                let Some(RendererTexture::Software(tex)) = textures.get(&obj.texture_handle) else {
+                    continue;
+                };
+                let transform = instance.transform();
+                rasterize_textured_mesh_triangles(
                     &proj,
-                    &obj.transform,
-                    *tint,
+                    &transform,
                     vertices.as_ref(),
+                    instance.tint,
+                    instance.uv_scale,
+                    instance.uv_offset,
+                    instance.uv_tex_shift,
+                    instance.texture_mask != 0.0,
                     obj.blend,
+                    &tex.image,
+                    tex.sampler,
                     width,
                     height,
                     stripe_y_start,
                     stripe_y_end,
                     buffer,
-                ),
-            },
-            ObjectType::TexturedMesh {
-                tint,
-                vertices,
-                mode,
-                uv_scale,
-                uv_offset,
-                uv_tex_shift,
-                ..
-            } => match mode {
-                MeshMode::Triangles => {
-                    let Some(RendererTexture::Software(tex)) = textures.get(&obj.texture_handle)
-                    else {
-                        continue;
-                    };
-                    rasterize_textured_mesh_triangles(
-                        &proj,
-                        &obj.transform,
-                        vertices.as_ref(),
-                        *tint,
-                        *uv_scale,
-                        *uv_offset,
-                        *uv_tex_shift,
-                        obj.blend,
-                        &tex.image,
-                        tex.sampler,
-                        width,
-                        height,
-                        stripe_y_start,
-                        stripe_y_end,
-                        buffer,
-                    )
-                }
-            },
+                )
+            }
         };
         vertices_drawn = vertices_drawn.saturating_add(drawn);
     }
@@ -377,6 +365,7 @@ fn rasterize_sprite(
     uv_offset: [f32; 2],
     local_offset: [f32; 2],
     local_offset_rot_sin_cos: [f32; 2],
+    texture_mask: bool,
     blend: BlendMode,
     image: &RgbaImage,
     sampler: SamplerDesc,
@@ -447,6 +436,7 @@ fn rasterize_sprite(
         &v[1],
         &v[2],
         tint,
+        texture_mask,
         blend,
         image,
         sampler,
@@ -461,6 +451,7 @@ fn rasterize_sprite(
         &v[2],
         &v[3],
         tint,
+        texture_mask,
         blend,
         image,
         sampler,
@@ -550,6 +541,7 @@ fn rasterize_textured_mesh_triangles(
     uv_scale: [f32; 2],
     uv_offset: [f32; 2],
     uv_tex_shift: [f32; 2],
+    texture_mask: bool,
     blend: BlendMode,
     image: &RgbaImage,
     sampler: SamplerDesc,
@@ -611,6 +603,7 @@ fn rasterize_textured_mesh_triangles(
             &tri[1],
             &tri[2],
             blend,
+            texture_mask,
             image,
             sampler,
             width,
@@ -631,6 +624,7 @@ fn rasterize_triangle(
     v1: &ScreenVertex,
     v2: &ScreenVertex,
     tint: [f32; 4],
+    texture_mask: bool,
     blend: BlendMode,
     image: &RgbaImage,
     sampler: SamplerDesc,
@@ -646,6 +640,7 @@ fn rasterize_triangle(
             v1,
             v2,
             tint,
+            texture_mask,
             image,
             sampler,
             width,
@@ -659,6 +654,7 @@ fn rasterize_triangle(
             v1,
             v2,
             tint,
+            texture_mask,
             image,
             sampler,
             width,
@@ -672,6 +668,7 @@ fn rasterize_triangle(
             v1,
             v2,
             tint,
+            texture_mask,
             image,
             sampler,
             width,
@@ -685,6 +682,7 @@ fn rasterize_triangle(
             v1,
             v2,
             tint,
+            texture_mask,
             image,
             sampler,
             width,
@@ -702,6 +700,7 @@ fn rasterize_triangle_tex_color(
     v1: &ScreenVertexTexColor,
     v2: &ScreenVertexTexColor,
     blend: BlendMode,
+    texture_mask: bool,
     image: &RgbaImage,
     sampler: SamplerDesc,
     width: usize,
@@ -715,6 +714,7 @@ fn rasterize_triangle_tex_color(
             v0,
             v1,
             v2,
+            texture_mask,
             image,
             sampler,
             width,
@@ -727,6 +727,7 @@ fn rasterize_triangle_tex_color(
             v0,
             v1,
             v2,
+            texture_mask,
             image,
             sampler,
             width,
@@ -739,6 +740,7 @@ fn rasterize_triangle_tex_color(
             v0,
             v1,
             v2,
+            texture_mask,
             image,
             sampler,
             width,
@@ -751,6 +753,7 @@ fn rasterize_triangle_tex_color(
             v0,
             v1,
             v2,
+            texture_mask,
             image,
             sampler,
             width,
@@ -1000,6 +1003,7 @@ fn rasterize_triangle_impl<const LINEAR: bool, const ADD: bool>(
     v1: &ScreenVertex,
     v2: &ScreenVertex,
     tint: [f32; 4],
+    texture_mask: bool,
     image: &RgbaImage,
     sampler: SamplerDesc,
     width: usize,
@@ -1056,9 +1060,21 @@ fn rasterize_triangle_impl<const LINEAR: bool, const ADD: bool>(
                 continue;
             }
 
-            let sr = clamp01(sampled[0] * tint[0]);
-            let sg = clamp01(sampled[1] * tint[1]);
-            let sb = clamp01(sampled[2] * tint[2]);
+            let sr = clamp01(if texture_mask {
+                tint[0]
+            } else {
+                sampled[0] * tint[0]
+            });
+            let sg = clamp01(if texture_mask {
+                tint[1]
+            } else {
+                sampled[1] * tint[1]
+            });
+            let sb = clamp01(if texture_mask {
+                tint[2]
+            } else {
+                sampled[2] * tint[2]
+            });
             let sa = clamp01(sampled[3] * tint[3]);
             if sa <= 0.0 {
                 continue;
@@ -1079,6 +1095,7 @@ fn rasterize_triangle_tex_color_impl<const LINEAR: bool, const ADD: bool>(
     v0: &ScreenVertexTexColor,
     v1: &ScreenVertexTexColor,
     v2: &ScreenVertexTexColor,
+    texture_mask: bool,
     image: &RgbaImage,
     sampler: SamplerDesc,
     width: usize,
@@ -1140,9 +1157,9 @@ fn rasterize_triangle_tex_color_impl<const LINEAR: bool, const ADD: bool>(
             let cb = clamp01(v0.color[2].mul_add(w0, v1.color[2] * w1) + v2.color[2] * w2);
             let ca = clamp01(v0.color[3].mul_add(w0, v1.color[3] * w1) + v2.color[3] * w2);
 
-            let sr = clamp01(sampled[0] * cr);
-            let sg = clamp01(sampled[1] * cg);
-            let sb = clamp01(sampled[2] * cb);
+            let sr = clamp01(if texture_mask { cr } else { sampled[0] * cr });
+            let sg = clamp01(if texture_mask { cg } else { sampled[1] * cg });
+            let sb = clamp01(if texture_mask { cb } else { sampled[2] * cb });
             let sa = clamp01(sampled[3] * ca);
             if sa <= 0.0 {
                 continue;

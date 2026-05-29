@@ -3,6 +3,7 @@ use crate::engine::present::actors::{Actor, SizeSpec};
 use crate::engine::present::color;
 use crate::game::profile;
 use crate::game::scores;
+use crate::screens::components::shared::gs_scorebox::entries_with_local_self_state;
 
 use super::utils::{format_machine_record_date, pane_origin_x};
 
@@ -18,6 +19,45 @@ const GS_ROW_PLACEHOLDER_SCORE: &str = "------";
 const GS_ROW_PLACEHOLDER_DATE: &str = "----------";
 const GS_RIVAL_COLOR: [f32; 4] = color::rgba_hex("#BD94FF");
 const GS_SELF_COLOR: [f32; 4] = color::rgba_hex("#A1FF94");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecordsPaneKind {
+    GrooveStatsItg,
+    GrooveStatsEx,
+    ItlEx,
+    ArrowCloudHardEx,
+}
+
+impl RecordsPaneKind {
+    #[inline(always)]
+    fn matches(self, pane: &scores::LeaderboardPane) -> bool {
+        match self {
+            Self::GrooveStatsItg => pane.is_groovestats() && !pane.is_ex,
+            Self::GrooveStatsEx => pane.is_groovestats() && pane.is_ex,
+            Self::ItlEx => pane.name.to_ascii_lowercase().contains("itl") && pane.is_ex,
+            Self::ArrowCloudHardEx => pane.is_arrowcloud() && pane.is_hard_ex(),
+        }
+    }
+
+    #[inline(always)]
+    const fn logo(self) -> &'static str {
+        match self {
+            Self::ItlEx => "ITL.png",
+            Self::ArrowCloudHardEx => "arrowcloud.png",
+            Self::GrooveStatsItg => "GrooveStats.png",
+            Self::GrooveStatsEx => "BoogieStatsEX.png",
+        }
+    }
+
+    #[inline(always)]
+    const fn logo_zoom(self, pane_zoom: f32) -> f32 {
+        match self {
+            Self::ArrowCloudHardEx => 0.22,
+            Self::ItlEx => 0.45,
+            Self::GrooveStatsItg | Self::GrooveStatsEx => 1.5 * pane_zoom,
+        }
+    }
+}
 
 fn format_gs_error_text(error: &str) -> String {
     if error.eq_ignore_ascii_case("disabled") {
@@ -45,10 +85,83 @@ fn gs_player_name(entry: &scores::LeaderboardEntry) -> String {
     GS_ROW_PLACEHOLDER_NAME.to_string()
 }
 
+#[inline(always)]
+fn same_leaderboard_entry(a: &scores::LeaderboardEntry, b: &scores::LeaderboardEntry) -> bool {
+    a.rank == b.rank && a.name.eq_ignore_ascii_case(b.name.as_str())
+}
+
+#[inline(always)]
+fn selected_contains(
+    selected: &[&scores::LeaderboardEntry],
+    entry: &scores::LeaderboardEntry,
+) -> bool {
+    selected
+        .iter()
+        .any(|chosen| same_leaderboard_entry(chosen, entry))
+}
+
+fn next_record_entry<'a>(
+    entries: &'a [scores::LeaderboardEntry],
+    selected: &[&'a scores::LeaderboardEntry],
+    include: impl Fn(&scores::LeaderboardEntry) -> bool,
+) -> Option<&'a scores::LeaderboardEntry> {
+    entries
+        .iter()
+        .filter(|entry| include(entry) && !selected_contains(selected, entry))
+        .min_by_key(|entry| entry.rank)
+}
+
+fn prioritized_record_entries(
+    entries: &[scores::LeaderboardEntry],
+    max_rows: usize,
+) -> Vec<scores::LeaderboardEntry> {
+    if max_rows == 0 {
+        return Vec::new();
+    }
+    if entries.len() <= max_rows {
+        return entries.to_vec();
+    }
+
+    let mut selected = Vec::with_capacity(max_rows);
+    if let Some(top) = next_record_entry(entries, selected.as_slice(), |_| true) {
+        selected.push(top);
+    }
+    if let Some(self_entry) = next_record_entry(entries, selected.as_slice(), |entry| entry.is_self)
+    {
+        selected.push(self_entry);
+    }
+    while selected.len() < max_rows {
+        let Some(rival) = next_record_entry(entries, selected.as_slice(), |entry| entry.is_rival)
+        else {
+            break;
+        };
+        selected.push(rival);
+    }
+    while selected.len() < max_rows {
+        let Some(entry) = next_record_entry(entries, selected.as_slice(), |_| true) else {
+            break;
+        };
+        selected.push(entry);
+    }
+    selected.sort_unstable_by_key(|entry| entry.rank);
+    selected.into_iter().cloned().collect()
+}
+
+fn pane_display_entries(
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
+    pane: &scores::LeaderboardPane,
+) -> Vec<scores::LeaderboardEntry> {
+    let entries = entries_with_local_self_state(score_side, chart_hash, pane);
+    prioritized_record_entries(entries.as_slice(), GS_RECORD_ROWS)
+}
+
 fn build_records_pane(
     controller: profile::PlayerSide,
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
     snapshot: Option<&scores::CachedPlayerLeaderboardData>,
-    arrowcloud: bool,
+    kind: RecordsPaneKind,
 ) -> Vec<Actor> {
     let pane_origin_x = pane_origin_x(controller);
     let pane_origin_y = crate::engine::space::screen_center_y() - 62.0;
@@ -98,17 +211,13 @@ fn build_records_pane(
             ));
         }
         Some(snapshot) => {
-            let records_pane = snapshot.data.as_ref().and_then(|data| {
-                data.panes.iter().find(|pane| {
-                    if arrowcloud {
-                        pane.is_arrowcloud()
-                    } else {
-                        pane.is_groovestats()
-                    }
-                })
-            });
+            let records_pane = snapshot
+                .data
+                .as_ref()
+                .and_then(|data| data.panes.iter().find(|pane| kind.matches(pane)));
             if let Some(pane) = records_pane {
-                if pane.entries.is_empty() {
+                let display_entries = pane_display_entries(score_side, chart_hash, pane);
+                if display_entries.is_empty() {
                     rows.push((
                         String::new(),
                         GS_NO_SCORES_TEXT.to_string(),
@@ -118,7 +227,7 @@ fn build_records_pane(
                         [1.0, 1.0, 1.0, 1.0],
                     ));
                 } else {
-                    for entry in pane.entries.iter().take(GS_RECORD_ROWS) {
+                    for entry in display_entries {
                         let base_col = if entry.is_rival {
                             GS_RIVAL_COLOR
                         } else if entry.is_self {
@@ -138,7 +247,7 @@ fn build_records_pane(
                         }
                         rows.push((
                             format!("{}.", entry.rank),
-                            gs_player_name(entry),
+                            gs_player_name(&entry),
                             format!("{:.2}%", entry.score / 100.0),
                             format_machine_record_date(&entry.date),
                             base_col,
@@ -171,16 +280,10 @@ fn build_records_pane(
     }
 
     let mut children = Vec::with_capacity(GS_RECORD_ROWS * 4 + 1);
-    let logo = if arrowcloud {
-        "arrowcloud.png"
-    } else {
-        "GrooveStats.png"
-    };
-    let logo_zoom = if arrowcloud { 0.22 } else { 1.5 * pane_zoom };
-    children.push(act!(sprite(logo):
+    children.push(act!(sprite(kind.logo()):
         align(0.5, 0.5):
         xy(0.0, 100.0 * pane_zoom):
-        zoom(logo_zoom):
+        zoom(kind.logo_zoom(pane_zoom)):
         diffuse(1.0, 1.0, 1.0, 0.5):
         z(100)
     ));
@@ -242,14 +345,138 @@ fn build_records_pane(
 
 pub fn build_gs_records_pane(
     controller: profile::PlayerSide,
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
     snapshot: Option<&scores::CachedPlayerLeaderboardData>,
 ) -> Vec<Actor> {
-    build_records_pane(controller, snapshot, false)
+    build_records_pane(
+        controller,
+        score_side,
+        chart_hash,
+        snapshot,
+        RecordsPaneKind::GrooveStatsItg,
+    )
+}
+
+pub fn build_gs_ex_records_pane(
+    controller: profile::PlayerSide,
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
+    snapshot: Option<&scores::CachedPlayerLeaderboardData>,
+) -> Vec<Actor> {
+    build_records_pane(
+        controller,
+        score_side,
+        chart_hash,
+        snapshot,
+        RecordsPaneKind::GrooveStatsEx,
+    )
+}
+
+pub fn build_itl_records_pane(
+    controller: profile::PlayerSide,
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
+    snapshot: Option<&scores::CachedPlayerLeaderboardData>,
+) -> Vec<Actor> {
+    build_records_pane(
+        controller,
+        score_side,
+        chart_hash,
+        snapshot,
+        RecordsPaneKind::ItlEx,
+    )
 }
 
 pub fn build_arrowcloud_records_pane(
     controller: profile::PlayerSide,
+    score_side: profile::PlayerSide,
+    chart_hash: Option<&str>,
     snapshot: Option<&scores::CachedPlayerLeaderboardData>,
 ) -> Vec<Actor> {
-    build_records_pane(controller, snapshot, true)
+    build_records_pane(
+        controller,
+        score_side,
+        chart_hash,
+        snapshot,
+        RecordsPaneKind::ArrowCloudHardEx,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(rank: u32, name: &str, is_self: bool, is_rival: bool) -> scores::LeaderboardEntry {
+        scores::LeaderboardEntry {
+            rank,
+            name: name.to_string(),
+            machine_tag: None,
+            score: 9800.0 - f64::from(rank),
+            date: String::new(),
+            is_rival,
+            is_self,
+            is_fail: false,
+        }
+    }
+
+    fn pane(
+        name: &str,
+        is_ex: bool,
+        arrowcloud_kind: Option<scores::ArrowCloudPaneKind>,
+    ) -> scores::LeaderboardPane {
+        scores::LeaderboardPane {
+            name: name.to_string(),
+            entries: vec![entry(1, name, false, false)],
+            is_ex,
+            disabled: false,
+            personalized: true,
+            arrowcloud_kind,
+        }
+    }
+
+    #[test]
+    fn prioritized_entries_keep_self_and_rivals_visible() {
+        let mut entries = (1..=12)
+            .map(|rank| entry(rank, &format!("top-{rank}"), false, false))
+            .collect::<Vec<_>>();
+        entries.push(entry(20, "self", true, false));
+        entries.push(entry(30, "rival-a", false, true));
+        entries.push(entry(40, "rival-b", false, true));
+
+        let selected = prioritized_record_entries(entries.as_slice(), GS_RECORD_ROWS);
+        let ranks = selected.iter().map(|entry| entry.rank).collect::<Vec<_>>();
+
+        assert_eq!(ranks, vec![1, 2, 3, 4, 5, 6, 7, 20, 30, 40]);
+    }
+
+    #[test]
+    fn records_pane_kind_selects_distinct_online_boards() {
+        let panes = [
+            pane("GrooveStats", false, None),
+            pane("GrooveStats", true, None),
+            pane("ITL Online 2026", true, None),
+            pane(
+                "ArrowCloud",
+                false,
+                Some(scores::ArrowCloudPaneKind::HardEx),
+            ),
+        ];
+
+        assert!(RecordsPaneKind::GrooveStatsItg.matches(&panes[0]));
+        assert!(RecordsPaneKind::GrooveStatsEx.matches(&panes[1]));
+        assert!(RecordsPaneKind::ItlEx.matches(&panes[2]));
+        assert!(RecordsPaneKind::ArrowCloudHardEx.matches(&panes[3]));
+
+        assert!(!RecordsPaneKind::GrooveStatsItg.matches(&panes[1]));
+        assert!(!RecordsPaneKind::GrooveStatsEx.matches(&panes[0]));
+        assert!(!RecordsPaneKind::ItlEx.matches(&panes[1]));
+        assert!(!RecordsPaneKind::ArrowCloudHardEx.matches(&panes[2]));
+    }
+
+    #[test]
+    fn groovestats_ex_uses_in_pane_ex_logo() {
+        assert_eq!(RecordsPaneKind::GrooveStatsItg.logo(), "GrooveStats.png");
+        assert_eq!(RecordsPaneKind::GrooveStatsEx.logo(), "BoogieStatsEX.png");
+    }
 }

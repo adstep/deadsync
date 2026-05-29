@@ -1,4 +1,4 @@
-use crate::engine::gfx::{BlendMode, MeshMode};
+use crate::engine::gfx::BlendMode;
 use crate::engine::present::actors::{Actor, SizeSpec};
 use crate::engine::present::density::{self, DensityHistCache};
 use crate::engine::space::screen_center_x;
@@ -33,7 +33,6 @@ impl DensityGraphBenchFixture {
             offset: self.offset_xy,
             size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
             vertices: Arc::clone(vertices),
-            mode: MeshMode::Triangles,
             visible: true,
             blend: BlendMode::Alpha,
             z: 40,
@@ -56,6 +55,7 @@ pub fn fixture() -> DensityGraphBenchFixture {
             speeds: Vec::new(),
             scrolls: Vec::new(),
             fakes: Vec::new(),
+            ..TimingSegments::default()
         },
         &[],
     );

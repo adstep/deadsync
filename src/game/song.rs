@@ -1,6 +1,41 @@
 use crate::game::chart::{ChartData, ChartDisplayBpm};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+pub const ITG_SYNC_OFFSET_SECONDS: f32 = -0.009;
+
+#[inline(always)]
+pub const fn default_sync_pref_offset(pref: crate::config::DefaultSyncOffset) -> f32 {
+    match pref {
+        crate::config::DefaultSyncOffset::Null => 0.0,
+        crate::config::DefaultSyncOffset::Itg => ITG_SYNC_OFFSET_SECONDS,
+    }
+}
+
+#[inline(always)]
+pub const fn pack_sync_pref_offset(
+    pref: rssp::pack::SyncPref,
+    default: crate::config::DefaultSyncOffset,
+) -> f32 {
+    match pref {
+        rssp::pack::SyncPref::Default => default_sync_pref_offset(default),
+        rssp::pack::SyncPref::Null => 0.0,
+        rssp::pack::SyncPref::Itg => ITG_SYNC_OFFSET_SECONDS,
+    }
+}
+
+#[inline(always)]
+pub const fn pack_sync_pref_default(
+    pref: rssp::pack::SyncPref,
+    default: crate::config::DefaultSyncOffset,
+) -> crate::config::DefaultSyncOffset {
+    match pref {
+        rssp::pack::SyncPref::Default => default,
+        rssp::pack::SyncPref::Null => crate::config::DefaultSyncOffset::Null,
+        rssp::pack::SyncPref::Itg => crate::config::DefaultSyncOffset::Itg,
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum SongBackgroundChangeTarget {
@@ -22,6 +57,18 @@ pub struct SongForegroundLuaChange {
 }
 
 #[derive(Clone, Debug)]
+pub struct SongForegroundChange {
+    pub start_beat: f32,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct SongBackgroundLuaChange {
+    pub start_beat: f32,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
 pub struct SongData {
     pub simfile_path: PathBuf,
     pub title: String,
@@ -33,6 +80,8 @@ pub struct SongData {
     pub banner_path: Option<PathBuf>,
     pub background_path: Option<PathBuf>,
     pub background_changes: Vec<SongBackgroundChange>,
+    pub foreground_changes: Vec<SongForegroundChange>,
+    pub background_lua_changes: Vec<SongBackgroundLuaChange>,
     pub foreground_lua_changes: Vec<SongForegroundLuaChange>,
     pub has_lua: bool,
     pub cdtitle_path: Option<PathBuf>,
@@ -65,7 +114,6 @@ pub struct SongPack {
     pub series: String,
     #[allow(dead_code)]
     pub year: i32,
-    #[allow(dead_code)]
     pub sync_pref: rssp::pack::SyncPref,
     #[allow(dead_code)]
     pub directory: PathBuf,
@@ -75,15 +123,22 @@ pub struct SongPack {
 
 static SONG_CACHE: std::sync::LazyLock<Mutex<Vec<SongPack>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+static SONG_CACHE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Provides safe, read-only access to the global song cache.
 pub fn get_song_cache() -> std::sync::MutexGuard<'static, Vec<SongPack>> {
     SONG_CACHE.lock().unwrap()
 }
 
+pub fn song_cache_generation() -> u64 {
+    SONG_CACHE_GENERATION.load(Ordering::Relaxed)
+}
+
 /// A public function to allow the parser to populate the cache.
 pub(super) fn set_song_cache(packs: Vec<SongPack>) {
-    *SONG_CACHE.lock().unwrap() = packs;
+    let mut cache = SONG_CACHE.lock().unwrap();
+    *cache = packs;
+    SONG_CACHE_GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
 impl SongData {
@@ -94,7 +149,18 @@ impl SongData {
             .is_some_and(|ext| {
                 matches!(
                     ext.to_ascii_lowercase().as_str(),
-                    "mp4" | "avi" | "m4v" | "mov" | "webm" | "mkv" | "mpg" | "mpeg"
+                    "mp4"
+                        | "avi"
+                        | "f4v"
+                        | "flv"
+                        | "m4v"
+                        | "mov"
+                        | "ogv"
+                        | "webm"
+                        | "mkv"
+                        | "mpg"
+                        | "mpeg"
+                        | "wmv"
                 )
             })
     }
@@ -103,6 +169,18 @@ impl SongData {
     fn active_background_change(&self, beat: f32) -> Option<&SongBackgroundChange> {
         let mut active = None;
         for change in &self.background_changes {
+            if change.start_beat > beat {
+                break;
+            }
+            active = Some(change);
+        }
+        active
+    }
+
+    #[inline(always)]
+    fn active_foreground_change(&self, beat: f32) -> Option<&SongForegroundChange> {
+        let mut active = None;
+        for change in &self.foreground_changes {
             if change.start_beat > beat {
                 break;
             }
@@ -260,10 +338,34 @@ impl SongData {
         }
     }
 
-    pub fn gameplay_background_path(&self, beat: f32, allow_video: bool) -> Option<&PathBuf> {
-        let fallback = self.fallback_background_path(allow_video);
-        match self
-            .active_background_change(beat)
+    pub fn active_foreground_path(&self, beat: f32) -> Option<&PathBuf> {
+        let path = &self.active_foreground_change(beat)?.path;
+        path.is_file().then_some(path)
+    }
+
+    pub fn gameplay_background_path_for_change_ix(
+        &self,
+        next_background_change_ix: usize,
+        allow_video: bool,
+    ) -> Option<&PathBuf> {
+        self.gameplay_background_path_for_changes(
+            &self.background_changes,
+            next_background_change_ix,
+            allow_video,
+        )
+    }
+
+    pub fn gameplay_background_path_for_changes<'a>(
+        &'a self,
+        background_changes: &'a [SongBackgroundChange],
+        next_background_change_ix: usize,
+        allow_video: bool,
+    ) -> Option<&'a PathBuf> {
+        let active_ix = next_background_change_ix
+            .min(background_changes.len())
+            .checked_sub(1);
+        match active_ix
+            .and_then(|ix| background_changes.get(ix))
             .map(|change| &change.target)
         {
             Some(SongBackgroundChangeTarget::File(path)) => {
@@ -271,12 +373,44 @@ impl SongData {
                 if exists && (allow_video || !Self::is_video_path(path)) {
                     Some(path)
                 } else {
-                    fallback.or(exists.then_some(path))
+                    self.fallback_background_path(allow_video)
+                        .or(exists.then_some(path))
                 }
             }
-            Some(SongBackgroundChangeTarget::Random) => fallback,
+            Some(SongBackgroundChangeTarget::Random) => self.fallback_background_path(allow_video),
             Some(SongBackgroundChangeTarget::NoSongBg) => None,
-            None => fallback,
+            None => self.fallback_background_path(allow_video),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DefaultSyncOffset;
+    use rssp::pack::SyncPref;
+
+    #[test]
+    fn pack_sync_pref_offset_matches_itg_group_offset() {
+        assert_eq!(
+            pack_sync_pref_offset(SyncPref::Null, DefaultSyncOffset::Itg),
+            0.0
+        );
+        assert_eq!(
+            pack_sync_pref_offset(SyncPref::Itg, DefaultSyncOffset::Null),
+            ITG_SYNC_OFFSET_SECONDS
+        );
+    }
+
+    #[test]
+    fn default_pack_sync_pref_uses_machine_default() {
+        assert_eq!(
+            pack_sync_pref_offset(SyncPref::Default, DefaultSyncOffset::Null),
+            0.0
+        );
+        assert_eq!(
+            pack_sync_pref_offset(SyncPref::Default, DefaultSyncOffset::Itg),
+            ITG_SYNC_OFFSET_SECONDS
+        );
     }
 }

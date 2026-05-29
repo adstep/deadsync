@@ -1,10 +1,14 @@
 use super::{
     AccelEffectsMask, AppearanceEffectsMask, AttackMode, BackgroundFilter, ComboColors, ComboFont,
     ComboMode, DataVisualizations, ErrorBarMask, ErrorBarTrim, HUD_OFFSET_MAX, HUD_OFFSET_MIN,
-    HideLightType, HoldJudgmentGraphic, HoldsMask, InsertMask, JudgmentGraphic, LifeMeterType,
-    MeasureCounter, MeasureLines, MiniIndicator, MiniIndicatorScoreType, NoteSkin, Perspective,
-    PlayStyle, PlayerSide, RemoveMask, ScrollOption, ScrollSpeedSetting, TargetScoreSetting,
-    TimingWindowsOption, TurnOption, VisualEffectsMask, clamp_custom_fantastic_window_ms,
+    HeldMissGraphic, HideLightType, HoldJudgmentGraphic, HoldsMask, InsertMask, JudgmentGraphic,
+    LifeMeterType, LiveTimingStatsMask, MINI_PERCENT_MAX, MINI_PERCENT_MIN, MeasureCounter,
+    MeasureLines, MiniIndicator, MiniIndicatorColor, MiniIndicatorScoreType, MiniIndicatorSize,
+    NOTE_FIELD_OFFSET_X_MAX, NOTE_FIELD_OFFSET_X_MIN, NOTE_FIELD_OFFSET_Y_MAX,
+    NOTE_FIELD_OFFSET_Y_MIN, NoteSkin, Perspective, PlayStyle, PlayerSide, RemoveMask,
+    SPACING_PERCENT_MAX, SPACING_PERCENT_MIN, ScrollOption, ScrollSpeedSetting, TapExplosionMask,
+    TargetScoreSetting, TimingWindowsOption, TurnOption, VISUAL_DELAY_MS_MAX, VISUAL_DELAY_MS_MIN,
+    VisualEffectsMask, clamp_custom_fantastic_window_ms, clamp_tilt_threshold_ms,
     error_bar_style_from_mask, error_bar_text_from_mask, lock_profiles, sanitize_player_initials,
     save_profile_ini_for_side, save_profile_stats_for_side, session_side_is_guest, side_ix,
 };
@@ -38,6 +42,37 @@ pub fn update_last_played_for_side(
         }
         if last_played.difficulty_index != difficulty_index {
             last_played.difficulty_index = difficulty_index;
+            changed = true;
+        }
+        if !changed {
+            return;
+        }
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_last_played_course_for_side(
+    side: PlayerSide,
+    style: PlayStyle,
+    course_path: &Path,
+    difficulty_name: Option<&str>,
+) {
+    if session_side_is_guest(side) {
+        return;
+    }
+    let new_path = Some(course_path.to_string_lossy().into_owned());
+    let new_difficulty = difficulty_name.map(str::to_string);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        let last_played = profile.last_played_course_mut(style);
+        let mut changed = false;
+        if last_played.course_path != new_path {
+            last_played.course_path = new_path;
+            changed = true;
+        }
+        if last_played.difficulty_name != new_difficulty {
+            last_played.difficulty_name = new_difficulty;
             changed = true;
         }
         if !changed {
@@ -105,14 +140,15 @@ pub fn update_scroll_speed_for_side(side: PlayerSide, setting: ScrollSpeedSettin
     save_profile_ini_for_side(side);
 }
 
-pub fn update_background_filter_for_side(side: PlayerSide, setting: BackgroundFilter) {
+pub fn update_background_filter_for_side(side: PlayerSide, value: i32) {
+    let new = BackgroundFilter::from_i32(value);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
-        if profile.background_filter == setting {
+        if profile.background_filter == new {
             return;
         }
-        profile.background_filter = setting;
+        profile.background_filter = new;
     }
     save_profile_ini_for_side(side);
 }
@@ -125,6 +161,18 @@ pub fn update_hold_judgment_graphic_for_side(side: PlayerSide, setting: HoldJudg
             return;
         }
         profile.hold_judgment_graphic = setting;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_held_miss_graphic_for_side(side: PlayerSide, setting: HeldMissGraphic) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.held_miss_graphic == setting {
+            return;
+        }
+        profile.held_miss_graphic = setting;
     }
     save_profile_ini_for_side(side);
 }
@@ -470,6 +518,30 @@ pub fn update_mini_indicator_score_type_for_side(
     save_profile_ini_for_side(side);
 }
 
+pub fn update_mini_indicator_size_for_side(side: PlayerSide, setting: MiniIndicatorSize) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.mini_indicator_size == setting {
+            return;
+        }
+        profile.mini_indicator_size = setting;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_mini_indicator_color_for_side(side: PlayerSide, setting: MiniIndicatorColor) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.mini_indicator_color == setting {
+            return;
+        }
+        profile.mini_indicator_color = setting;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_noteskin_for_side(side: PlayerSide, setting: NoteSkin) {
     {
         let mut profiles = lock_profiles();
@@ -518,8 +590,20 @@ pub fn update_tap_explosion_noteskin_for_side(side: PlayerSide, setting: Option<
     save_profile_ini_for_side(side);
 }
 
+pub fn update_tap_explosion_mask_for_side(side: PlayerSide, setting: TapExplosionMask) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.tap_explosion_active_mask == setting {
+            return;
+        }
+        profile.tap_explosion_active_mask = setting;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_notefield_offset_x_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(0, 50);
+    let clamped = offset.clamp(NOTE_FIELD_OFFSET_X_MIN, NOTE_FIELD_OFFSET_X_MAX);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -532,7 +616,7 @@ pub fn update_notefield_offset_x_for_side(side: PlayerSide, offset: i32) {
 }
 
 pub fn update_notefield_offset_y_for_side(side: PlayerSide, offset: i32) {
-    let clamped = offset.clamp(-50, 50);
+    let clamped = offset.clamp(NOTE_FIELD_OFFSET_Y_MIN, NOTE_FIELD_OFFSET_Y_MAX);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -624,7 +708,7 @@ pub fn update_error_bar_offset_y_for_side(side: PlayerSide, offset: i32) {
 
 pub fn update_mini_percent_for_side(side: PlayerSide, percent: i32) {
     // Mirror Simply Love's range: -100% to +150%.
-    let clamped = percent.clamp(-100, 150);
+    let clamped = percent.clamp(MINI_PERCENT_MIN, MINI_PERCENT_MAX);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -632,6 +716,20 @@ pub fn update_mini_percent_for_side(side: PlayerSide, percent: i32) {
             return;
         }
         profile.mini_percent = clamped;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_spacing_percent_for_side(side: PlayerSide, percent: i32) {
+    // Mirror zmod's range: -100% to +100%, step 1.
+    let clamped = percent.clamp(SPACING_PERCENT_MIN, SPACING_PERCENT_MAX);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.spacing_percent == clamped {
+            return;
+        }
+        profile.spacing_percent = clamped;
     }
     save_profile_ini_for_side(side);
 }
@@ -650,7 +748,7 @@ pub fn update_perspective_for_side(side: PlayerSide, perspective: Perspective) {
 
 pub fn update_visual_delay_ms_for_side(side: PlayerSide, ms: i32) {
     // Mirror Simply Love's range: -100ms to +100ms.
-    let clamped = ms.clamp(-100, 100);
+    let clamped = ms.clamp(VISUAL_DELAY_MS_MIN, VISUAL_DELAY_MS_MAX);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -664,7 +762,7 @@ pub fn update_visual_delay_ms_for_side(side: PlayerSide, ms: i32) {
 
 pub fn update_global_offset_shift_ms_for_side(side: PlayerSide, ms: i32) {
     // Keep the personal timing shift in the same small-calibration range as visual delay.
-    let clamped = ms.clamp(-100, 100);
+    let clamped = ms.clamp(VISUAL_DELAY_MS_MIN, VISUAL_DELAY_MS_MAX);
     {
         let mut profiles = lock_profiles();
         let profile = &mut profiles[side_ix(side)];
@@ -744,6 +842,18 @@ pub fn update_track_early_judgments_for_side(side: PlayerSide, enabled: bool) {
             return;
         }
         profile.track_early_judgments = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_scale_scatterplot_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.scale_scatterplot == enabled {
+            return;
+        }
+        profile.scale_scatterplot = enabled;
     }
     save_profile_ini_for_side(side);
 }
@@ -845,6 +955,30 @@ pub fn update_display_scorebox_for_side(side: PlayerSide, enabled: bool) {
     save_profile_ini_for_side(side);
 }
 
+pub fn update_live_timing_stats_mask_for_side(side: PlayerSide, mask: LiveTimingStatsMask) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.live_timing_stats_mask == mask {
+            return;
+        }
+        profile.live_timing_stats_mask = mask;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_live_timing_stats_enabled_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.live_timing_stats == enabled {
+            return;
+        }
+        profile.live_timing_stats = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_rainbow_max_for_side(side: PlayerSide, enabled: bool) {
     {
         let mut profiles = lock_profiles();
@@ -896,6 +1030,21 @@ pub fn update_tilt_multiplier_for_side(side: PlayerSide, multiplier: f32) {
     save_profile_ini_for_side(side);
 }
 
+pub fn update_tilt_thresholds_for_side(side: PlayerSide, min_ms: u32, max_ms: u32) {
+    let min_ms = clamp_tilt_threshold_ms(min_ms);
+    let max_ms = clamp_tilt_threshold_ms(max_ms).max(min_ms);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.tilt_min_threshold_ms == min_ms && profile.tilt_max_threshold_ms == max_ms {
+            return;
+        }
+        profile.tilt_min_threshold_ms = min_ms;
+        profile.tilt_max_threshold_ms = max_ms;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_error_bar_mask_for_side(side: PlayerSide, mask: ErrorBarMask) {
     let style = error_bar_style_from_mask(mask);
     let text = error_bar_text_from_mask(mask);
@@ -924,6 +1073,120 @@ pub fn update_error_bar_trim_for_side(side: PlayerSide, setting: ErrorBarTrim) {
     save_profile_ini_for_side(side);
 }
 
+pub fn update_text_error_bar_10ms_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.text_error_bar_10ms == enabled {
+            return;
+        }
+        profile.text_error_bar_10ms = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_average_error_bar_intensity_for_side(side: PlayerSide, intensity: f32) {
+    let normalized = super::clamp_average_error_bar_intensity(intensity);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if (profile.average_error_bar_intensity - normalized).abs() < 1e-6 {
+            return;
+        }
+        profile.average_error_bar_intensity = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_short_average_error_bar_enabled_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.short_average_error_bar_enabled == enabled {
+            return;
+        }
+        profile.short_average_error_bar_enabled = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_average_error_bar_interval_ms_for_side(side: PlayerSide, ms: u32) {
+    let normalized = super::clamp_average_error_bar_interval_ms(ms);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.average_error_bar_interval_ms == normalized {
+            return;
+        }
+        profile.average_error_bar_interval_ms = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_long_error_bar_enabled_for_side(side: PlayerSide, enabled: bool) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.long_error_bar_enabled == enabled {
+            return;
+        }
+        profile.long_error_bar_enabled = enabled;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_long_error_bar_intensity_for_side(side: PlayerSide, intensity: f32) {
+    let normalized = super::clamp_long_error_bar_intensity(intensity);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if (profile.long_error_bar_intensity - normalized).abs() < 1e-6 {
+            return;
+        }
+        profile.long_error_bar_intensity = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_long_error_bar_threshold_ms_for_side(side: PlayerSide, ms: u32) {
+    let normalized = super::clamp_long_error_bar_threshold_ms(ms);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.long_error_bar_threshold_ms == normalized {
+            return;
+        }
+        profile.long_error_bar_threshold_ms = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_long_error_bar_min_samples_for_side(side: PlayerSide, n: u32) {
+    let normalized = super::clamp_long_error_bar_min_samples(n);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.long_error_bar_min_samples == normalized {
+            return;
+        }
+        profile.long_error_bar_min_samples = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_long_error_bar_buffer_cap_for_side(side: PlayerSide, n: u32) {
+    let normalized = super::clamp_long_error_bar_buffer_cap(n);
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.long_error_bar_buffer_cap == normalized {
+            return;
+        }
+        profile.long_error_bar_buffer_cap = normalized;
+    }
+    save_profile_ini_for_side(side);
+}
+
 pub fn update_data_visualizations_for_side(side: PlayerSide, setting: DataVisualizations) {
     {
         let mut profiles = lock_profiles();
@@ -932,6 +1195,21 @@ pub fn update_data_visualizations_for_side(side: PlayerSide, setting: DataVisual
             return;
         }
         profile.data_visualizations = setting;
+    }
+    save_profile_ini_for_side(side);
+}
+
+pub fn update_scatterplot_max_window_for_side(
+    side: PlayerSide,
+    setting: super::ScatterplotMaxWindow,
+) {
+    {
+        let mut profiles = lock_profiles();
+        let profile = &mut profiles[side_ix(side)];
+        if profile.scatterplot_max_window == setting {
+            return;
+        }
+        profile.scatterplot_max_window = setting;
     }
     save_profile_ini_for_side(side);
 }

@@ -7,7 +7,7 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, Ordering};
 use std::time::Instant;
 
 use windows::Win32::Devices::HumanInterfaceDevice::{
@@ -56,9 +56,13 @@ const WIN_SC_NUMLOCK: u16 = 0x0045;
 const WIN_SC_IGNORE_PAUSE_PREFIX: u16 = 0xe11d;
 const WIN_SC_IGNORE_PRTSC_PREFIX: u16 = 0xe02a;
 
-static WINDOW_FOCUSED: AtomicBool = AtomicBool::new(true);
+static WINDOW_FOCUSED: AtomicBool = AtomicBool::new(false);
 static CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static RAW_INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
+const KEYBOARD_CAPTURE_DISABLED: u8 = 0;
+const KEYBOARD_CAPTURE_ENABLED: u8 = 1;
+const KEYBOARD_CAPTURE_UNKNOWN: u8 = 2;
+static REGISTERED_KEYBOARD_CAPTURE: AtomicU8 = AtomicU8::new(KEYBOARD_CAPTURE_UNKNOWN);
 
 struct Dev {
     id: PadId,
@@ -127,6 +131,7 @@ fn emit_startup_complete(ctx: &mut Ctx) {
 #[cold]
 fn disable_backend(ctx: &mut Ctx, label: &str, err: windows::core::Error) {
     RAW_INPUT_HWND.store(0, Ordering::Release);
+    REGISTERED_KEYBOARD_CAPTURE.store(KEYBOARD_CAPTURE_UNKNOWN, Ordering::Release);
     log::warn!("Windows Raw Input {label} failed ({err}); backend disabled");
     emit_startup_complete(ctx);
 }
@@ -141,8 +146,31 @@ pub fn set_capture_enabled(enabled: bool) {
     CAPTURE_ENABLED.store(enabled, Ordering::Relaxed);
     let hwnd = HWND(RAW_INPUT_HWND.load(Ordering::Acquire) as *mut c_void);
     if !hwnd.0.is_null() {
-        register_keyboard(hwnd, enabled);
+        sync_keyboard_registration(hwnd);
     }
+}
+
+#[inline(always)]
+const fn keyboard_capture_state(enabled: bool) -> u8 {
+    if enabled {
+        KEYBOARD_CAPTURE_ENABLED
+    } else {
+        KEYBOARD_CAPTURE_DISABLED
+    }
+}
+
+#[inline(always)]
+fn sync_keyboard_registration(hwnd: HWND) -> bool {
+    let enabled = CAPTURE_ENABLED.load(Ordering::Relaxed);
+    let desired = keyboard_capture_state(enabled);
+    if REGISTERED_KEYBOARD_CAPTURE.load(Ordering::Acquire) == desired {
+        return true;
+    }
+    if register_keyboard(hwnd, enabled) {
+        REGISTERED_KEYBOARD_CAPTURE.store(desired, Ordering::Release);
+        return true;
+    }
+    false
 }
 
 #[inline(always)]
@@ -983,7 +1011,8 @@ fn run_inner(mut ctx: Box<Ctx>) {
         };
 
         RAW_INPUT_HWND.store(hwnd.0 as isize, Ordering::Release);
-        let _ = register_keyboard(hwnd, CAPTURE_ENABLED.load(Ordering::Relaxed));
+        REGISTERED_KEYBOARD_CAPTURE.store(KEYBOARD_CAPTURE_UNKNOWN, Ordering::Release);
+        let _ = sync_keyboard_registration(hwnd);
 
         if ctx.enable_pad {
             if register_controllers(hwnd) {
@@ -1003,6 +1032,7 @@ fn run_inner(mut ctx: Box<Ctx>) {
         }
 
         RAW_INPUT_HWND.store(0, Ordering::Release);
+        REGISTERED_KEYBOARD_CAPTURE.store(KEYBOARD_CAPTURE_UNKNOWN, Ordering::Release);
         std::mem::forget(ctx);
     }
 }

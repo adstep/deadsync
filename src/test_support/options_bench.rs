@@ -49,6 +49,7 @@ fn press(state: &mut options::State, asset_manager: &AssetManager, action: Virtu
     let now = Instant::now();
     let ev = InputEvent {
         action,
+        input_slot: 0,
         pressed: true,
         source: InputSource::Keyboard,
         timestamp: now,
@@ -65,8 +66,9 @@ fn actor_z(actor: &Actor) -> i16 {
         | Actor::Text { z, .. }
         | Actor::Mesh { z, .. }
         | Actor::TexturedMesh { z, .. }
-        | Actor::Frame { z, .. } => *z,
-        Actor::Camera { .. } => 0,
+        | Actor::Frame { z, .. }
+        | Actor::SharedFrame { z, .. } => *z,
+        Actor::Camera { .. } | Actor::CameraPush { .. } | Actor::CameraPop => 0,
         Actor::Shadow { child, .. } => actor_z(child),
     }
 }

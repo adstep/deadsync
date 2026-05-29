@@ -2,10 +2,11 @@ use crate::engine::space::{screen_center_x, screen_center_y, screen_height, scre
 use crate::game::chart::{ChartData, GameplayChartData};
 use crate::game::note::Note;
 use crate::game::parsing::song_lua::{
-    CompiledSongLua, SongLuaCapturedActor, SongLuaCompileContext, SongLuaDifficulty,
-    SongLuaEaseTarget, SongLuaEaseWindow, SongLuaMessageEvent, SongLuaModWindow,
-    SongLuaOverlayActor, SongLuaOverlayEase, SongLuaOverlayMessageCommand, SongLuaPlayerContext,
-    SongLuaSpanMode, SongLuaSpeedMod, SongLuaTimeUnit, compile_song_lua,
+    CompiledSongLua, SongLuaCapturedActor, SongLuaColumnOffsetWindow, SongLuaCompileContext,
+    SongLuaDifficulty, SongLuaEaseTarget, SongLuaEaseWindow, SongLuaMessageEvent, SongLuaModWindow,
+    SongLuaNoteHideWindow, SongLuaOverlayActor, SongLuaOverlayEase, SongLuaOverlayMessageCommand,
+    SongLuaOverlayState, SongLuaPlayerContext, SongLuaSpanMode, SongLuaSpeedMod, SongLuaTimeUnit,
+    compile_song_lua,
 };
 use crate::game::profile;
 use crate::game::scroll::ScrollSpeedSetting;
@@ -13,15 +14,17 @@ use crate::game::song::SongData;
 use crate::game::timing::{ROWS_PER_BEAT, TimingData};
 use log::{debug, info, trace, warn};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::{
     AccelEffects, AccelOverrides, AppearanceEffects, AppearanceOverrides, ChartAttackEffects,
     HOLDS_MASK_BIT_FLOORED, HOLDS_MASK_BIT_HOLDS_TO_ROLLS, HOLDS_MASK_BIT_NO_ROLLS,
     HOLDS_MASK_BIT_PLANTED, HOLDS_MASK_BIT_TWISTER, INSERT_MASK_BIT_BIG, INSERT_MASK_BIT_BMRIZE,
     INSERT_MASK_BIT_ECHO, INSERT_MASK_BIT_MINES, INSERT_MASK_BIT_QUICK, INSERT_MASK_BIT_SKIPPY,
-    INSERT_MASK_BIT_STOMP, INSERT_MASK_BIT_WIDE, MAX_PLAYERS, PerspectiveEffects,
+    INSERT_MASK_BIT_STOMP, INSERT_MASK_BIT_WIDE, MAX_COLS, MAX_PLAYERS, PerspectiveEffects,
     PerspectiveOverrides, RANDOM_ATTACK_MIN_GAMEPLAY_SECONDS, RANDOM_ATTACK_MOD_POOL,
     RANDOM_ATTACK_OVERLAP_SECONDS, RANDOM_ATTACK_RUN_TIME_SECONDS,
     RANDOM_ATTACK_START_SECONDS_INIT, REMOVE_MASK_BIT_LITTLE, REMOVE_MASK_BIT_NO_FAKES,
@@ -43,17 +46,22 @@ struct ChartAttackWindow {
 pub(super) struct AttackMaskWindow {
     pub(super) start_second: f32,
     pub(super) end_second: f32,
+    pub(super) sustain_end_second: f32,
+    pub(super) persist_after_end: bool,
     pub(super) clear_all: bool,
     pub(super) chart: ChartAttackEffects,
     pub(super) accel: AccelOverrides,
     pub(super) visual: VisualOverrides,
+    pub(super) visual_speed: VisualOverrides,
     pub(super) appearance: AppearanceOverrides,
     pub(super) appearance_speed: AppearanceOverrides,
     pub(super) visibility: VisibilityOverrides,
     pub(super) scroll: ScrollOverrides,
+    pub(super) scroll_approach_speed: ScrollOverrides,
     pub(super) perspective: PerspectiveOverrides,
     pub(super) scroll_speed: Option<ScrollSpeedSetting>,
     pub(super) mini_percent: Option<f32>,
+    pub(super) mini_speed: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +97,40 @@ pub struct SongLuaOverlayMessageRuntime {
     pub command_index: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct SongLuaColumnOffsetWindowRuntime {
+    pub column: usize,
+    pub start_second: f32,
+    pub end_second: f32,
+    pub sustain_end_second: f32,
+    pub from_y: f32,
+    pub to_y: f32,
+    pub easing: Option<String>,
+    pub opt1: Option<f32>,
+    pub opt2: Option<f32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SongLuaVisualLayerRuntime {
+    pub start_second: f32,
+    pub screen_width: f32,
+    pub screen_height: f32,
+    pub overlays: Vec<SongLuaOverlayActor>,
+    pub overlay_eases: Vec<SongLuaOverlayEaseWindowRuntime>,
+    pub overlay_ease_ranges: Vec<std::ops::Range<usize>>,
+    pub overlay_events: Vec<Vec<SongLuaOverlayMessageRuntime>>,
+    pub song_foreground: SongLuaCapturedActor,
+    pub song_foreground_events: Vec<SongLuaOverlayMessageRuntime>,
+}
+
+fn extend_song_lua_sound_paths(out: &mut Vec<PathBuf>, paths: &[PathBuf]) {
+    for path in paths {
+        if !out.contains(path) {
+            out.push(path.clone());
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SongLuaEaseMaskTarget {
     AccelBoost,
@@ -100,11 +142,23 @@ pub(super) enum SongLuaEaseMaskTarget {
     VisualDizzy,
     VisualConfusion,
     VisualConfusionOffset,
+    VisualConfusionOffsetColumn(usize),
     VisualFlip,
     VisualInvert,
     VisualTornado,
     VisualTipsy,
+    VisualTiny,
     VisualBumpy,
+    VisualBumpyOffset,
+    VisualBumpyPeriod,
+    VisualBumpyColumn(usize),
+    VisualTinyColumn(usize),
+    VisualMoveXColumn(usize),
+    VisualMoveYColumn(usize),
+    VisualPulseInner,
+    VisualPulseOuter,
+    VisualPulsePeriod,
+    VisualPulseOffset,
     VisualBeat,
     AppearanceHidden,
     AppearanceSudden,
@@ -125,11 +179,18 @@ pub(super) enum SongLuaEaseMaskTarget {
     ScrollSpeedC,
     ScrollSpeedM,
     MiniPercent,
+    PlayerX,
+    PlayerY,
+    PlayerZ,
+    PlayerRotationX,
     PlayerRotationZ,
     PlayerRotationY,
     PlayerSkewX,
+    PlayerSkewY,
+    PlayerZoom,
     PlayerZoomX,
     PlayerZoomY,
+    PlayerZoomZ,
     ConfusionYOffsetY,
 }
 
@@ -142,13 +203,16 @@ pub(super) struct ParsedAttackMods {
     pub(super) clear_all: bool,
     pub(super) accel: AccelOverrides,
     pub(super) visual: VisualOverrides,
+    pub(super) visual_speed: VisualOverrides,
     pub(super) appearance: AppearanceOverrides,
     pub(super) appearance_speed: AppearanceOverrides,
     pub(super) visibility: VisibilityOverrides,
     pub(super) scroll: ScrollOverrides,
+    pub(super) scroll_approach_speed: ScrollOverrides,
     pub(super) perspective: PerspectiveOverrides,
     pub(super) scroll_speed: Option<ScrollSpeedSetting>,
     pub(super) mini_percent: Option<f32>,
+    pub(super) mini_speed: Option<f32>,
 }
 
 impl Default for ParsedAttackMods {
@@ -161,13 +225,16 @@ impl Default for ParsedAttackMods {
             clear_all: false,
             accel: AccelOverrides::default(),
             visual: VisualOverrides::default(),
+            visual_speed: VisualOverrides::default(),
             appearance: AppearanceOverrides::default(),
             appearance_speed: AppearanceOverrides::default(),
             visibility: VisibilityOverrides::default(),
             scroll: ScrollOverrides::default(),
+            scroll_approach_speed: ScrollOverrides::default(),
             perspective: PerspectiveOverrides::default(),
             scroll_speed: None,
             mini_percent: None,
+            mini_speed: None,
         }
     }
 }
@@ -298,6 +365,16 @@ fn attack_token_key(token: &str) -> String {
 }
 
 #[inline(always)]
+fn mod_column_suffix(key: &str, prefix: &str) -> Option<usize> {
+    let suffix = key.strip_prefix(prefix)?;
+    if suffix.is_empty() {
+        return None;
+    }
+    let col = suffix.parse::<usize>().ok()?;
+    (1..=MAX_COLS).contains(&col).then_some(col - 1)
+}
+
+#[inline(always)]
 fn parse_attack_scroll_override(token: &str) -> Option<ScrollSpeedSetting> {
     let trimmed = token.trim();
     let value = trimmed
@@ -353,12 +430,71 @@ fn parse_attack_level_token(token: &str) -> (Option<f32>, &str) {
     parse_attack_percent_prefix(token)
 }
 
+#[inline(always)]
+fn set_approached_mod(
+    value: &mut Option<f32>,
+    value_speed: &mut Option<f32>,
+    target: Option<f32>,
+    approach_speed: f32,
+) {
+    *value = target;
+    if target.is_some() {
+        *value_speed = Some(approach_speed.max(0.0));
+    }
+}
+
 fn apply_runtime_mod(
     out: &mut ParsedAttackMods,
     key: &str,
     percent_value: Option<f32>,
     approach_speed: f32,
 ) {
+    if let Some(col) = mod_column_suffix(key, "bumpy") {
+        set_approached_mod(
+            &mut out.visual.bumpy_cols[col],
+            &mut out.visual_speed.bumpy_cols[col],
+            attack_level(percent_value),
+            approach_speed,
+        );
+        return;
+    }
+    if let Some(col) = mod_column_suffix(key, "tiny") {
+        set_approached_mod(
+            &mut out.visual.tiny_cols[col],
+            &mut out.visual_speed.tiny_cols[col],
+            attack_level(percent_value),
+            approach_speed,
+        );
+        return;
+    }
+    if let Some(col) = mod_column_suffix(key, "movex") {
+        set_approached_mod(
+            &mut out.visual.move_x_cols[col],
+            &mut out.visual_speed.move_x_cols[col],
+            attack_level(percent_value),
+            approach_speed,
+        );
+        return;
+    }
+    if let Some(col) = mod_column_suffix(key, "movey") {
+        set_approached_mod(
+            &mut out.visual.move_y_cols[col],
+            &mut out.visual_speed.move_y_cols[col],
+            attack_level(percent_value),
+            approach_speed,
+        );
+        return;
+    }
+    if let Some(col) = mod_column_suffix(key, "confusionoffset") {
+        set_approached_mod(
+            &mut out.visual.confusion_offset_cols[col],
+            &mut out.visual_speed.confusion_offset_cols[col],
+            attack_level(percent_value),
+            approach_speed,
+        );
+        return;
+    }
+
     match key {
         "wide" => out.insert_mask |= INSERT_MASK_BIT_WIDE,
         "big" => out.insert_mask |= INSERT_MASK_BIT_BIG,
@@ -389,32 +525,148 @@ fn apply_runtime_mod(
         "shuffle" => out.turn_option = profile::TurnOption::Shuffle,
         "supershuffle" | "blender" => out.turn_option = profile::TurnOption::Blender,
         "hypershuffle" => out.turn_option = profile::TurnOption::Random,
-        "reverse" => out.scroll.reverse = attack_level(percent_value),
-        "split" => out.scroll.split = attack_level(percent_value),
-        "alternate" => out.scroll.alternate = attack_level(percent_value),
-        "cross" => out.scroll.cross = attack_level(percent_value),
-        "centered" => out.scroll.centered = attack_level(percent_value),
+        "reverse" => set_approached_mod(
+            &mut out.scroll.reverse,
+            &mut out.scroll_approach_speed.reverse,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "split" => set_approached_mod(
+            &mut out.scroll.split,
+            &mut out.scroll_approach_speed.split,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "alternate" => set_approached_mod(
+            &mut out.scroll.alternate,
+            &mut out.scroll_approach_speed.alternate,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "cross" => set_approached_mod(
+            &mut out.scroll.cross,
+            &mut out.scroll_approach_speed.cross,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "centered" => set_approached_mod(
+            &mut out.scroll.centered,
+            &mut out.scroll_approach_speed.centered,
+            attack_level(percent_value),
+            approach_speed,
+        ),
         "boost" => out.accel.boost = attack_level(percent_value),
         "brake" => out.accel.brake = attack_level(percent_value),
         "wave" => out.accel.wave = attack_level(percent_value),
         "expand" => out.accel.expand = attack_level(percent_value),
         "boomerang" => out.accel.boomerang = attack_level(percent_value),
-        "drunk" => out.visual.drunk = attack_level(percent_value),
-        "dizzy" => out.visual.dizzy = attack_level(percent_value),
-        "confusion" => out.visual.confusion = attack_level(percent_value),
-        "confusionoffset" => out.visual.confusion_offset = attack_level(percent_value),
-        "flip" => out.visual.flip = attack_level(percent_value),
-        "invert" => out.visual.invert = attack_level(percent_value),
-        "tornado" => out.visual.tornado = attack_level(percent_value),
-        "tipsy" => out.visual.tipsy = attack_level(percent_value),
-        "bumpy" | "bumpy1" | "bumpy2" | "bumpy3" | "bumpy4" => {
-            out.visual.bumpy = attack_level(percent_value)
-        }
-        "beat" => out.visual.beat = attack_level(percent_value),
-        "mini" | "tiny" => {
+        "drunk" => set_approached_mod(
+            &mut out.visual.drunk,
+            &mut out.visual_speed.drunk,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "dizzy" => set_approached_mod(
+            &mut out.visual.dizzy,
+            &mut out.visual_speed.dizzy,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "confusion" => set_approached_mod(
+            &mut out.visual.confusion,
+            &mut out.visual_speed.confusion,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "confusionoffset" => set_approached_mod(
+            &mut out.visual.confusion_offset,
+            &mut out.visual_speed.confusion_offset,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "flip" => set_approached_mod(
+            &mut out.visual.flip,
+            &mut out.visual_speed.flip,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "invert" => set_approached_mod(
+            &mut out.visual.invert,
+            &mut out.visual_speed.invert,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "tornado" => set_approached_mod(
+            &mut out.visual.tornado,
+            &mut out.visual_speed.tornado,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "tipsy" => set_approached_mod(
+            &mut out.visual.tipsy,
+            &mut out.visual_speed.tipsy,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "bumpy" => set_approached_mod(
+            &mut out.visual.bumpy,
+            &mut out.visual_speed.bumpy,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "bumpyoffset" => set_approached_mod(
+            &mut out.visual.bumpy_offset,
+            &mut out.visual_speed.bumpy_offset,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "bumpyperiod" => set_approached_mod(
+            &mut out.visual.bumpy_period,
+            &mut out.visual_speed.bumpy_period,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "pulseinner" => set_approached_mod(
+            &mut out.visual.pulse_inner,
+            &mut out.visual_speed.pulse_inner,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "pulseouter" => set_approached_mod(
+            &mut out.visual.pulse_outer,
+            &mut out.visual_speed.pulse_outer,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "pulseperiod" => set_approached_mod(
+            &mut out.visual.pulse_period,
+            &mut out.visual_speed.pulse_period,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "pulseoffset" => set_approached_mod(
+            &mut out.visual.pulse_offset,
+            &mut out.visual_speed.pulse_offset,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "beat" => set_approached_mod(
+            &mut out.visual.beat,
+            &mut out.visual_speed.beat,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "tiny" => set_approached_mod(
+            &mut out.visual.tiny,
+            &mut out.visual_speed.tiny,
+            attack_level(percent_value),
+            approach_speed,
+        ),
+        "mini" => {
             let mini = percent_value.unwrap_or(100.0);
             if mini.is_finite() {
                 out.mini_percent = Some(mini);
+                out.mini_speed = Some(approach_speed.max(0.0));
             }
         }
         "hidden" => {
@@ -694,6 +946,8 @@ pub(super) fn build_attack_mask_windows_for_player(
         windows.push(AttackMaskWindow {
             start_second,
             end_second,
+            sustain_end_second: end_second,
+            persist_after_end: false,
             clear_all: mods.clear_all,
             chart: ChartAttackEffects {
                 insert_mask: mods.insert_mask,
@@ -703,13 +957,16 @@ pub(super) fn build_attack_mask_windows_for_player(
             },
             accel: mods.accel,
             visual: mods.visual,
+            visual_speed: mods.visual_speed,
             appearance: mods.appearance,
             appearance_speed: mods.appearance_speed,
             visibility: mods.visibility,
             scroll: mods.scroll,
+            scroll_approach_speed: mods.scroll_approach_speed,
             perspective: mods.perspective,
             scroll_speed: mods.scroll_speed,
             mini_percent: mods.mini_percent,
+            mini_speed: mods.mini_speed,
         });
     }
     windows
@@ -742,6 +999,25 @@ fn song_lua_time_to_second(
         SongLuaTimeUnit::Beat => timing_player.get_time_for_beat(value),
         SongLuaTimeUnit::Second => value - global_offset_seconds,
     }
+}
+
+fn song_lua_message_seconds(
+    messages: &[SongLuaMessageEvent],
+    timing_player: &TimingData,
+    global_offset_seconds: f32,
+) -> Vec<Option<f32>> {
+    messages
+        .iter()
+        .map(|message| {
+            let event_second = song_lua_time_to_second(
+                SongLuaTimeUnit::Beat,
+                message.beat,
+                timing_player,
+                global_offset_seconds,
+            );
+            event_second.is_finite().then_some(event_second)
+        })
+        .collect()
 }
 
 fn song_lua_window_seconds(
@@ -812,21 +1088,26 @@ fn build_song_lua_constant_window(
     Some(AttackMaskWindow {
         start_second,
         end_second,
+        sustain_end_second: f32::MAX,
+        persist_after_end: true,
         clear_all: mods.clear_all,
         chart: ChartAttackEffects::default(),
         accel: mods.accel,
         visual: mods.visual,
+        visual_speed: mods.visual_speed,
         appearance: mods.appearance,
         appearance_speed: mods.appearance_speed,
         visibility: mods.visibility,
         scroll: mods.scroll,
+        scroll_approach_speed: mods.scroll_approach_speed,
         perspective: mods.perspective,
         scroll_speed: mods.scroll_speed,
         mini_percent: mods.mini_percent,
+        mini_speed: mods.mini_speed,
     })
 }
 
-fn build_song_lua_constant_windows_for_player(
+pub(super) fn build_song_lua_constant_windows_for_player(
     compiled: &CompiledSongLua,
     timing_player: &TimingData,
     player: usize,
@@ -900,6 +1181,81 @@ fn append_song_lua_ease_targets(
     }
     let pct_from = song_lua_normalized_value(from);
     let pct_to = song_lua_normalized_value(to);
+    if let Some(col) = mod_column_suffix(&key, "bumpy") {
+        push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualBumpyColumn(col),
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        );
+        return true;
+    }
+    if let Some(col) = mod_column_suffix(&key, "tiny") {
+        push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualTinyColumn(col),
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        );
+        return true;
+    }
+    if let Some(col) = mod_column_suffix(&key, "movex") {
+        push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualMoveXColumn(col),
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        );
+        return true;
+    }
+    if let Some(col) = mod_column_suffix(&key, "movey") {
+        push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualMoveYColumn(col),
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        );
+        return true;
+    }
+    if let Some(col) = mod_column_suffix(&key, "confusionoffset") {
+        push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualConfusionOffsetColumn(col),
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        );
+        return true;
+    }
     match key.as_str() {
         "boost" => push_song_lua_ease_target(
             out,
@@ -1057,9 +1413,81 @@ fn append_song_lua_ease_targets(
             opt1,
             opt2,
         ),
-        "bumpy" | "bumpy1" | "bumpy2" | "bumpy3" | "bumpy4" => push_song_lua_ease_target(
+        "bumpy" => push_song_lua_ease_target(
             out,
             SongLuaEaseMaskTarget::VisualBumpy,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "bumpyoffset" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualBumpyOffset,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "bumpyperiod" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualBumpyPeriod,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "pulseinner" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualPulseInner,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "pulseouter" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualPulseOuter,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "pulseperiod" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualPulsePeriod,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "pulseoffset" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualPulseOffset,
             start_second,
             end_second,
             sustain_end_second,
@@ -1403,7 +1831,19 @@ fn append_song_lua_ease_targets(
             opt1,
             opt2,
         ),
-        "mini" | "tiny" => push_song_lua_ease_target(
+        "tiny" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::VisualTiny,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "mini" => push_song_lua_ease_target(
             out,
             SongLuaEaseMaskTarget::MiniPercent,
             start_second,
@@ -1411,6 +1851,30 @@ fn append_song_lua_ease_targets(
             sustain_end_second,
             from,
             to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "skewx" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::PlayerSkewX,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
+            easing,
+            opt1,
+            opt2,
+        ),
+        "skewy" => push_song_lua_ease_target(
+            out,
+            SongLuaEaseMaskTarget::PlayerSkewY,
+            start_second,
+            end_second,
+            sustain_end_second,
+            pct_from,
+            pct_to,
             easing,
             opt1,
             opt2,
@@ -1433,26 +1897,140 @@ fn append_song_lua_ease_targets(
 }
 
 #[inline(always)]
-fn song_lua_persistent_player_transform_target(target: SongLuaEaseMaskTarget) -> bool {
+fn song_lua_player_transform_target(target: SongLuaEaseMaskTarget) -> bool {
     matches!(
         target,
-        SongLuaEaseMaskTarget::PlayerRotationZ
+        SongLuaEaseMaskTarget::PlayerX
+            | SongLuaEaseMaskTarget::PlayerY
+            | SongLuaEaseMaskTarget::PlayerZ
+            | SongLuaEaseMaskTarget::PlayerRotationX
+            | SongLuaEaseMaskTarget::PlayerRotationZ
             | SongLuaEaseMaskTarget::PlayerRotationY
             | SongLuaEaseMaskTarget::PlayerSkewX
+            | SongLuaEaseMaskTarget::PlayerSkewY
+            | SongLuaEaseMaskTarget::PlayerZoom
             | SongLuaEaseMaskTarget::PlayerZoomX
             | SongLuaEaseMaskTarget::PlayerZoomY
+            | SongLuaEaseMaskTarget::PlayerZoomZ
             | SongLuaEaseMaskTarget::ConfusionYOffsetY
     )
 }
 
-fn song_lua_extend_player_transform_tails(out: &mut [SongLuaEaseMaskWindow]) {
+#[inline(always)]
+fn song_lua_constant_sets_target(window: &AttackMaskWindow, target: SongLuaEaseMaskTarget) -> bool {
+    if window.clear_all && !song_lua_player_transform_target(target) {
+        return true;
+    }
+    match target {
+        SongLuaEaseMaskTarget::AccelBoost => window.accel.boost.is_some(),
+        SongLuaEaseMaskTarget::AccelBrake => window.accel.brake.is_some(),
+        SongLuaEaseMaskTarget::AccelWave => window.accel.wave.is_some(),
+        SongLuaEaseMaskTarget::AccelExpand => window.accel.expand.is_some(),
+        SongLuaEaseMaskTarget::AccelBoomerang => window.accel.boomerang.is_some(),
+        SongLuaEaseMaskTarget::VisualDrunk => window.visual.drunk.is_some(),
+        SongLuaEaseMaskTarget::VisualDizzy => window.visual.dizzy.is_some(),
+        SongLuaEaseMaskTarget::VisualConfusion => window.visual.confusion.is_some(),
+        SongLuaEaseMaskTarget::VisualConfusionOffset => window.visual.confusion_offset.is_some(),
+        SongLuaEaseMaskTarget::VisualConfusionOffsetColumn(col) => window
+            .visual
+            .confusion_offset_cols
+            .get(col)
+            .is_some_and(Option::is_some),
+        SongLuaEaseMaskTarget::VisualFlip => window.visual.flip.is_some(),
+        SongLuaEaseMaskTarget::VisualInvert => window.visual.invert.is_some(),
+        SongLuaEaseMaskTarget::VisualTornado => window.visual.tornado.is_some(),
+        SongLuaEaseMaskTarget::VisualTipsy => window.visual.tipsy.is_some(),
+        SongLuaEaseMaskTarget::VisualTiny => window.visual.tiny.is_some(),
+        SongLuaEaseMaskTarget::VisualBumpy => window.visual.bumpy.is_some(),
+        SongLuaEaseMaskTarget::VisualBumpyOffset => window.visual.bumpy_offset.is_some(),
+        SongLuaEaseMaskTarget::VisualBumpyPeriod => window.visual.bumpy_period.is_some(),
+        SongLuaEaseMaskTarget::VisualBumpyColumn(col) => window
+            .visual
+            .bumpy_cols
+            .get(col)
+            .is_some_and(Option::is_some),
+        SongLuaEaseMaskTarget::VisualTinyColumn(col) => window
+            .visual
+            .tiny_cols
+            .get(col)
+            .is_some_and(Option::is_some),
+        SongLuaEaseMaskTarget::VisualMoveXColumn(col) => window
+            .visual
+            .move_x_cols
+            .get(col)
+            .is_some_and(Option::is_some),
+        SongLuaEaseMaskTarget::VisualMoveYColumn(col) => window
+            .visual
+            .move_y_cols
+            .get(col)
+            .is_some_and(Option::is_some),
+        SongLuaEaseMaskTarget::VisualPulseInner => window.visual.pulse_inner.is_some(),
+        SongLuaEaseMaskTarget::VisualPulseOuter => window.visual.pulse_outer.is_some(),
+        SongLuaEaseMaskTarget::VisualPulsePeriod => window.visual.pulse_period.is_some(),
+        SongLuaEaseMaskTarget::VisualPulseOffset => window.visual.pulse_offset.is_some(),
+        SongLuaEaseMaskTarget::VisualBeat => window.visual.beat.is_some(),
+        SongLuaEaseMaskTarget::AppearanceHidden => window.appearance.hidden.is_some(),
+        SongLuaEaseMaskTarget::AppearanceSudden => window.appearance.sudden.is_some(),
+        SongLuaEaseMaskTarget::AppearanceStealth => window.appearance.stealth.is_some(),
+        SongLuaEaseMaskTarget::AppearanceBlink => window.appearance.blink.is_some(),
+        SongLuaEaseMaskTarget::AppearanceRandomVanish => window.appearance.random_vanish.is_some(),
+        SongLuaEaseMaskTarget::VisibilityDark => window.visibility.dark.is_some(),
+        SongLuaEaseMaskTarget::VisibilityBlind => window.visibility.blind.is_some(),
+        SongLuaEaseMaskTarget::VisibilityCover => window.visibility.cover.is_some(),
+        SongLuaEaseMaskTarget::ScrollReverse => window.scroll.reverse.is_some(),
+        SongLuaEaseMaskTarget::ScrollSplit => window.scroll.split.is_some(),
+        SongLuaEaseMaskTarget::ScrollAlternate => window.scroll.alternate.is_some(),
+        SongLuaEaseMaskTarget::ScrollCross => window.scroll.cross.is_some(),
+        SongLuaEaseMaskTarget::ScrollCentered => window.scroll.centered.is_some(),
+        SongLuaEaseMaskTarget::PerspectiveTilt => window.perspective.tilt.is_some(),
+        SongLuaEaseMaskTarget::PerspectiveSkew => window.perspective.skew.is_some(),
+        SongLuaEaseMaskTarget::ScrollSpeedX
+        | SongLuaEaseMaskTarget::ScrollSpeedC
+        | SongLuaEaseMaskTarget::ScrollSpeedM => window.scroll_speed.is_some(),
+        SongLuaEaseMaskTarget::MiniPercent => window.mini_percent.is_some(),
+        SongLuaEaseMaskTarget::PlayerX
+        | SongLuaEaseMaskTarget::PlayerY
+        | SongLuaEaseMaskTarget::PlayerZ
+        | SongLuaEaseMaskTarget::PlayerRotationX
+        | SongLuaEaseMaskTarget::PlayerRotationZ
+        | SongLuaEaseMaskTarget::PlayerRotationY
+        | SongLuaEaseMaskTarget::PlayerSkewX
+        | SongLuaEaseMaskTarget::PlayerSkewY
+        | SongLuaEaseMaskTarget::PlayerZoom
+        | SongLuaEaseMaskTarget::PlayerZoomX
+        | SongLuaEaseMaskTarget::PlayerZoomY
+        | SongLuaEaseMaskTarget::PlayerZoomZ
+        | SongLuaEaseMaskTarget::ConfusionYOffsetY => false,
+    }
+}
+
+fn song_lua_constant_cutoff_second(
+    constant: &AttackMaskWindow,
+    window: &SongLuaEaseMaskWindow,
+    epsilon: f32,
+) -> Option<f32> {
+    if !constant.start_second.is_finite()
+        || !constant.end_second.is_finite()
+        || !window.end_second.is_finite()
+        || !song_lua_constant_sets_target(constant, window.target)
+    {
+        return None;
+    }
+    if constant.end_second <= window.end_second + epsilon {
+        return None;
+    }
+    if constant.start_second <= window.end_second + epsilon {
+        Some(window.end_second)
+    } else {
+        Some(constant.start_second)
+    }
+}
+
+fn song_lua_extend_ease_tails(out: &mut [SongLuaEaseMaskWindow], constants: &[AttackMaskWindow]) {
     const SAME_TICK_EPSILON: f32 = 0.001;
 
     for i in 0..out.len() {
         let window = &out[i];
-        if !song_lua_persistent_player_transform_target(window.target) {
-            continue;
-        }
         let default_end = if window.sustain_end_second > window.end_second + SAME_TICK_EPSILON {
             window.sustain_end_second
         } else {
@@ -1478,8 +2056,19 @@ fn song_lua_extend_player_transform_tails(out: &mut [SongLuaEaseMaskWindow]) {
                     None => start,
                 })
             });
+        let constant_cutoff = constants
+            .iter()
+            .filter_map(|constant| {
+                song_lua_constant_cutoff_second(constant, window, SAME_TICK_EPSILON)
+            })
+            .fold(cutoff_second, |acc, start| {
+                Some(match acc {
+                    Some(current) => current.min(start),
+                    None => start,
+                })
+            });
         out[i].sustain_end_second =
-            cutoff_second.map_or(default_end, |cutoff| default_end.min(cutoff));
+            constant_cutoff.map_or(default_end, |cutoff| default_end.min(cutoff));
     }
 }
 
@@ -1488,6 +2077,7 @@ pub(super) fn build_song_lua_ease_windows_for_player(
     timing_player: &TimingData,
     player: usize,
     global_offset_seconds: f32,
+    constant_windows: &[AttackMaskWindow],
 ) -> (Vec<SongLuaEaseMaskWindow>, usize) {
     let mut out = Vec::new();
     let mut unsupported_targets = 0usize;
@@ -1538,6 +2128,50 @@ pub(super) fn build_song_lua_ease_windows_for_player(
                     );
                 }
             }
+            SongLuaEaseTarget::PlayerX => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerX,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
+            SongLuaEaseTarget::PlayerY => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerY,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
+            SongLuaEaseTarget::PlayerZ => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerZ,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
+            SongLuaEaseTarget::PlayerRotationX => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerRotationX,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
             SongLuaEaseTarget::PlayerRotationZ => out.push(SongLuaEaseMaskWindow {
                 start_second,
                 end_second,
@@ -1571,6 +2205,28 @@ pub(super) fn build_song_lua_ease_windows_for_player(
                 opt1: window.opt1,
                 opt2: window.opt2,
             }),
+            SongLuaEaseTarget::PlayerSkewY => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerSkewY,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
+            SongLuaEaseTarget::PlayerZoom => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerZoom,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
             SongLuaEaseTarget::PlayerZoomX => out.push(SongLuaEaseMaskWindow {
                 start_second,
                 end_second,
@@ -1593,17 +2249,153 @@ pub(super) fn build_song_lua_ease_windows_for_player(
                 opt1: window.opt1,
                 opt2: window.opt2,
             }),
+            SongLuaEaseTarget::PlayerZoomZ => out.push(SongLuaEaseMaskWindow {
+                start_second,
+                end_second,
+                sustain_end_second,
+                target: SongLuaEaseMaskTarget::PlayerZoomZ,
+                from: window.from,
+                to: window.to,
+                easing: window.easing.clone(),
+                opt1: window.opt1,
+                opt2: window.opt2,
+            }),
             SongLuaEaseTarget::Function => {}
         }
     }
-    song_lua_extend_player_transform_tails(&mut out);
+    song_lua_extend_ease_tails(&mut out, constant_windows);
     (out, unsupported_targets)
 }
 
+fn song_lua_column_sustain_end_second(
+    window: &SongLuaColumnOffsetWindow,
+    timing_player: &TimingData,
+    global_offset_seconds: f32,
+    end_second: f32,
+) -> f32 {
+    let Some(sustain) = window.sustain else {
+        return end_second;
+    };
+    let sustain_value = match window.span_mode {
+        SongLuaSpanMode::Len => {
+            song_lua_end_value(window.start, window.limit, window.span_mode) + sustain
+        }
+        SongLuaSpanMode::End => sustain,
+    };
+    let sustain_end_second = song_lua_time_to_second(
+        window.unit,
+        sustain_value,
+        timing_player,
+        global_offset_seconds,
+    );
+    if sustain_end_second.is_finite() && sustain_end_second > end_second {
+        sustain_end_second
+    } else {
+        end_second
+    }
+}
+
+fn song_lua_extend_column_offset_tails(out: &mut [SongLuaColumnOffsetWindowRuntime]) {
+    const SAME_TICK_EPSILON: f32 = 0.001;
+
+    for i in 0..out.len() {
+        let window = &out[i];
+        let default_end = if window.sustain_end_second > window.end_second + SAME_TICK_EPSILON {
+            window.sustain_end_second
+        } else {
+            f32::MAX
+        };
+        let cutoff_second = out
+            .iter()
+            .enumerate()
+            .filter_map(|(j, other)| {
+                if i == j
+                    || other.column != window.column
+                    || !other.start_second.is_finite()
+                    || other.start_second <= window.start_second + SAME_TICK_EPSILON
+                {
+                    None
+                } else {
+                    Some(other.start_second)
+                }
+            })
+            .fold(None::<f32>, |acc, start| {
+                Some(match acc {
+                    Some(current) => current.min(start),
+                    None => start,
+                })
+            });
+        out[i].sustain_end_second =
+            cutoff_second.map_or(default_end, |cutoff| default_end.min(cutoff));
+    }
+}
+
+pub(super) fn build_song_lua_column_offset_windows_for_player(
+    compiled: &CompiledSongLua,
+    timing_player: &TimingData,
+    player: usize,
+    global_offset_seconds: f32,
+) -> Vec<SongLuaColumnOffsetWindowRuntime> {
+    let mut out = Vec::new();
+    for window in &compiled.column_offsets {
+        if window.player != player {
+            continue;
+        }
+        let Some((start_second, end_second)) = song_lua_window_seconds(
+            window.unit,
+            window.start,
+            window.limit,
+            window.span_mode,
+            timing_player,
+            global_offset_seconds,
+        ) else {
+            continue;
+        };
+        let sustain_end_second = song_lua_column_sustain_end_second(
+            window,
+            timing_player,
+            global_offset_seconds,
+            end_second,
+        );
+        out.push(SongLuaColumnOffsetWindowRuntime {
+            column: window.column,
+            start_second,
+            end_second,
+            sustain_end_second,
+            from_y: window.from_y,
+            to_y: window.to_y,
+            easing: window.easing.clone(),
+            opt1: window.opt1,
+            opt2: window.opt2,
+        });
+    }
+    song_lua_extend_column_offset_tails(&mut out);
+    out
+}
+
+#[cfg(test)]
 pub(super) fn build_song_lua_overlay_ease_windows(
     compiled: &CompiledSongLua,
     timing_player: &TimingData,
     global_offset_seconds: f32,
+) -> Vec<SongLuaOverlayEaseWindowRuntime> {
+    let message_seconds =
+        song_lua_message_seconds(&compiled.messages, timing_player, global_offset_seconds);
+    let overlay_events =
+        build_song_lua_overlay_message_events_with_seconds(compiled, &message_seconds);
+    build_song_lua_overlay_ease_windows_with_events(
+        compiled,
+        timing_player,
+        global_offset_seconds,
+        &overlay_events,
+    )
+}
+
+fn build_song_lua_overlay_ease_windows_with_events(
+    compiled: &CompiledSongLua,
+    timing_player: &TimingData,
+    global_offset_seconds: f32,
+    overlay_events: &[Vec<SongLuaOverlayMessageRuntime>],
 ) -> Vec<SongLuaOverlayEaseWindowRuntime> {
     let mut out = Vec::new();
     for ease in &compiled.overlay_eases {
@@ -1626,13 +2418,8 @@ pub(super) fn build_song_lua_overlay_ease_windows(
             global_offset_seconds,
             end_second,
         );
-        let cutoff_second = song_lua_overlay_ease_cutoff_second(
-            compiled,
-            ease,
-            timing_player,
-            global_offset_seconds,
-            start_second,
-        );
+        let cutoff_second =
+            song_lua_overlay_ease_cutoff_second(compiled, ease, overlay_events, start_second);
         out.push(SongLuaOverlayEaseWindowRuntime {
             overlay_index: ease.overlay_index,
             start_second,
@@ -1679,45 +2466,35 @@ fn group_song_lua_overlay_eases(
     (flat, ranges)
 }
 
-fn build_song_lua_overlay_message_events(
+fn build_song_lua_overlay_message_events_with_seconds(
     compiled: &CompiledSongLua,
-    timing_player: &TimingData,
-    global_offset_seconds: f32,
+    message_seconds: &[Option<f32>],
 ) -> Vec<Vec<SongLuaOverlayMessageRuntime>> {
     compiled
         .overlays
         .iter()
         .map(|overlay| {
-            build_song_lua_actor_message_events(
+            build_song_lua_actor_message_events_with_seconds(
                 &compiled.messages,
+                message_seconds,
                 &overlay.message_commands,
-                timing_player,
-                global_offset_seconds,
             )
         })
         .collect()
 }
 
-fn build_song_lua_actor_message_events(
+fn build_song_lua_actor_message_events_with_seconds(
     messages: &[SongLuaMessageEvent],
+    message_seconds: &[Option<f32>],
     commands: &[SongLuaOverlayMessageCommand],
-    timing_player: &TimingData,
-    global_offset_seconds: f32,
 ) -> Vec<SongLuaOverlayMessageRuntime> {
+    let command_indices = song_lua_message_command_indices(commands);
     let mut out = Vec::new();
-    for message in messages {
-        let event_second = song_lua_time_to_second(
-            SongLuaTimeUnit::Beat,
-            message.beat,
-            timing_player,
-            global_offset_seconds,
-        );
-        if !event_second.is_finite() {
+    for (idx, message) in messages.iter().enumerate() {
+        let Some(event_second) = message_seconds.get(idx).copied().flatten() else {
             continue;
-        }
-        let Some(command_index) = commands
-            .iter()
-            .position(|command| command.message.eq_ignore_ascii_case(&message.message))
+        };
+        let Some(&command_index) = command_indices.get(&message.message.to_ascii_lowercase())
         else {
             continue;
         };
@@ -1729,32 +2506,34 @@ fn build_song_lua_actor_message_events(
     out
 }
 
+fn song_lua_message_command_indices(
+    commands: &[SongLuaOverlayMessageCommand],
+) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    for (idx, command) in commands.iter().enumerate() {
+        out.entry(command.message.to_ascii_lowercase())
+            .or_insert(idx);
+    }
+    out
+}
+
 fn song_lua_overlay_ease_cutoff_second(
     compiled: &CompiledSongLua,
     ease: &SongLuaOverlayEase,
-    timing_player: &TimingData,
-    global_offset_seconds: f32,
+    overlay_events: &[Vec<SongLuaOverlayMessageRuntime>],
     start_second: f32,
 ) -> Option<f32> {
     const SAME_TICK_CUTOFF_EPSILON: f32 = 0.001;
 
     let overlay = compiled.overlays.get(ease.overlay_index)?;
     let mut cutoff_second: Option<f32> = None;
-    for event in &compiled.messages {
-        let event_second = song_lua_time_to_second(
-            SongLuaTimeUnit::Beat,
-            event.beat,
-            timing_player,
-            global_offset_seconds,
-        );
+    let events = overlay_events.get(ease.overlay_index)?;
+    for event in events {
+        let event_second = event.event_second;
         if !event_second.is_finite() || event_second < start_second {
             continue;
         }
-        let Some(command) = overlay
-            .message_commands
-            .iter()
-            .find(|command| command.message.eq_ignore_ascii_case(&event.message))
-        else {
+        let Some(command) = overlay.message_commands.get(event.command_index) else {
             continue;
         };
         for block in &command.blocks {
@@ -1791,12 +2570,25 @@ fn song_lua_overlay_delta_overlaps(
     overlap!(x);
     overlap!(y);
     overlap!(z);
+    overlap!(halign);
+    overlap!(valign);
+    overlap!(text_align);
+    overlap!(uppercase);
+    overlap!(shadow_len);
+    overlap!(shadow_color);
+    overlap!(glow);
     overlap!(diffuse);
     overlap!(visible);
     overlap!(cropleft);
     overlap!(cropright);
     overlap!(croptop);
     overlap!(cropbottom);
+    overlap!(fadeleft);
+    overlap!(faderight);
+    overlap!(fadetop);
+    overlap!(fadebottom);
+    overlap!(mask_source);
+    overlap!(mask_dest);
     overlap!(zoom);
     overlap!(zoom_x);
     overlap!(zoom_y);
@@ -1807,6 +2599,8 @@ fn song_lua_overlay_delta_overlaps(
     overlap!(rot_x_deg);
     overlap!(rot_y_deg);
     overlap!(rot_z_deg);
+    overlap!(skew_x);
+    overlap!(skew_y);
     overlap!(blend);
     overlap!(vibrate);
     overlap!(effect_magnitude);
@@ -1814,6 +2608,15 @@ fn song_lua_overlay_delta_overlaps(
     overlap!(effect_color1);
     overlap!(effect_color2);
     overlap!(effect_period);
+    overlap!(effect_timing);
+    overlap!(vert_spacing);
+    overlap!(wrap_width_pixels);
+    overlap!(max_width);
+    overlap!(max_height);
+    overlap!(max_w_pre_zoom);
+    overlap!(max_h_pre_zoom);
+    overlap!(texture_wrapping);
+    overlap!(texcoord_offset);
     overlap!(custom_texture_rect);
     overlap!(texcoord_velocity);
     overlap!(size);
@@ -1919,79 +2722,20 @@ fn song_lua_compile_player_screen_x(
     }
 }
 
-pub(super) fn build_song_lua_runtime_windows(
+fn build_song_lua_compile_context(
     song: &SongData,
     charts: &[Arc<ChartData>; MAX_PLAYERS],
-    timing_players: &[Arc<TimingData>; MAX_PLAYERS],
     num_players: usize,
     player_profiles: &[profile::Profile; MAX_PLAYERS],
     scroll_speed: &[ScrollSpeedSetting; MAX_PLAYERS],
     music_rate: f32,
     machine_global_offset_seconds: f32,
-    player_global_offset_shift_seconds: &[f32; MAX_PLAYERS],
-) -> (
-    [Vec<AttackMaskWindow>; MAX_PLAYERS],
-    [Vec<SongLuaEaseMaskWindow>; MAX_PLAYERS],
-    Vec<SongLuaOverlayActor>,
-    Vec<SongLuaOverlayEaseWindowRuntime>,
-    Vec<std::ops::Range<usize>>,
-    Vec<Vec<SongLuaOverlayMessageRuntime>>,
-    [SongLuaCapturedActor; MAX_PLAYERS],
-    [Vec<SongLuaOverlayMessageRuntime>; MAX_PLAYERS],
-    SongLuaCapturedActor,
-    Vec<SongLuaOverlayMessageRuntime>,
-    [bool; MAX_PLAYERS],
-    f32,
-    f32,
-) {
-    let mut constant_windows: [Vec<AttackMaskWindow>; MAX_PLAYERS] =
-        std::array::from_fn(|_| Vec::new());
-    let mut ease_windows: [Vec<SongLuaEaseMaskWindow>; MAX_PLAYERS] =
-        std::array::from_fn(|_| Vec::new());
-    let mut overlays = Vec::new();
-    let mut overlay_eases = Vec::new();
-    let mut overlay_ease_ranges = Vec::new();
-    let mut overlay_events = Vec::new();
-    let mut player_actors: [SongLuaCapturedActor; MAX_PLAYERS] =
-        std::array::from_fn(|_| SongLuaCapturedActor::default());
-    let mut player_events: [Vec<SongLuaOverlayMessageRuntime>; MAX_PLAYERS] =
-        std::array::from_fn(|_| Vec::new());
-    let mut song_foreground = SongLuaCapturedActor::default();
-    let mut song_foreground_events = Vec::new();
-    let mut hidden_players = [false; MAX_PLAYERS];
+) -> SongLuaCompileContext {
+    let play_style = profile::get_session_play_style();
+    let player_side = profile::get_session_player_side();
     let screen_width = screen_width();
     let screen_height = screen_height();
-
-    let Some(entry) = song
-        .foreground_lua_changes
-        .iter()
-        .find(|change| change.start_beat <= 0.0 && change.path.is_file())
-    else {
-        return (
-            constant_windows,
-            ease_windows,
-            overlays,
-            overlay_eases,
-            overlay_ease_ranges,
-            overlay_events,
-            player_actors,
-            player_events,
-            song_foreground,
-            song_foreground_events,
-            hidden_players,
-            screen_width,
-            screen_height,
-        );
-    };
-
-    if song.foreground_lua_changes.len() > 1 {
-        debug!(
-            "Song '{}' has {} foreground lua changes; gameplay currently compiles only the first non-positive entry.",
-            song.title,
-            song.foreground_lua_changes.len(),
-        );
-    }
-
+    let center_1player_notefield = crate::config::get().center_1player_notefield;
     let mut context = SongLuaCompileContext::new(
         song.simfile_path
             .parent()
@@ -2006,7 +2750,8 @@ pub(super) fn build_song_lua_runtime_windows(
     } else {
         1.0
     };
-    context.style_name = match profile::get_session_play_style() {
+    context.music_length_seconds = song.music_length_seconds.max(song.precise_last_second());
+    context.style_name = match play_style {
         profile::PlayStyle::Single => "single",
         profile::PlayStyle::Versus => "versus",
         profile::PlayStyle::Double => "double",
@@ -2018,9 +2763,6 @@ pub(super) fn build_song_lua_runtime_windows(
     context.confusion_offset_available = true;
     context.confusion_available = true;
     context.amod_available = false;
-    let play_style = profile::get_session_play_style();
-    let player_side = profile::get_session_player_side();
-    let center_1player_notefield = crate::config::get().center_1player_notefield;
     context.players = std::array::from_fn(|player| SongLuaPlayerContext {
         enabled: player < num_players,
         difficulty: if player < num_players {
@@ -2057,121 +2799,427 @@ pub(super) fn build_song_lua_runtime_windows(
         },
         screen_y: screen_center_y(),
     });
+    context
+}
 
-    let compiled = match compile_song_lua(&entry.path, &context) {
-        Ok(compiled) => compiled,
-        Err(err) => {
-            warn!(
-                "Failed to compile gameplay lua for '{}' from '{}': {}",
-                song.title,
-                entry.path.display(),
-                err,
-            );
-            return (
-                constant_windows,
-                ease_windows,
-                overlays,
-                overlay_eases,
-                overlay_ease_ranges,
-                overlay_events,
-                player_actors,
-                player_events,
-                song_foreground,
-                song_foreground_events,
-                hidden_players,
-                screen_width,
-                screen_height,
-            );
-        }
+#[inline(always)]
+fn offset_song_lua_overlay_eases(eases: &mut [SongLuaOverlayEaseWindowRuntime], delta: f32) {
+    if !delta.is_finite() || delta.abs() <= f32::EPSILON {
+        return;
+    }
+    for ease in eases {
+        ease.start_second += delta;
+        ease.end_second += delta;
+        ease.sustain_end_second += delta;
+        ease.cutoff_second = ease.cutoff_second.map(|cutoff| cutoff + delta);
+    }
+}
+
+#[inline(always)]
+fn offset_song_lua_message_events(events: &mut [SongLuaOverlayMessageRuntime], delta: f32) {
+    if !delta.is_finite() || delta.abs() <= f32::EPSILON {
+        return;
+    }
+    for event in events {
+        event.event_second += delta;
+    }
+}
+
+fn build_song_lua_visual_layer_runtime(
+    song: &SongData,
+    start_beat: f32,
+    compiled: &CompiledSongLua,
+    timing_player: &TimingData,
+    machine_global_offset_seconds: f32,
+) -> Option<SongLuaVisualLayerRuntime> {
+    let start_second = song_lua_time_to_second(
+        SongLuaTimeUnit::Beat,
+        start_beat,
+        timing_player,
+        machine_global_offset_seconds,
+    );
+    if !start_second.is_finite() {
+        warn!(
+            "Skipping song lua visual layer for '{}' at beat {:.3}: invalid start time",
+            song.title, start_beat
+        );
+        return None;
+    }
+
+    let message_seconds = song_lua_message_seconds(
+        &compiled.messages,
+        timing_player,
+        machine_global_offset_seconds,
+    );
+    let mut overlay_events =
+        build_song_lua_overlay_message_events_with_seconds(compiled, &message_seconds);
+    let mut overlay_eases = build_song_lua_overlay_ease_windows_with_events(
+        compiled,
+        timing_player,
+        machine_global_offset_seconds,
+        &overlay_events,
+    );
+    offset_song_lua_overlay_eases(&mut overlay_eases, start_second);
+    let (overlay_eases, overlay_ease_ranges) =
+        group_song_lua_overlay_eases(compiled.overlays.len(), overlay_eases);
+
+    for events in &mut overlay_events {
+        offset_song_lua_message_events(events, start_second);
+    }
+
+    let mut song_foreground_events = build_song_lua_actor_message_events_with_seconds(
+        &compiled.messages,
+        &message_seconds,
+        &compiled.song_foreground.message_commands,
+    );
+    offset_song_lua_message_events(&mut song_foreground_events, start_second);
+
+    Some(SongLuaVisualLayerRuntime {
+        start_second,
+        screen_width: compiled.screen_width,
+        screen_height: compiled.screen_height,
+        overlays: compiled.overlays.clone(),
+        overlay_eases,
+        overlay_ease_ranges,
+        overlay_events,
+        song_foreground: compiled.song_foreground.clone(),
+        song_foreground_events,
+    })
+}
+
+pub(super) fn build_song_lua_runtime_windows(
+    song: &SongData,
+    charts: &[Arc<ChartData>; MAX_PLAYERS],
+    timing_players: &[Arc<TimingData>; MAX_PLAYERS],
+    num_players: usize,
+    player_profiles: &[profile::Profile; MAX_PLAYERS],
+    scroll_speed: &[ScrollSpeedSetting; MAX_PLAYERS],
+    music_rate: f32,
+    machine_global_offset_seconds: f32,
+    player_global_offset_shift_seconds: &[f32; MAX_PLAYERS],
+) -> (
+    [Vec<AttackMaskWindow>; MAX_PLAYERS],
+    [Vec<SongLuaEaseMaskWindow>; MAX_PLAYERS],
+    Vec<SongLuaOverlayActor>,
+    Vec<SongLuaOverlayEaseWindowRuntime>,
+    Vec<std::ops::Range<usize>>,
+    Vec<Vec<SongLuaOverlayMessageRuntime>>,
+    Vec<SongLuaVisualLayerRuntime>,
+    Vec<SongLuaVisualLayerRuntime>,
+    [SongLuaCapturedActor; MAX_PLAYERS],
+    [Vec<SongLuaOverlayMessageRuntime>; MAX_PLAYERS],
+    SongLuaCapturedActor,
+    Vec<SongLuaOverlayMessageRuntime>,
+    [bool; MAX_PLAYERS],
+    [Vec<SongLuaNoteHideWindow>; MAX_PLAYERS],
+    [Vec<SongLuaColumnOffsetWindowRuntime>; MAX_PLAYERS],
+    Vec<PathBuf>,
+    f32,
+    f32,
+) {
+    let mut constant_windows: [Vec<AttackMaskWindow>; MAX_PLAYERS] =
+        std::array::from_fn(|_| Vec::new());
+    let mut ease_windows: [Vec<SongLuaEaseMaskWindow>; MAX_PLAYERS] =
+        std::array::from_fn(|_| Vec::new());
+    let mut overlays = Vec::new();
+    let mut overlay_eases = Vec::new();
+    let mut overlay_ease_ranges = Vec::new();
+    let mut overlay_events = Vec::new();
+    let mut background_visual_layers = Vec::new();
+    let mut foreground_visual_layers = Vec::new();
+    let play_style = profile::get_session_play_style();
+    let player_side = profile::get_session_player_side();
+    let center_1player_notefield = crate::config::get().center_1player_notefield;
+    // Default player actor x/y must match StepMania's (SCREEN_CENTER_X, SCREEN_CENTER_Y)
+    // origin so that, when no song.lua override is present, the gameplay player
+    // transform path produces a zero translation. Without this, every non-lua song
+    // would translate the playfield by (-playfield_center_x, +screen_center_y),
+    // shoving it up and to the left.
+    let default_player_actor = |player_index: usize| SongLuaCapturedActor {
+        initial_state: SongLuaOverlayState {
+            x: if player_index < num_players {
+                song_lua_compile_player_screen_x(
+                    num_players,
+                    player_index,
+                    &player_profiles[player_index],
+                    play_style,
+                    player_side,
+                    center_1player_notefield,
+                )
+            } else {
+                screen_center_x()
+            },
+            y: screen_center_y(),
+            ..SongLuaOverlayState::default()
+        },
+        message_commands: Vec::new(),
     };
-    overlays = compiled.overlays.clone();
-    let overlay_runtime_eases = build_song_lua_overlay_ease_windows(
-        &compiled,
-        timing_players[0].as_ref(),
+    let mut player_actors: [SongLuaCapturedActor; MAX_PLAYERS] =
+        std::array::from_fn(default_player_actor);
+    let mut player_events: [Vec<SongLuaOverlayMessageRuntime>; MAX_PLAYERS] =
+        std::array::from_fn(|_| Vec::new());
+    let mut song_foreground = SongLuaCapturedActor::default();
+    let mut song_foreground_events = Vec::new();
+    let mut hidden_players = [false; MAX_PLAYERS];
+    let mut note_hides: [Vec<SongLuaNoteHideWindow>; MAX_PLAYERS] =
+        std::array::from_fn(|_| Vec::new());
+    let mut column_offsets: [Vec<SongLuaColumnOffsetWindowRuntime>; MAX_PLAYERS] =
+        std::array::from_fn(|_| Vec::new());
+    let mut sound_paths = Vec::new();
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+
+    let primary_entry = song
+        .foreground_lua_changes
+        .iter()
+        .find(|change| change.start_beat <= 0.0 && change.path.is_file());
+
+    if primary_entry.is_none()
+        && song.background_lua_changes.is_empty()
+        && song.foreground_lua_changes.is_empty()
+    {
+        return (
+            constant_windows,
+            ease_windows,
+            overlays,
+            overlay_eases,
+            overlay_ease_ranges,
+            overlay_events,
+            background_visual_layers,
+            foreground_visual_layers,
+            player_actors,
+            player_events,
+            song_foreground,
+            song_foreground_events,
+            hidden_players,
+            note_hides,
+            column_offsets,
+            sound_paths,
+            screen_width,
+            screen_height,
+        );
+    }
+
+    let context = build_song_lua_compile_context(
+        song,
+        charts,
+        num_players,
+        player_profiles,
+        scroll_speed,
+        music_rate,
         machine_global_offset_seconds,
     );
-    (overlay_eases, overlay_ease_ranges) =
-        group_song_lua_overlay_eases(compiled.overlays.len(), overlay_runtime_eases);
-    overlay_events = build_song_lua_overlay_message_events(
-        &compiled,
-        timing_players[0].as_ref(),
-        machine_global_offset_seconds,
-    );
-    player_actors[..compiled.player_actors.len()].clone_from_slice(&compiled.player_actors);
-    for (player, actor) in compiled.player_actors.iter().enumerate() {
-        player_events[player] = build_song_lua_actor_message_events(
+
+    let mut out_screen_width = screen_width;
+    let mut out_screen_height = screen_height;
+
+    if let Some(entry) = primary_entry {
+        let compile_started = Instant::now();
+        let compiled = match compile_song_lua(&entry.path, &context) {
+            Ok(compiled) => compiled,
+            Err(err) => {
+                warn!(
+                    "Failed to compile gameplay lua for '{}' from '{}': {}",
+                    song.title,
+                    entry.path.display(),
+                    err,
+                );
+                return (
+                    constant_windows,
+                    ease_windows,
+                    overlays,
+                    overlay_eases,
+                    overlay_ease_ranges,
+                    overlay_events,
+                    background_visual_layers,
+                    foreground_visual_layers,
+                    player_actors,
+                    player_events,
+                    song_foreground,
+                    song_foreground_events,
+                    hidden_players,
+                    note_hides,
+                    column_offsets,
+                    sound_paths,
+                    screen_width,
+                    screen_height,
+                );
+            }
+        };
+        let compile_ms = compile_started.elapsed().as_secs_f64() * 1000.0;
+        let runtime_started = Instant::now();
+        extend_song_lua_sound_paths(&mut sound_paths, &compiled.sound_paths);
+        overlays = compiled.overlays.clone();
+        let message_seconds = song_lua_message_seconds(
             &compiled.messages,
-            &actor.message_commands,
             timing_players[0].as_ref(),
             machine_global_offset_seconds,
         );
-    }
-    song_foreground = compiled.song_foreground.clone();
-    song_foreground_events = build_song_lua_actor_message_events(
-        &compiled.messages,
-        &compiled.song_foreground.message_commands,
-        timing_players[0].as_ref(),
-        machine_global_offset_seconds,
-    );
-    hidden_players[..compiled.hidden_players.len()].copy_from_slice(&compiled.hidden_players);
-
-    let mut unsupported_targets = 0usize;
-    let mut total_constant = 0usize;
-    let mut total_eases = 0usize;
-    for player in 0..num_players {
-        let player_global_offset_seconds =
-            machine_global_offset_seconds + player_global_offset_shift_seconds[player];
-        constant_windows[player] = build_song_lua_constant_windows_for_player(
+        overlay_events =
+            build_song_lua_overlay_message_events_with_seconds(&compiled, &message_seconds);
+        let overlay_runtime_eases = build_song_lua_overlay_ease_windows_with_events(
             &compiled,
-            timing_players[player].as_ref(),
-            player,
-            player_global_offset_seconds,
+            timing_players[0].as_ref(),
+            machine_global_offset_seconds,
+            &overlay_events,
         );
-        let (player_eases, player_unsupported_targets) = build_song_lua_ease_windows_for_player(
-            &compiled,
-            timing_players[player].as_ref(),
-            player,
-            player_global_offset_seconds,
-        );
-        unsupported_targets += player_unsupported_targets;
-        total_constant += constant_windows[player].len();
-        total_eases += player_eases.len();
-        ease_windows[player] = player_eases;
-    }
-
-    if total_constant > 0
-        || total_eases > 0
-        || !overlays.is_empty()
-        || !overlay_eases.is_empty()
-        || !compiled.messages.is_empty()
-        || compiled.info.unsupported_perframes > 0
-        || compiled.info.unsupported_function_eases > 0
-        || compiled.info.unsupported_function_actions > 0
-        || unsupported_targets > 0
-    {
-        info!(
-            "Compiled gameplay lua for '{}' (constants={}, eases={}, overlay_eases={}, overlays={}, messages={}, unsupported_targets={}, function_eases={}, function_actions={}, perframes={}).",
-            song.title,
-            total_constant,
-            total_eases,
-            overlay_eases.len(),
-            overlays.len(),
-            compiled.messages.len(),
-            unsupported_targets,
-            compiled.info.unsupported_function_eases,
-            compiled.info.unsupported_function_actions,
-            compiled.info.unsupported_perframes,
-        );
-        log_song_lua_runtime_debug(
-            song.title.as_str(),
-            &compiled,
-            &overlay_eases,
+        (overlay_eases, overlay_ease_ranges) =
+            group_song_lua_overlay_eases(compiled.overlays.len(), overlay_runtime_eases);
+        player_actors[..compiled.player_actors.len()].clone_from_slice(&compiled.player_actors);
+        for (player, actor) in compiled.player_actors.iter().enumerate() {
+            player_events[player] = build_song_lua_actor_message_events_with_seconds(
+                &compiled.messages,
+                &message_seconds,
+                &actor.message_commands,
+            );
+        }
+        song_foreground = compiled.song_foreground.clone();
+        song_foreground_events = build_song_lua_actor_message_events_with_seconds(
             &compiled.messages,
-            &hidden_players,
-            total_constant,
-            total_eases,
-            unsupported_targets,
+            &message_seconds,
+            &compiled.song_foreground.message_commands,
         );
+        hidden_players[..compiled.hidden_players.len()].copy_from_slice(&compiled.hidden_players);
+        for hide in &compiled.note_hides {
+            if hide.player < MAX_PLAYERS {
+                note_hides[hide.player].push(*hide);
+            }
+        }
+
+        let mut unsupported_targets = 0usize;
+        let mut total_constant = 0usize;
+        let mut total_eases = 0usize;
+        let mut total_column_offsets = 0usize;
+        for player in 0..num_players {
+            let player_global_offset_seconds =
+                machine_global_offset_seconds + player_global_offset_shift_seconds[player];
+            constant_windows[player] = build_song_lua_constant_windows_for_player(
+                &compiled,
+                timing_players[player].as_ref(),
+                player,
+                player_global_offset_seconds,
+            );
+            let (player_eases, player_unsupported_targets) = build_song_lua_ease_windows_for_player(
+                &compiled,
+                timing_players[player].as_ref(),
+                player,
+                player_global_offset_seconds,
+                &constant_windows[player],
+            );
+            unsupported_targets += player_unsupported_targets;
+            total_constant += constant_windows[player].len();
+            total_eases += player_eases.len();
+            ease_windows[player] = player_eases;
+            column_offsets[player] = build_song_lua_column_offset_windows_for_player(
+                &compiled,
+                timing_players[player].as_ref(),
+                player,
+                player_global_offset_seconds,
+            );
+            total_column_offsets += column_offsets[player].len();
+        }
+
+        let runtime_ms = runtime_started.elapsed().as_secs_f64() * 1000.0;
+        if total_constant > 0
+            || total_eases > 0
+            || total_column_offsets > 0
+            || !overlays.is_empty()
+            || !overlay_eases.is_empty()
+            || !compiled.messages.is_empty()
+            || !compiled.sound_paths.is_empty()
+            || compiled.info.unsupported_perframes > 0
+            || compiled.info.unsupported_function_eases > 0
+            || compiled.info.unsupported_function_actions > 0
+            || !compiled.info.skipped_message_command_captures.is_empty()
+            || unsupported_targets > 0
+        {
+            info!(
+                "Compiled gameplay lua for '{}' (constants={}, eases={}, column_offsets={}, overlay_eases={}, overlays={}, messages={}, sound_assets={}, unsupported_targets={}, function_eases={}, function_actions={}, perframes={}, skipped_message_commands={}, compile_ms={compile_ms:.3}, runtime_ms={runtime_ms:.3}).",
+                song.title,
+                total_constant,
+                total_eases,
+                total_column_offsets,
+                overlay_eases.len(),
+                overlays.len(),
+                compiled.messages.len(),
+                compiled.sound_paths.len(),
+                unsupported_targets,
+                compiled.info.unsupported_function_eases,
+                compiled.info.unsupported_function_actions,
+                compiled.info.unsupported_perframes,
+                compiled.info.skipped_message_command_captures.len(),
+            );
+            log_song_lua_runtime_debug(
+                song.title.as_str(),
+                &compiled,
+                &overlay_eases,
+                &compiled.messages,
+                &hidden_players,
+                total_constant,
+                total_eases,
+                total_column_offsets,
+                unsupported_targets,
+            );
+        }
+
+        out_screen_width = compiled.screen_width;
+        out_screen_height = compiled.screen_height;
+    }
+
+    for change in &song.background_lua_changes {
+        let compiled = match compile_song_lua(&change.path, &context) {
+            Ok(compiled) => compiled,
+            Err(err) => {
+                warn!(
+                    "Failed to compile background lua layer for '{}' from '{}': {}",
+                    song.title,
+                    change.path.display(),
+                    err,
+                );
+                continue;
+            }
+        };
+        extend_song_lua_sound_paths(&mut sound_paths, &compiled.sound_paths);
+        if let Some(layer) = build_song_lua_visual_layer_runtime(
+            song,
+            change.start_beat,
+            &compiled,
+            timing_players[0].as_ref(),
+            machine_global_offset_seconds,
+        ) {
+            background_visual_layers.push(layer);
+        }
+    }
+
+    for change in song.foreground_lua_changes.iter().filter(|change| {
+        change.path.is_file()
+            && !primary_entry.is_some_and(|primary| {
+                change.start_beat.to_bits() == primary.start_beat.to_bits()
+                    && change.path == primary.path
+            })
+    }) {
+        let compiled = match compile_song_lua(&change.path, &context) {
+            Ok(compiled) => compiled,
+            Err(err) => {
+                warn!(
+                    "Failed to compile foreground lua layer for '{}' from '{}': {}",
+                    song.title,
+                    change.path.display(),
+                    err,
+                );
+                continue;
+            }
+        };
+        extend_song_lua_sound_paths(&mut sound_paths, &compiled.sound_paths);
+        if let Some(layer) = build_song_lua_visual_layer_runtime(
+            song,
+            change.start_beat,
+            &compiled,
+            timing_players[0].as_ref(),
+            machine_global_offset_seconds,
+        ) {
+            foreground_visual_layers.push(layer);
+        }
     }
 
     (
@@ -2181,13 +3229,18 @@ pub(super) fn build_song_lua_runtime_windows(
         overlay_eases,
         overlay_ease_ranges,
         overlay_events,
+        background_visual_layers,
+        foreground_visual_layers,
         player_actors,
         player_events,
         song_foreground,
         song_foreground_events,
         hidden_players,
-        compiled.screen_width,
-        compiled.screen_height,
+        note_hides,
+        column_offsets,
+        sound_paths,
+        out_screen_width,
+        out_screen_height,
     )
 }
 
@@ -2199,10 +3252,11 @@ fn log_song_lua_runtime_debug(
     hidden_players: &[bool; MAX_PLAYERS],
     total_constant: usize,
     total_eases: usize,
+    total_column_offsets: usize,
     unsupported_targets: usize,
 ) {
     debug!(
-        "Song lua runtime detail for '{}': entry='{}' screen_space={:.1}x{:.1} hidden_players={:?} constants={} eases={} overlay_eases={} overlays={} messages={} unsupported_targets={} unsupported_function_eases={} unsupported_function_actions={} unsupported_perframes={}",
+        "Song lua runtime detail for '{}': entry='{}' screen_space={:.1}x{:.1} hidden_players={:?} constants={} eases={} column_offsets={} overlay_eases={} overlays={} messages={} sound_assets={} unsupported_targets={} unsupported_function_eases={} unsupported_function_actions={} unsupported_perframes={} skipped_message_commands={}",
         song_title,
         compiled.entry_path.display(),
         compiled.screen_width,
@@ -2210,13 +3264,16 @@ fn log_song_lua_runtime_debug(
         hidden_players,
         total_constant,
         total_eases,
+        total_column_offsets,
         overlay_eases.len(),
         compiled.overlays.len(),
         messages.len(),
+        compiled.sound_paths.len(),
         unsupported_targets,
         compiled.info.unsupported_function_eases,
         compiled.info.unsupported_function_actions,
         compiled.info.unsupported_perframes,
+        compiled.info.skipped_message_command_captures.len(),
     );
 
     let mut message_counts = BTreeMap::<&str, usize>::new();
@@ -2232,6 +3289,53 @@ fn log_song_lua_runtime_debug(
                 .map(|(message, count)| format!("{message}x{count}"))
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+    }
+    if !compiled.sound_paths.is_empty() {
+        debug!(
+            "Song lua sound assets for '{}': {}",
+            song_title,
+            compiled
+                .sound_paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+    }
+    if !compiled.info.skipped_message_command_captures.is_empty() {
+        debug!(
+            "Song lua skipped message command captures for '{}': {}",
+            song_title,
+            compiled.info.skipped_message_command_captures.join(" | ")
+        );
+    }
+    if !compiled
+        .info
+        .unsupported_function_action_captures
+        .is_empty()
+    {
+        debug!(
+            "Song lua unsupported function action captures for '{}': {}",
+            song_title,
+            compiled
+                .info
+                .unsupported_function_action_captures
+                .join(" | ")
+        );
+    }
+    if !compiled.info.unsupported_function_ease_captures.is_empty() {
+        debug!(
+            "Song lua unsupported function ease captures for '{}': {}",
+            song_title,
+            compiled.info.unsupported_function_ease_captures.join(" | ")
+        );
+    }
+    if !compiled.info.unsupported_perframe_captures.is_empty() {
+        debug!(
+            "Song lua unsupported perframe captures for '{}': {}",
+            song_title,
+            compiled.info.unsupported_perframe_captures.join(" | ")
         );
     }
 
@@ -2358,6 +3462,7 @@ pub(crate) fn song_lua_ease_factor(
     let elastic_period = opt1.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(0.3);
     let elastic_tau = std::f32::consts::TAU / elastic_period;
     match easing.unwrap_or("linear") {
+        "instant" => 1.0,
         "linear" => t,
         "inQuad" => song_lua_pow_in(t, 2.0),
         "outQuad" => song_lua_pow_out(t, 2.0),
@@ -2557,11 +3662,17 @@ pub(super) fn song_lua_apply_eased_target(
     perspective: &mut PerspectiveOverrides,
     scroll_speed: &mut Option<ScrollSpeedSetting>,
     mini_percent: &mut Option<f32>,
+    player_x: &mut Option<f32>,
+    player_y: &mut Option<f32>,
+    player_z: &mut Option<f32>,
+    player_rotation_x: &mut Option<f32>,
     player_rotation_z: &mut Option<f32>,
     player_rotation_y: &mut Option<f32>,
     player_skew_x: &mut Option<f32>,
+    player_skew_y: &mut Option<f32>,
     player_zoom_x: &mut Option<f32>,
     player_zoom_y: &mut Option<f32>,
+    player_zoom_z: &mut Option<f32>,
     player_confusion_y_offset: &mut Option<f32>,
 ) {
     if !value.is_finite() {
@@ -2577,11 +3688,43 @@ pub(super) fn song_lua_apply_eased_target(
         SongLuaEaseMaskTarget::VisualDizzy => visual.dizzy = Some(value),
         SongLuaEaseMaskTarget::VisualConfusion => visual.confusion = Some(value),
         SongLuaEaseMaskTarget::VisualConfusionOffset => visual.confusion_offset = Some(value),
+        SongLuaEaseMaskTarget::VisualConfusionOffsetColumn(col) => {
+            if col < MAX_COLS {
+                visual.confusion_offset_cols[col] = Some(value);
+            }
+        }
         SongLuaEaseMaskTarget::VisualFlip => visual.flip = Some(value),
         SongLuaEaseMaskTarget::VisualInvert => visual.invert = Some(value),
         SongLuaEaseMaskTarget::VisualTornado => visual.tornado = Some(value),
         SongLuaEaseMaskTarget::VisualTipsy => visual.tipsy = Some(value),
+        SongLuaEaseMaskTarget::VisualTiny => visual.tiny = Some(value),
         SongLuaEaseMaskTarget::VisualBumpy => visual.bumpy = Some(value),
+        SongLuaEaseMaskTarget::VisualBumpyOffset => visual.bumpy_offset = Some(value),
+        SongLuaEaseMaskTarget::VisualBumpyPeriod => visual.bumpy_period = Some(value),
+        SongLuaEaseMaskTarget::VisualBumpyColumn(col) => {
+            if col < MAX_COLS {
+                visual.bumpy_cols[col] = Some(value);
+            }
+        }
+        SongLuaEaseMaskTarget::VisualTinyColumn(col) => {
+            if col < MAX_COLS {
+                visual.tiny_cols[col] = Some(value);
+            }
+        }
+        SongLuaEaseMaskTarget::VisualMoveXColumn(col) => {
+            if col < MAX_COLS {
+                visual.move_x_cols[col] = Some(value);
+            }
+        }
+        SongLuaEaseMaskTarget::VisualMoveYColumn(col) => {
+            if col < MAX_COLS {
+                visual.move_y_cols[col] = Some(value);
+            }
+        }
+        SongLuaEaseMaskTarget::VisualPulseInner => visual.pulse_inner = Some(value),
+        SongLuaEaseMaskTarget::VisualPulseOuter => visual.pulse_outer = Some(value),
+        SongLuaEaseMaskTarget::VisualPulsePeriod => visual.pulse_period = Some(value),
+        SongLuaEaseMaskTarget::VisualPulseOffset => visual.pulse_offset = Some(value),
         SongLuaEaseMaskTarget::VisualBeat => visual.beat = Some(value),
         SongLuaEaseMaskTarget::AppearanceHidden => appearance.hidden = value,
         SongLuaEaseMaskTarget::AppearanceSudden => appearance.sudden = value,
@@ -2614,11 +3757,22 @@ pub(super) fn song_lua_apply_eased_target(
             }
         }
         SongLuaEaseMaskTarget::MiniPercent => *mini_percent = Some(value),
+        SongLuaEaseMaskTarget::PlayerX => *player_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerY => *player_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZ => *player_z = Some(value),
+        SongLuaEaseMaskTarget::PlayerRotationX => *player_rotation_x = Some(value),
         SongLuaEaseMaskTarget::PlayerRotationZ => *player_rotation_z = Some(value),
         SongLuaEaseMaskTarget::PlayerRotationY => *player_rotation_y = Some(value),
         SongLuaEaseMaskTarget::PlayerSkewX => *player_skew_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerSkewY => *player_skew_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZoom => {
+            *player_zoom_x = Some(value);
+            *player_zoom_y = Some(value);
+            *player_zoom_z = Some(value);
+        }
         SongLuaEaseMaskTarget::PlayerZoomX => *player_zoom_x = Some(value),
         SongLuaEaseMaskTarget::PlayerZoomY => *player_zoom_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZoomZ => *player_zoom_z = Some(value),
         SongLuaEaseMaskTarget::ConfusionYOffsetY => *player_confusion_y_offset = Some(value),
     }
 }
@@ -2948,39 +4102,590 @@ fn approach_appearance_effects(
     );
 }
 
+const OUTRO_ATTACK_CLEAR_RATE: f32 = 1.0;
+const OUTRO_ATTACK_CLEAR_EPSILON: f32 = 0.0001;
+
+#[inline(always)]
+pub(super) fn begin_outro_attack_clear(state: &mut State) {
+    if state.attacks_cleared_for_outro {
+        return;
+    }
+    state.attacks_cleared_for_outro = true;
+    for player in 0..state.num_players {
+        state.outro_attack_visual[player] = state.active_attack_visual[player];
+    }
+}
+
+#[inline(always)]
+fn approach_optional_visual(value: &mut Option<f32>, target: f32, step: f32) {
+    let Some(current) = value.as_mut() else {
+        return;
+    };
+    super::approach_f32(current, target, step);
+    if (*current - target).abs() <= OUTRO_ATTACK_CLEAR_EPSILON {
+        *value = None;
+    }
+}
+
+#[inline(always)]
+fn approach_optional_visual_cols(
+    values: &mut [Option<f32>; MAX_COLS],
+    targets: [f32; MAX_COLS],
+    step: f32,
+) {
+    for (value, target) in values.iter_mut().zip(targets) {
+        approach_optional_visual(value, target, step);
+    }
+}
+
+fn approach_visual_overrides_to_base(
+    visual: &mut VisualOverrides,
+    base: VisualEffects,
+    delta_time: f32,
+) {
+    let step = delta_time * OUTRO_ATTACK_CLEAR_RATE;
+    approach_optional_visual(&mut visual.drunk, base.drunk, step);
+    approach_optional_visual(&mut visual.dizzy, base.dizzy, step);
+    approach_optional_visual(&mut visual.confusion, base.confusion, step);
+    approach_optional_visual(&mut visual.confusion_offset, base.confusion_offset, step);
+    approach_optional_visual_cols(
+        &mut visual.confusion_offset_cols,
+        base.confusion_offset_cols,
+        step,
+    );
+    approach_optional_visual(&mut visual.flip, base.flip, step);
+    approach_optional_visual(&mut visual.invert, base.invert, step);
+    approach_optional_visual(&mut visual.tornado, base.tornado, step);
+    approach_optional_visual(&mut visual.tipsy, base.tipsy, step);
+    approach_optional_visual(&mut visual.tiny, base.tiny, step);
+    approach_optional_visual(&mut visual.bumpy, base.bumpy, step);
+    approach_optional_visual(&mut visual.bumpy_offset, base.bumpy_offset, step);
+    approach_optional_visual(&mut visual.bumpy_period, base.bumpy_period, step);
+    approach_optional_visual_cols(&mut visual.bumpy_cols, base.bumpy_cols, step);
+    approach_optional_visual_cols(&mut visual.tiny_cols, base.tiny_cols, step);
+    approach_optional_visual_cols(&mut visual.move_x_cols, base.move_x_cols, step);
+    approach_optional_visual_cols(&mut visual.move_y_cols, base.move_y_cols, step);
+    approach_optional_visual(&mut visual.pulse_inner, base.pulse_inner, step);
+    approach_optional_visual(&mut visual.pulse_outer, base.pulse_outer, step);
+    approach_optional_visual(&mut visual.pulse_period, base.pulse_period, step);
+    approach_optional_visual(&mut visual.pulse_offset, base.pulse_offset, step);
+    approach_optional_visual(&mut visual.beat, base.beat, step);
+}
+
+#[inline(always)]
+fn approach_attack_value(
+    current: &mut Option<f32>,
+    target: Option<f32>,
+    base: f32,
+    speed: Option<f32>,
+    delta_time: f32,
+    unit_scale: f32,
+) {
+    let Some(target) = target.filter(|value| value.is_finite()) else {
+        *current = None;
+        return;
+    };
+    if delta_time <= f32::EPSILON {
+        *current = Some(target);
+        return;
+    }
+    let Some(speed) = speed.filter(|value| value.is_finite()) else {
+        *current = Some(target);
+        return;
+    };
+    let step = delta_time.max(0.0) * speed.max(0.0) * unit_scale;
+    if step <= f32::EPSILON {
+        return;
+    }
+    let mut value = current.filter(|value| value.is_finite()).unwrap_or(base);
+    super::approach_f32(&mut value, target, step);
+    *current = Some(value);
+}
+
+#[inline(always)]
+fn approach_attack_cols(
+    current: &mut [Option<f32>; MAX_COLS],
+    target: [Option<f32>; MAX_COLS],
+    base: [f32; MAX_COLS],
+    speed: [Option<f32>; MAX_COLS],
+    delta_time: f32,
+) {
+    for (((current, target), base), speed) in current.iter_mut().zip(target).zip(base).zip(speed) {
+        approach_attack_value(current, target, base, speed, delta_time, 1.0);
+    }
+}
+
+fn approach_visual_overrides_to_target(
+    current: &mut VisualOverrides,
+    target: VisualOverrides,
+    speed: VisualOverrides,
+    base: VisualEffects,
+    delta_time: f32,
+) {
+    approach_attack_value(
+        &mut current.drunk,
+        target.drunk,
+        base.drunk,
+        speed.drunk,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.dizzy,
+        target.dizzy,
+        base.dizzy,
+        speed.dizzy,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.confusion,
+        target.confusion,
+        base.confusion,
+        speed.confusion,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.confusion_offset,
+        target.confusion_offset,
+        base.confusion_offset,
+        speed.confusion_offset,
+        delta_time,
+        1.0,
+    );
+    approach_attack_cols(
+        &mut current.confusion_offset_cols,
+        target.confusion_offset_cols,
+        base.confusion_offset_cols,
+        speed.confusion_offset_cols,
+        delta_time,
+    );
+    approach_attack_value(
+        &mut current.flip,
+        target.flip,
+        base.flip,
+        speed.flip,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.invert,
+        target.invert,
+        base.invert,
+        speed.invert,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.tornado,
+        target.tornado,
+        base.tornado,
+        speed.tornado,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.tipsy,
+        target.tipsy,
+        base.tipsy,
+        speed.tipsy,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.tiny,
+        target.tiny,
+        base.tiny,
+        speed.tiny,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.bumpy,
+        target.bumpy,
+        base.bumpy,
+        speed.bumpy,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.bumpy_offset,
+        target.bumpy_offset,
+        base.bumpy_offset,
+        speed.bumpy_offset,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.bumpy_period,
+        target.bumpy_period,
+        base.bumpy_period,
+        speed.bumpy_period,
+        delta_time,
+        1.0,
+    );
+    approach_attack_cols(
+        &mut current.bumpy_cols,
+        target.bumpy_cols,
+        base.bumpy_cols,
+        speed.bumpy_cols,
+        delta_time,
+    );
+    approach_attack_cols(
+        &mut current.tiny_cols,
+        target.tiny_cols,
+        base.tiny_cols,
+        speed.tiny_cols,
+        delta_time,
+    );
+    approach_attack_cols(
+        &mut current.move_x_cols,
+        target.move_x_cols,
+        base.move_x_cols,
+        speed.move_x_cols,
+        delta_time,
+    );
+    approach_attack_cols(
+        &mut current.move_y_cols,
+        target.move_y_cols,
+        base.move_y_cols,
+        speed.move_y_cols,
+        delta_time,
+    );
+    approach_attack_value(
+        &mut current.pulse_inner,
+        target.pulse_inner,
+        base.pulse_inner,
+        speed.pulse_inner,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.pulse_outer,
+        target.pulse_outer,
+        base.pulse_outer,
+        speed.pulse_outer,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.pulse_period,
+        target.pulse_period,
+        base.pulse_period,
+        speed.pulse_period,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.pulse_offset,
+        target.pulse_offset,
+        base.pulse_offset,
+        speed.pulse_offset,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.beat,
+        target.beat,
+        base.beat,
+        speed.beat,
+        delta_time,
+        1.0,
+    );
+}
+
+fn approach_scroll_overrides_to_target(
+    current: &mut ScrollOverrides,
+    target: ScrollOverrides,
+    speed: ScrollOverrides,
+    base: ScrollEffects,
+    delta_time: f32,
+) {
+    approach_attack_value(
+        &mut current.reverse,
+        target.reverse,
+        base.reverse,
+        speed.reverse,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.split,
+        target.split,
+        base.split,
+        speed.split,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.alternate,
+        target.alternate,
+        base.alternate,
+        speed.alternate,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.cross,
+        target.cross,
+        base.cross,
+        speed.cross,
+        delta_time,
+        1.0,
+    );
+    approach_attack_value(
+        &mut current.centered,
+        target.centered,
+        base.centered,
+        speed.centered,
+        delta_time,
+        1.0,
+    );
+}
+
+#[inline(always)]
+fn approach_mini_percent_to_target(
+    current: &mut Option<f32>,
+    target: Option<f32>,
+    base: f32,
+    speed: Option<f32>,
+    delta_time: f32,
+) {
+    approach_attack_value(current, target, base, speed, delta_time, 100.0);
+    if let Some(value) = current.as_mut() {
+        *value = value.clamp(-100.0, 150.0);
+    }
+}
+
+#[inline(always)]
+fn base_visual_effects(profile: &profile::Profile) -> VisualEffects {
+    VisualEffects::from_mask(profile.visual_effects_active_mask.bits())
+}
+
+#[inline(always)]
+fn apply_song_lua_player_transform_target(
+    target: SongLuaEaseMaskTarget,
+    value: f32,
+    player_x: &mut Option<f32>,
+    player_y: &mut Option<f32>,
+    player_z: &mut Option<f32>,
+    player_rotation_x: &mut Option<f32>,
+    player_rotation_z: &mut Option<f32>,
+    player_rotation_y: &mut Option<f32>,
+    player_skew_x: &mut Option<f32>,
+    player_skew_y: &mut Option<f32>,
+    player_zoom_x: &mut Option<f32>,
+    player_zoom_y: &mut Option<f32>,
+    player_zoom_z: &mut Option<f32>,
+    player_confusion_y_offset: &mut Option<f32>,
+) {
+    if !value.is_finite() {
+        return;
+    }
+    match target {
+        SongLuaEaseMaskTarget::PlayerX => *player_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerY => *player_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZ => *player_z = Some(value),
+        SongLuaEaseMaskTarget::PlayerRotationX => *player_rotation_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerRotationZ => *player_rotation_z = Some(value),
+        SongLuaEaseMaskTarget::PlayerRotationY => *player_rotation_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerSkewX => *player_skew_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerSkewY => *player_skew_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZoom => {
+            *player_zoom_x = Some(value);
+            *player_zoom_y = Some(value);
+            *player_zoom_z = Some(value);
+        }
+        SongLuaEaseMaskTarget::PlayerZoomX => *player_zoom_x = Some(value),
+        SongLuaEaseMaskTarget::PlayerZoomY => *player_zoom_y = Some(value),
+        SongLuaEaseMaskTarget::PlayerZoomZ => *player_zoom_z = Some(value),
+        SongLuaEaseMaskTarget::ConfusionYOffsetY => *player_confusion_y_offset = Some(value),
+        _ => {}
+    }
+}
+
+#[inline(always)]
+fn store_song_lua_player_transforms(
+    state: &mut State,
+    player: usize,
+    player_x: Option<f32>,
+    player_y: Option<f32>,
+    player_z: Option<f32>,
+    player_rotation_x: Option<f32>,
+    player_rotation_z: Option<f32>,
+    player_rotation_y: Option<f32>,
+    player_skew_x: Option<f32>,
+    player_skew_y: Option<f32>,
+    player_zoom_x: Option<f32>,
+    player_zoom_y: Option<f32>,
+    player_zoom_z: Option<f32>,
+    player_confusion_y_offset: Option<f32>,
+) {
+    state.song_lua_player_x[player] = player_x.filter(|v| v.is_finite());
+    state.song_lua_player_y[player] = player_y.filter(|v| v.is_finite());
+    state.song_lua_player_z[player] = player_z.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_rotation_x[player] =
+        player_rotation_x.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_rotation_z[player] =
+        player_rotation_z.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_rotation_y[player] =
+        player_rotation_y.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_skew_x[player] = player_skew_x.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_skew_y[player] = player_skew_y.filter(|v| v.is_finite()).unwrap_or(0.0);
+    state.song_lua_player_zoom_x[player] = player_zoom_x.filter(|v| v.is_finite()).unwrap_or(1.0);
+    state.song_lua_player_zoom_y[player] = player_zoom_y.filter(|v| v.is_finite()).unwrap_or(1.0);
+    state.song_lua_player_zoom_z[player] = player_zoom_z.filter(|v| v.is_finite()).unwrap_or(1.0);
+    state.song_lua_player_confusion_y_offset[player] = player_confusion_y_offset
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0);
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AttackActiveTargets {
+    clear_all: bool,
+    visual: VisualOverrides,
+    scroll: ScrollOverrides,
+    mini_percent: bool,
+}
+
+#[inline(always)]
+fn mark_visual_target(targets: &mut Option<f32>, value: Option<f32>) {
+    if value.is_some() {
+        *targets = Some(0.0);
+    }
+}
+
+fn mark_visual_targets(targets: &mut VisualOverrides, visual: VisualOverrides) {
+    mark_visual_target(&mut targets.drunk, visual.drunk);
+    mark_visual_target(&mut targets.dizzy, visual.dizzy);
+    mark_visual_target(&mut targets.confusion, visual.confusion);
+    mark_visual_target(&mut targets.confusion_offset, visual.confusion_offset);
+    for (target, value) in targets
+        .confusion_offset_cols
+        .iter_mut()
+        .zip(visual.confusion_offset_cols)
+    {
+        mark_visual_target(target, value);
+    }
+    mark_visual_target(&mut targets.flip, visual.flip);
+    mark_visual_target(&mut targets.invert, visual.invert);
+    mark_visual_target(&mut targets.tornado, visual.tornado);
+    mark_visual_target(&mut targets.tipsy, visual.tipsy);
+    mark_visual_target(&mut targets.tiny, visual.tiny);
+    mark_visual_target(&mut targets.bumpy, visual.bumpy);
+    mark_visual_target(&mut targets.bumpy_offset, visual.bumpy_offset);
+    mark_visual_target(&mut targets.bumpy_period, visual.bumpy_period);
+    for (target, value) in targets.bumpy_cols.iter_mut().zip(visual.bumpy_cols) {
+        mark_visual_target(target, value);
+    }
+    for (target, value) in targets.tiny_cols.iter_mut().zip(visual.tiny_cols) {
+        mark_visual_target(target, value);
+    }
+    for (target, value) in targets.move_x_cols.iter_mut().zip(visual.move_x_cols) {
+        mark_visual_target(target, value);
+    }
+    for (target, value) in targets.move_y_cols.iter_mut().zip(visual.move_y_cols) {
+        mark_visual_target(target, value);
+    }
+    mark_visual_target(&mut targets.pulse_inner, visual.pulse_inner);
+    mark_visual_target(&mut targets.pulse_outer, visual.pulse_outer);
+    mark_visual_target(&mut targets.pulse_period, visual.pulse_period);
+    mark_visual_target(&mut targets.pulse_offset, visual.pulse_offset);
+    mark_visual_target(&mut targets.beat, visual.beat);
+}
+
+fn mark_scroll_targets(targets: &mut ScrollOverrides, scroll: ScrollOverrides) {
+    mark_visual_target(&mut targets.reverse, scroll.reverse);
+    mark_visual_target(&mut targets.split, scroll.split);
+    mark_visual_target(&mut targets.alternate, scroll.alternate);
+    mark_visual_target(&mut targets.cross, scroll.cross);
+    mark_visual_target(&mut targets.centered, scroll.centered);
+}
+
+fn collect_active_attack_targets(windows: &[AttackMaskWindow], now: f32) -> AttackActiveTargets {
+    let mut targets = AttackActiveTargets::default();
+    for window in windows {
+        if now < window.start_second || now >= window.end_second {
+            continue;
+        }
+        if window.clear_all {
+            targets.clear_all = true;
+        }
+        mark_visual_targets(&mut targets.visual, window.visual);
+        mark_scroll_targets(&mut targets.scroll, window.scroll);
+        if window.mini_percent.is_some() {
+            targets.mini_percent = true;
+        }
+    }
+    targets
+}
+
+#[inline(always)]
+fn persisted_target_allowed(
+    persisted: bool,
+    active_clear_all: bool,
+    active_target: Option<f32>,
+) -> bool {
+    !persisted || (!active_clear_all && active_target.is_none())
+}
+
+#[inline(always)]
+fn persisted_mini_allowed(persisted: bool, active_targets: AttackActiveTargets) -> bool {
+    !persisted || (!active_targets.clear_all && !active_targets.mini_percent)
+}
+
 pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
     for player in 0..state.num_players {
         let now = state.current_music_time_visible[player];
+        let active_targets = collect_active_attack_targets(&state.attack_mask_windows[player], now);
         let mut clear_all = false;
         let mut chart = ChartAttackEffects::default();
         let mut accel = AccelOverrides::default();
         let mut visual = VisualOverrides::default();
+        let mut visual_speed = VisualOverrides::default();
         let mut appearance_target = base_appearance_effects(&state.player_profiles[player]);
         let mut appearance_speed = AppearanceEffects::approach_speeds();
         let mut visibility = VisibilityOverrides::default();
         let mut scroll = ScrollOverrides::default();
+        let mut scroll_approach_speed = ScrollOverrides::default();
         let mut perspective = PerspectiveOverrides::default();
         let mut scroll_speed = None;
         let mut mini_percent = None;
+        let mut mini_speed = None;
+        let mut player_x = None;
+        let mut player_y = None;
+        let mut player_z = None;
+        let mut player_rotation_x = None;
         let mut player_rotation_z = None;
         let mut player_rotation_y = None;
         let mut player_skew_x = None;
+        let mut player_skew_y = None;
         let mut player_zoom_x = None;
         let mut player_zoom_y = None;
+        let mut player_zoom_z = None;
         let mut player_confusion_y_offset = None;
         for window in &state.attack_mask_windows[player] {
-            if now >= window.start_second && now < window.end_second {
+            let persisted = window.persist_after_end && now >= window.end_second;
+            if !state.attacks_cleared_for_outro
+                && now >= window.start_second
+                && now < window.sustain_end_second
+                && (now < window.end_second || persisted)
+            {
                 if window.clear_all {
                     clear_all = true;
                     accel = AccelOverrides::default();
                     visual = VisualOverrides::default();
+                    visual_speed = VisualOverrides::default();
                     appearance_target = AppearanceEffects::default();
                     appearance_speed = AppearanceEffects::approach_speeds();
                     visibility = VisibilityOverrides::default();
                     scroll = ScrollOverrides::default();
+                    scroll_approach_speed = ScrollOverrides::default();
                     perspective = PerspectiveOverrides::default();
                     scroll_speed = None;
                     mini_percent = None;
+                    mini_speed = None;
                 }
                 chart.insert_mask |= window.chart.insert_mask;
                 chart.remove_mask |= window.chart.remove_mask;
@@ -3001,35 +4706,236 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
                 if let Some(v) = window.accel.boomerang {
                     accel.boomerang = Some(v);
                 }
-                if let Some(v) = window.visual.drunk {
+                if let Some(v) = window.visual.drunk
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.drunk,
+                    )
+                {
                     visual.drunk = Some(v);
+                    visual_speed.drunk = window.visual_speed.drunk;
                 }
-                if let Some(v) = window.visual.dizzy {
+                if let Some(v) = window.visual.dizzy
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.dizzy,
+                    )
+                {
                     visual.dizzy = Some(v);
+                    visual_speed.dizzy = window.visual_speed.dizzy;
                 }
-                if let Some(v) = window.visual.confusion {
+                if let Some(v) = window.visual.confusion
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.confusion,
+                    )
+                {
                     visual.confusion = Some(v);
+                    visual_speed.confusion = window.visual_speed.confusion;
                 }
-                if let Some(v) = window.visual.confusion_offset {
+                if let Some(v) = window.visual.confusion_offset
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.confusion_offset,
+                    )
+                {
                     visual.confusion_offset = Some(v);
+                    visual_speed.confusion_offset = window.visual_speed.confusion_offset;
                 }
-                if let Some(v) = window.visual.flip {
+                for col in 0..MAX_COLS {
+                    if let Some(src) = window.visual.confusion_offset_cols[col]
+                        && persisted_target_allowed(
+                            persisted,
+                            active_targets.clear_all,
+                            active_targets.visual.confusion_offset_cols[col],
+                        )
+                    {
+                        visual.confusion_offset_cols[col] = Some(src);
+                        visual_speed.confusion_offset_cols[col] =
+                            window.visual_speed.confusion_offset_cols[col];
+                    }
+                }
+                if let Some(v) = window.visual.flip
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.flip,
+                    )
+                {
                     visual.flip = Some(v);
+                    visual_speed.flip = window.visual_speed.flip;
                 }
-                if let Some(v) = window.visual.invert {
+                if let Some(v) = window.visual.invert
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.invert,
+                    )
+                {
                     visual.invert = Some(v);
+                    visual_speed.invert = window.visual_speed.invert;
                 }
-                if let Some(v) = window.visual.tornado {
+                if let Some(v) = window.visual.tornado
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.tornado,
+                    )
+                {
                     visual.tornado = Some(v);
+                    visual_speed.tornado = window.visual_speed.tornado;
                 }
-                if let Some(v) = window.visual.tipsy {
+                if let Some(v) = window.visual.tipsy
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.tipsy,
+                    )
+                {
                     visual.tipsy = Some(v);
+                    visual_speed.tipsy = window.visual_speed.tipsy;
                 }
-                if let Some(v) = window.visual.bumpy {
+                if let Some(v) = window.visual.tiny
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.tiny,
+                    )
+                {
+                    visual.tiny = Some(v);
+                    visual_speed.tiny = window.visual_speed.tiny;
+                }
+                if let Some(v) = window.visual.bumpy
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.bumpy,
+                    )
+                {
                     visual.bumpy = Some(v);
+                    visual_speed.bumpy = window.visual_speed.bumpy;
                 }
-                if let Some(v) = window.visual.beat {
+                if let Some(v) = window.visual.bumpy_offset
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.bumpy_offset,
+                    )
+                {
+                    visual.bumpy_offset = Some(v);
+                    visual_speed.bumpy_offset = window.visual_speed.bumpy_offset;
+                }
+                if let Some(v) = window.visual.bumpy_period
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.bumpy_period,
+                    )
+                {
+                    visual.bumpy_period = Some(v);
+                    visual_speed.bumpy_period = window.visual_speed.bumpy_period;
+                }
+                for col in 0..MAX_COLS {
+                    if let Some(src) = window.visual.bumpy_cols[col]
+                        && persisted_target_allowed(
+                            persisted,
+                            active_targets.clear_all,
+                            active_targets.visual.bumpy_cols[col],
+                        )
+                    {
+                        visual.bumpy_cols[col] = Some(src);
+                        visual_speed.bumpy_cols[col] = window.visual_speed.bumpy_cols[col];
+                    }
+                }
+                for col in 0..MAX_COLS {
+                    if let Some(src) = window.visual.tiny_cols[col]
+                        && persisted_target_allowed(
+                            persisted,
+                            active_targets.clear_all,
+                            active_targets.visual.tiny_cols[col],
+                        )
+                    {
+                        visual.tiny_cols[col] = Some(src);
+                        visual_speed.tiny_cols[col] = window.visual_speed.tiny_cols[col];
+                    }
+                }
+                for col in 0..MAX_COLS {
+                    if let Some(src) = window.visual.move_x_cols[col]
+                        && persisted_target_allowed(
+                            persisted,
+                            active_targets.clear_all,
+                            active_targets.visual.move_x_cols[col],
+                        )
+                    {
+                        visual.move_x_cols[col] = Some(src);
+                        visual_speed.move_x_cols[col] = window.visual_speed.move_x_cols[col];
+                    }
+                }
+                for col in 0..MAX_COLS {
+                    if let Some(src) = window.visual.move_y_cols[col]
+                        && persisted_target_allowed(
+                            persisted,
+                            active_targets.clear_all,
+                            active_targets.visual.move_y_cols[col],
+                        )
+                    {
+                        visual.move_y_cols[col] = Some(src);
+                        visual_speed.move_y_cols[col] = window.visual_speed.move_y_cols[col];
+                    }
+                }
+                if let Some(v) = window.visual.pulse_inner
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.pulse_inner,
+                    )
+                {
+                    visual.pulse_inner = Some(v);
+                    visual_speed.pulse_inner = window.visual_speed.pulse_inner;
+                }
+                if let Some(v) = window.visual.pulse_outer
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.pulse_outer,
+                    )
+                {
+                    visual.pulse_outer = Some(v);
+                    visual_speed.pulse_outer = window.visual_speed.pulse_outer;
+                }
+                if let Some(v) = window.visual.pulse_period
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.pulse_period,
+                    )
+                {
+                    visual.pulse_period = Some(v);
+                    visual_speed.pulse_period = window.visual_speed.pulse_period;
+                }
+                if let Some(v) = window.visual.pulse_offset
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.pulse_offset,
+                    )
+                {
+                    visual.pulse_offset = Some(v);
+                    visual_speed.pulse_offset = window.visual_speed.pulse_offset;
+                }
+                if let Some(v) = window.visual.beat
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.visual.beat,
+                    )
+                {
                     visual.beat = Some(v);
+                    visual_speed.beat = window.visual_speed.beat;
                 }
                 apply_appearance_target(
                     &mut appearance_target,
@@ -3046,20 +4952,55 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
                 if let Some(v) = window.visibility.cover {
                     visibility.cover = Some(v);
                 }
-                if let Some(v) = window.scroll.reverse {
+                if let Some(v) = window.scroll.reverse
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.scroll.reverse,
+                    )
+                {
                     scroll.reverse = Some(v);
+                    scroll_approach_speed.reverse = window.scroll_approach_speed.reverse;
                 }
-                if let Some(v) = window.scroll.split {
+                if let Some(v) = window.scroll.split
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.scroll.split,
+                    )
+                {
                     scroll.split = Some(v);
+                    scroll_approach_speed.split = window.scroll_approach_speed.split;
                 }
-                if let Some(v) = window.scroll.alternate {
+                if let Some(v) = window.scroll.alternate
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.scroll.alternate,
+                    )
+                {
                     scroll.alternate = Some(v);
+                    scroll_approach_speed.alternate = window.scroll_approach_speed.alternate;
                 }
-                if let Some(v) = window.scroll.cross {
+                if let Some(v) = window.scroll.cross
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.scroll.cross,
+                    )
+                {
                     scroll.cross = Some(v);
+                    scroll_approach_speed.cross = window.scroll_approach_speed.cross;
                 }
-                if let Some(v) = window.scroll.centered {
+                if let Some(v) = window.scroll.centered
+                    && persisted_target_allowed(
+                        persisted,
+                        active_targets.clear_all,
+                        active_targets.scroll.centered,
+                    )
+                {
                     scroll.centered = Some(v);
+                    scroll_approach_speed.centered = window.scroll_approach_speed.centered;
                 }
                 if let Some(v) = window.perspective.tilt {
                     perspective.tilt = Some(v);
@@ -3070,8 +5011,11 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
                 if let Some(speed) = window.scroll_speed {
                     scroll_speed = Some(speed);
                 }
-                if let Some(mini) = window.mini_percent.filter(|v| v.is_finite()) {
+                if let Some(mini) = window.mini_percent.filter(|v| v.is_finite())
+                    && persisted_mini_allowed(persisted, active_targets)
+                {
                     mini_percent = Some(mini.clamp(-100.0, 150.0));
+                    mini_speed = window.mini_speed;
                 }
             }
         }
@@ -3084,6 +5028,107 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
             delta_time,
         );
         let mut appearance = state.attack_current_appearance[player];
+        if state.attacks_cleared_for_outro {
+            for window in &state.song_lua_ease_windows[player] {
+                if let Some(value) = song_lua_ease_window_value(window, now) {
+                    apply_song_lua_player_transform_target(
+                        window.target,
+                        value,
+                        &mut player_x,
+                        &mut player_y,
+                        &mut player_z,
+                        &mut player_rotation_x,
+                        &mut player_rotation_z,
+                        &mut player_rotation_y,
+                        &mut player_skew_x,
+                        &mut player_skew_y,
+                        &mut player_zoom_x,
+                        &mut player_zoom_y,
+                        &mut player_zoom_z,
+                        &mut player_confusion_y_offset,
+                    );
+                }
+            }
+            let base_visual = base_visual_effects(&state.player_profiles[player]);
+            let mut visual = state.outro_attack_visual[player];
+            approach_visual_overrides_to_base(&mut visual, base_visual, delta_time);
+            state.outro_attack_visual[player] = visual;
+            state.active_attack_clear_all[player] = false;
+            state.active_attack_chart[player] = ChartAttackEffects::default();
+            state.active_attack_accel[player] = AccelOverrides::default();
+            state.active_attack_visual[player] = visual;
+            state.active_attack_appearance[player] = appearance;
+            // ITGmania does not clear receptor visibility for the gameplay
+            // out fade. Keep the last active Dark/Blind/Cover values so
+            // Riddle's final 100% Dark state remains hidden, while the rest of
+            // this branch still lets player-transform outro eases keep moving.
+            state.active_attack_scroll[player] = ScrollOverrides::default();
+            state.active_attack_perspective[player] = PerspectiveOverrides::default();
+            state.active_attack_scroll_speed[player] = None;
+            state.active_attack_mini_percent[player] = None;
+            store_song_lua_player_transforms(
+                state,
+                player,
+                player_x,
+                player_y,
+                player_z,
+                player_rotation_x,
+                player_rotation_z,
+                player_rotation_y,
+                player_skew_x,
+                player_skew_y,
+                player_zoom_x,
+                player_zoom_y,
+                player_zoom_z,
+                player_confusion_y_offset,
+            );
+            continue;
+        }
+        let base_visual = if clear_all {
+            VisualEffects::default()
+        } else {
+            base_visual_effects(&state.player_profiles[player])
+        };
+        let mut visual_current = state.active_attack_visual[player];
+        approach_visual_overrides_to_target(
+            &mut visual_current,
+            visual,
+            visual_speed,
+            base_visual,
+            delta_time,
+        );
+        visual = visual_current;
+
+        let base_scroll = if clear_all {
+            ScrollEffects::default()
+        } else {
+            ScrollEffects::from_option(state.player_profiles[player].scroll_option)
+        };
+        let mut scroll_current = state.active_attack_scroll[player];
+        approach_scroll_overrides_to_target(
+            &mut scroll_current,
+            scroll,
+            scroll_approach_speed,
+            base_scroll,
+            delta_time,
+        );
+        scroll = scroll_current;
+
+        let base_mini_percent = if clear_all {
+            0.0
+        } else {
+            state.player_profiles[player].mini_percent as f32
+        };
+        let mut mini_current = state.active_attack_mini_percent[player];
+        approach_mini_percent_to_target(
+            &mut mini_current,
+            mini_percent,
+            base_mini_percent,
+            mini_speed,
+            delta_time,
+        );
+        mini_percent = mini_current;
+
         for window in &state.song_lua_ease_windows[player] {
             if let Some(value) = song_lua_ease_window_value(window, now) {
                 song_lua_apply_eased_target(
@@ -3097,15 +5142,22 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
                     &mut perspective,
                     &mut scroll_speed,
                     &mut mini_percent,
+                    &mut player_x,
+                    &mut player_y,
+                    &mut player_z,
+                    &mut player_rotation_x,
                     &mut player_rotation_z,
                     &mut player_rotation_y,
                     &mut player_skew_x,
+                    &mut player_skew_y,
                     &mut player_zoom_x,
                     &mut player_zoom_y,
+                    &mut player_zoom_z,
                     &mut player_confusion_y_offset,
                 );
             }
         }
+        state.attack_current_appearance[player] = appearance;
         if let Some(mini) = mini_percent.filter(|v| v.is_finite()) {
             mini_percent = Some(mini.clamp(-100.0, 150.0));
         }
@@ -3119,19 +5171,22 @@ pub(super) fn refresh_active_attack_masks(state: &mut State, delta_time: f32) {
         state.active_attack_perspective[player] = perspective;
         state.active_attack_scroll_speed[player] = scroll_speed;
         state.active_attack_mini_percent[player] = mini_percent;
-        state.song_lua_player_rotation_z[player] =
-            player_rotation_z.filter(|v| v.is_finite()).unwrap_or(0.0);
-        state.song_lua_player_rotation_y[player] =
-            player_rotation_y.filter(|v| v.is_finite()).unwrap_or(0.0);
-        state.song_lua_player_skew_x[player] =
-            player_skew_x.filter(|v| v.is_finite()).unwrap_or(0.0);
-        state.song_lua_player_zoom_x[player] =
-            player_zoom_x.filter(|v| v.is_finite()).unwrap_or(1.0);
-        state.song_lua_player_zoom_y[player] =
-            player_zoom_y.filter(|v| v.is_finite()).unwrap_or(1.0);
-        state.song_lua_player_confusion_y_offset[player] = player_confusion_y_offset
-            .filter(|v| v.is_finite())
-            .unwrap_or(0.0);
+        store_song_lua_player_transforms(
+            state,
+            player,
+            player_x,
+            player_y,
+            player_z,
+            player_rotation_x,
+            player_rotation_z,
+            player_rotation_y,
+            player_skew_x,
+            player_skew_y,
+            player_zoom_x,
+            player_zoom_y,
+            player_zoom_z,
+            player_confusion_y_offset,
+        );
     }
 }
 
@@ -3184,17 +5239,51 @@ pub fn effective_visual_effects_for_player(state: &State, player_idx: usize) -> 
         )
     };
     let attack = state.active_attack_visual[player_idx];
+    let mut confusion_offset_cols = base.confusion_offset_cols;
+    let mut bumpy_cols = base.bumpy_cols;
+    let mut tiny_cols = base.tiny_cols;
+    let mut move_x_cols = base.move_x_cols;
+    let mut move_y_cols = base.move_y_cols;
+    for i in 0..MAX_COLS {
+        if let Some(v) = attack.confusion_offset_cols[i].filter(|v| v.is_finite()) {
+            confusion_offset_cols[i] = v;
+        }
+        if let Some(v) = attack.bumpy_cols[i].filter(|v| v.is_finite()) {
+            bumpy_cols[i] = v;
+        }
+        if let Some(v) = attack.tiny_cols[i].filter(|v| v.is_finite()) {
+            tiny_cols[i] = v;
+        }
+        if let Some(v) = attack.move_x_cols[i].filter(|v| v.is_finite()) {
+            move_x_cols[i] = v;
+        }
+        if let Some(v) = attack.move_y_cols[i].filter(|v| v.is_finite()) {
+            move_y_cols[i] = v;
+        }
+    }
     VisualEffects {
         drunk: merge_attack_value(base.drunk, attack.drunk),
         dizzy: merge_attack_value(base.dizzy, attack.dizzy),
         confusion: merge_attack_value(base.confusion, attack.confusion),
         confusion_offset: merge_attack_value(base.confusion_offset, attack.confusion_offset),
+        confusion_offset_cols,
         big: base.big,
         flip: merge_attack_value(base.flip, attack.flip),
         invert: merge_attack_value(base.invert, attack.invert),
         tornado: merge_attack_value(base.tornado, attack.tornado),
         tipsy: merge_attack_value(base.tipsy, attack.tipsy),
+        tiny: merge_attack_value(base.tiny, attack.tiny),
         bumpy: merge_attack_value(base.bumpy, attack.bumpy),
+        bumpy_offset: merge_attack_value(base.bumpy_offset, attack.bumpy_offset),
+        bumpy_period: merge_attack_value(base.bumpy_period, attack.bumpy_period),
+        bumpy_cols,
+        tiny_cols,
+        move_x_cols,
+        move_y_cols,
+        pulse_inner: merge_attack_value(base.pulse_inner, attack.pulse_inner),
+        pulse_outer: merge_attack_value(base.pulse_outer, attack.pulse_outer),
+        pulse_period: merge_attack_value(base.pulse_period, attack.pulse_period),
+        pulse_offset: merge_attack_value(base.pulse_offset, attack.pulse_offset),
         beat: merge_attack_value(base.beat, attack.beat),
     }
 }
@@ -3296,6 +5385,23 @@ pub fn effective_mini_percent_for_player(state: &State, player_idx: usize) -> f3
                 state.player_profiles[player_idx].mini_percent as f32
             }
         })
+}
+
+/// Multiplier applied to the noteskin's per-column lateral offsets to
+/// realise the Spacing player option (zmod parity, proportional model).
+/// `1.0 + spacing_percent / 100`.
+#[inline(always)]
+pub fn effective_spacing_multiplier_for_player(state: &State, player_idx: usize) -> f32 {
+    if player_idx >= state.num_players {
+        return 1.0;
+    }
+    spacing_multiplier_for_percent(state.player_profiles[player_idx].spacing_percent)
+}
+
+#[inline(always)]
+pub fn spacing_multiplier_for_percent(spacing_percent: i32) -> f32 {
+    1.0 + (spacing_percent.clamp(profile::SPACING_PERCENT_MIN, profile::SPACING_PERCENT_MAX) as f32)
+        / 100.0
 }
 
 #[inline(always)]

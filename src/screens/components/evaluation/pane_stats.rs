@@ -1,6 +1,7 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::{LookupKey, lookup_key};
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
 use crate::engine::present::font;
@@ -14,6 +15,7 @@ use super::utils::pane_origin_x;
 
 // Simply Love metrics.ini [RollingNumbersEvaluation]: ApproachSeconds=1
 const ROLLING_NUMBERS_APPROACH_SECONDS: f32 = 1.0;
+const DISABLED_WINDOW_RGBA: [f32; 4] = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
 
 #[inline(always)]
 pub(crate) const fn rolling_numbers_approach_seconds() -> f32 {
@@ -162,6 +164,23 @@ fn max_window_count(wc: crate::game::timing::WindowCounts) -> u32 {
 }
 
 #[inline(always)]
+fn standard_row_disabled(disabled_windows: [bool; 5], row: usize) -> bool {
+    row < 5 && disabled_windows[row]
+}
+
+#[inline(always)]
+fn split_row_disabled(disabled_windows: [bool; 5], row: usize) -> bool {
+    match row {
+        0 | 1 => disabled_windows[0],
+        2 => disabled_windows[1],
+        3 => disabled_windows[2],
+        4 => disabled_windows[3],
+        5 => disabled_windows[4],
+        _ => false,
+    }
+}
+
+#[inline(always)]
 fn actor_capacity(show_fa_plus_pane: bool, show_10ms_blue: bool, digits_to_fmt: usize) -> usize {
     let judgment_rows = if show_fa_plus_pane { 7 } else { 6 };
     let judgment_labels = judgment_rows + usize::from(show_10ms_blue);
@@ -224,7 +243,7 @@ pub(crate) fn build_stats_pane(
         digits_to_fmt,
     ));
 
-    asset_manager.with_fonts(|all_fonts| asset_manager.with_font("wendy_screenevaluation", |metrics_font| {
+    asset_manager.with_fonts(|all_fonts| asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |metrics_font| {
         let numbers_frame_zoom: f32 = 0.8;
         let final_numbers_zoom = numbers_frame_zoom * 0.5;
         let digit_width = font::measure_line_width_logical(metrics_font, "0", all_fonts) as f32 * final_numbers_zoom;
@@ -247,29 +266,39 @@ pub(crate) fn build_stats_pane(
             for (i, info) in JUDGMENT_INFO.iter().enumerate() {
                 let target_count = judgment_counts[i];
                 let count = rolling_number_value(target_count, elapsed_s);
+                let disabled = standard_row_disabled(score_info.disabled_timing_windows, i);
+                let bright_color = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    info.color
+                };
+                let dim_color = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    color::JUDGMENT_DIM_EVAL_RGBA[i]
+                };
 
                 // Label
                 let label_local_y = (i as f32).mul_add(28.0, -16.0);
                 actors.push(act!(text: font("miso"): settext(judgment_label_text(i)):
                     align(1.0, 0.5): xy(labels_frame_origin_x + label_local_x, frame_origin_y + label_local_y):
                     maxwidth(76.0): zoom(label_zoom): horizalign(right):
-                    diffuse(info.color[0], info.color[1], info.color[2], info.color[3]): z(101)
+                    diffuse(bright_color[0], bright_color[1], bright_color[2], bright_color[3]): z(101)
                 ));
 
                 // Number (digit by digit for dimming)
-                let bright_color = info.color;
-                let dim_color = color::JUDGMENT_DIM_EVAL_RGBA[i];
                 let first_nonzero = fill_padded_digits(count, digits_to_fmt, &mut digits);
 
                 let number_local_y = (i as f32).mul_add(35.0, -20.0);
                 let number_final_y = frame_origin_y + (number_local_y * numbers_frame_zoom);
                 for (char_idx, digit) in digits.iter().take(digits_to_fmt).enumerate() {
-                    let is_dim = if count == 0 { char_idx < digits_to_fmt - 1 } else { char_idx < first_nonzero };
+                    let is_dim = disabled
+                        || if count == 0 { char_idx < digits_to_fmt - 1 } else { char_idx < first_nonzero };
                     let color = if is_dim { dim_color } else { bright_color };
                     let index_from_right = digits_to_fmt - 1 - char_idx;
                     let cell_right_x = (index_from_right as f32).mul_add(-digit_width, number_base_x);
 
-                    actors.push(act!(text: font("wendy_screenevaluation"): settext(digit_text(*digit)):
+                    actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(*digit)):
                         align(1.0, 0.5): xy(cell_right_x, number_final_y): zoom(final_numbers_zoom):
                         diffuse(color[0], color[1], color[2], color[3]): z(101)
                     ));
@@ -294,6 +323,17 @@ pub(crate) fn build_stats_pane(
 
             for (i, (label_idx, bright_color, dim_color, count)) in rows.iter().enumerate() {
                 let count = rolling_number_value(*count, elapsed_s);
+                let disabled = split_row_disabled(score_info.disabled_timing_windows, i);
+                let bright_color = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    *bright_color
+                };
+                let dim_color = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    *dim_color
+                };
                 // Label: match Simply Love Pane2 labels using 26px spacing.
                 // Original Lua uses 1-based indexing: y = i*26 - 46.
                 // Our rows are 0-based, so use (i+1) here.
@@ -319,12 +359,13 @@ pub(crate) fn build_stats_pane(
                 let number_local_y = (i as f32).mul_add(32.0, -24.0);
                 let number_final_y = frame_origin_y + (number_local_y * numbers_frame_zoom);
                 for (char_idx, digit) in digits.iter().take(digits_to_fmt).enumerate() {
-                    let is_dim = if count == 0 { char_idx < digits_to_fmt - 1 } else { char_idx < first_nonzero };
-                    let color = if is_dim { *dim_color } else { *bright_color };
+                    let is_dim = disabled
+                        || if count == 0 { char_idx < digits_to_fmt - 1 } else { char_idx < first_nonzero };
+                    let color = if is_dim { dim_color } else { bright_color };
                     let index_from_right = digits_to_fmt - 1 - char_idx;
                     let cell_right_x = (index_from_right as f32).mul_add(-digit_width, number_base_x);
 
-                    actors.push(act!(text: font("wendy_screenevaluation"): settext(digit_text(*digit)):
+                    actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(*digit)):
                         align(1.0, 0.5): xy(cell_right_x, number_final_y): zoom(final_numbers_zoom):
                         diffuse(color[0], color[1], color[2], color[3]): z(101)
                     ));
@@ -384,7 +425,7 @@ pub(crate) fn build_stats_pane(
                 let x_pos = (char_idx_from_right as f32).mul_add(-digit_width, achieved_anchor_x);
                 let digit_idx = 2 - char_idx_from_right;
 
-                actors.push(act!(text: font("wendy_screenevaluation"): settext(digit_text(digits[digit_idx])):
+                actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(digits[digit_idx])):
                     align(1.0, 0.5): xy(x_pos, number_final_y): zoom(final_numbers_zoom):
                     diffuse(color[0], color[1], color[2], color[3]): z(101)
                 ));
@@ -413,7 +454,7 @@ pub(crate) fn build_stats_pane(
                 let color = if is_dim { GRAY_POSSIBLE } else { white_color };
                 let digit_idx = 2 - char_idx_from_right;
 
-                actors.push(act!(text: font("wendy_screenevaluation"): settext(digit_text(digits[digit_idx])):
+                actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(digits[digit_idx])):
                     align(1.0, 0.5): xy(cursor_x, number_final_y): zoom(final_numbers_zoom):
                     diffuse(color[0], color[1], color[2], color[3]): z(101)
                 ));
@@ -422,7 +463,7 @@ pub(crate) fn build_stats_pane(
 
             // 2. Draw slash
             // Moved 1px to the right for visual parity
-            actors.push(act!(text: font("wendy_screenevaluation"): settext(SLASH_TEXT.clone()):
+            actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(SLASH_TEXT.clone()):
                 align(1.0, 0.5): xy(cursor_x + 0.5, number_final_y): zoom(final_numbers_zoom):
                 diffuse(GRAY_POSSIBLE[0], GRAY_POSSIBLE[1], GRAY_POSSIBLE[2], GRAY_POSSIBLE[3]): z(101)
             ));

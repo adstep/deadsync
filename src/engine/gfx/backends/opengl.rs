@@ -1,10 +1,8 @@
 use crate::engine::gfx::{
-    BlendMode, DrawStats, FastU64Map, MeshMode, RenderList, SamplerDesc, SamplerFilter,
-    SamplerWrap, TMeshCacheKey, Texture as RendererTexture, TextureHandleMap,
-    draw_prep::{
-        self, DrawOp, DrawScratch, SpriteInstanceRaw, TexturedMeshInstanceRaw, TexturedMeshSource,
-        TexturedMeshVertexRaw,
-    },
+    BlendMode, DrawStats, FastU64Map, RenderList, SamplerDesc, SamplerFilter, SamplerWrap,
+    SpriteInstanceRaw, TMeshCacheKey, Texture as RendererTexture, TextureHandleMap,
+    TexturedMeshInstanceRaw, TexturedMeshVertex,
+    draw_prep::{self, DrawOp, DrawScratch, TexturedMeshSource},
 };
 use crate::engine::space::ortho_for_window;
 use glam::Mat4 as Matrix4;
@@ -24,6 +22,55 @@ use winit::window::Window;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 use glutin::context::{ContextApi, GlProfile, Version};
+
+#[cfg(target_os = "macos")]
+fn logical_px_for_physical(px: u32, scale: f64) -> u32 {
+    if px == 0 {
+        return 0;
+    }
+    ((f64::from(px) / scale.max(0.001)).round().max(1.0)) as u32
+}
+
+#[cfg(target_os = "macos")]
+fn opengl_render_size(window: &Window, high_dpi_enabled: bool) -> (u32, u32) {
+    let size = window.inner_size();
+    if high_dpi_enabled {
+        return (size.width, size.height);
+    }
+    let scale = window.scale_factor();
+    (
+        logical_px_for_physical(size.width, scale),
+        logical_px_for_physical(size.height, scale),
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn opengl_render_size(window: &Window, _high_dpi_enabled: bool) -> (u32, u32) {
+    let size = window.inner_size();
+    (size.width, size.height)
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_opengl_high_dpi_surface(window: &Window, enabled: bool) {
+    use objc2::rc::Retained;
+    use objc2_app_kit::NSView;
+
+    let Ok(handle) = window.window_handle() else {
+        warn!("Unable to get macOS window handle for OpenGL high-DPI setup.");
+        return;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return;
+    };
+    // SAFETY: the raw AppKit view handle comes from the live winit window and is
+    // retained only for this call so the Objective-C object stays valid.
+    let Some(view) = (unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) }) else {
+        warn!("Unable to get macOS NSView for OpenGL high-DPI setup.");
+        return;
+    };
+    #[allow(deprecated)]
+    view.setWantsBestResolutionOpenGLSurface(enabled);
+}
 
 const OPENGL_PRESENT_SPIKE_US: u32 = 3_000;
 const OPENGL_GPU_WAIT_SPIKE_US: u32 = 1_000;
@@ -66,14 +113,6 @@ impl GlApi {
             },
         }
     }
-
-    const fn screenshot_read_buffer(self) -> u32 {
-        match self {
-            Self::Desktop => glow::FRONT,
-            #[cfg(all(unix, not(target_os = "macos")))]
-            Self::Gles => glow::BACK,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -99,7 +138,6 @@ pub struct State {
     pub gl: glow::Context,
     gl_surface: Surface<WindowSurface>,
     gl_context: PossiblyCurrentContext,
-    api: GlApi,
     program: glow::Program,
     mesh_program: glow::Program,
     tmesh_program: glow::Program,
@@ -125,12 +163,15 @@ pub struct State {
     cached_tmesh: FastU64Map<CachedTMeshGeom>,
     cached_tmesh_bytes: usize,
     vsync_enabled: bool,
+    screenshot_requested: bool,
+    captured_frame: Option<RgbaImage>,
 }
 
 pub fn init(
     window: Arc<Window>,
     vsync_enabled: bool,
     gfx_debug_enabled: bool,
+    high_dpi_enabled: bool,
 ) -> Result<State, Box<dyn Error>> {
     info!("Initializing OpenGL backend...");
     if gfx_debug_enabled {
@@ -138,7 +179,9 @@ pub fn init(
     }
 
     let (gl_surface, gl_context, gl, api) =
-        create_opengl_context(&window, vsync_enabled, gfx_debug_enabled)?;
+        create_opengl_context(&window, vsync_enabled, gfx_debug_enabled, high_dpi_enabled)?;
+    #[cfg(target_os = "macos")]
+    set_macos_opengl_high_dpi_surface(&window, high_dpi_enabled);
     info!("OpenGL context API: {}", api.label());
     log_opengl_driver_info(&gl);
     let shaders = api.shaders();
@@ -272,6 +315,16 @@ pub fn init(
             2 * vec4_size + 6 * vec2_size,
         );
         gl.vertex_attrib_divisor(10, 1);
+        gl.enable_vertex_attrib_array(11);
+        gl.vertex_attrib_pointer_f32(
+            11,
+            1,
+            glow::FLOAT,
+            false,
+            inst_stride,
+            3 * vec4_size + 6 * vec2_size,
+        );
+        gl.vertex_attrib_divisor(11, 1);
 
         gl.bind_vertex_array(None);
 
@@ -317,7 +370,7 @@ pub fn init(
         gl.buffer_data_size(glow::ARRAY_BUFFER, 0, glow::DYNAMIC_DRAW);
 
         // a_pos (location 0), a_uv (location 1), a_color (location 2), a_tex_matrix_scale (location 3)
-        let stride = std::mem::size_of::<TexturedMeshVertexRaw>() as i32;
+        let stride = std::mem::size_of::<TexturedMeshVertex>() as i32;
         gl.enable_vertex_attrib_array(0);
         gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, stride, 0);
         gl.enable_vertex_attrib_array(1);
@@ -349,7 +402,7 @@ pub fn init(
         );
 
         // i_model_col0..i_model_col3 (locations 4..7), i_tint (8),
-        // i_uv_scale/i_uv_offset/i_uv_tex_shift (9..11)
+        // i_uv_scale/i_uv_offset/i_uv_tex_shift/i_texture_mask (9..12)
         gl.bind_buffer(glow::ARRAY_BUFFER, Some(instance_vbo));
         gl.buffer_data_size(glow::ARRAY_BUFFER, 0, glow::DYNAMIC_DRAW);
 
@@ -394,18 +447,39 @@ pub fn init(
             5 * col_size + 2 * uv_size,
         );
         gl.vertex_attrib_divisor(11, 1);
+        gl.enable_vertex_attrib_array(12);
+        gl.vertex_attrib_pointer_f32(
+            12,
+            1,
+            glow::FLOAT,
+            false,
+            inst_stride,
+            5 * col_size + 3 * uv_size,
+        );
+        gl.vertex_attrib_divisor(12, 1);
 
         gl.bind_vertex_array(None);
         (vao, vbo, instance_vbo)
     };
 
-    let initial_size = window.inner_size();
-    let projection = ortho_for_window(initial_size.width, initial_size.height);
+    let (initial_width, initial_height) = opengl_render_size(&window, high_dpi_enabled);
+    let projection = ortho_for_window(initial_width, initial_height);
+    let (surface_width, surface_height) = surface_extent(initial_width, initial_height);
+    gl_surface.resize(&gl_context, surface_width, surface_height);
+    info!(
+        "OpenGL render size: {}x{} high_dpi={} window_physical={}x{} scale={:.2}",
+        initial_width,
+        initial_height,
+        high_dpi_enabled,
+        window.inner_size().width,
+        window.inner_size().height,
+        window.scale_factor()
+    );
 
     // SAFETY: the OpenGL context is current and all program/texture handles used
     // below were created successfully in this function.
     unsafe {
-        gl.viewport(0, 0, initial_size.width as i32, initial_size.height as i32);
+        gl.viewport(0, 0, initial_width as i32, initial_height as i32);
         gl.use_program(Some(program));
         gl.active_texture(glow::TEXTURE0);
         gl.uniform_1_i32(Some(&texture_location), 0);
@@ -416,7 +490,6 @@ pub fn init(
         gl,
         gl_surface,
         gl_context,
-        api,
         program,
         mesh_program,
         tmesh_program,
@@ -426,7 +499,7 @@ pub fn init(
         tmesh_texture_location,
         texture_location,
         projection,
-        window_size: (initial_size.width, initial_size.height),
+        window_size: (initial_width, initial_height),
         shared_vao,
         _shared_vbo,
         _shared_ibo,
@@ -437,10 +510,12 @@ pub fn init(
         tmesh_vao,
         tmesh_vbo,
         tmesh_instance_vbo,
-        prep: DrawScratch::with_capacity(256, 1024, 1024, 256, 64),
+        prep: DrawScratch::with_capacity(1024, 1024, 256, 64),
         cached_tmesh: FastU64Map::default(),
         cached_tmesh_bytes: 0,
         vsync_enabled,
+        screenshot_requested: false,
+        captured_frame: None,
     };
 
     info!("OpenGL backend initialized successfully.");
@@ -600,21 +675,11 @@ fn ensure_cached_tmesh(
         return entry.vertex_count == vertices.len() as u32;
     }
 
-    let bytes = vertices.len() * std::mem::size_of::<TexturedMeshVertexRaw>();
+    let bytes = vertices.len() * std::mem::size_of::<TexturedMeshVertex>();
     if bytes > OPENGL_TMESH_CACHE_MAX_BYTES
         || cached_tmesh_bytes.saturating_add(bytes) > OPENGL_TMESH_CACHE_MAX_BYTES
     {
         return false;
-    }
-
-    let mut raw = Vec::with_capacity(vertices.len());
-    for v in vertices {
-        raw.push(TexturedMeshVertexRaw {
-            pos: v.pos,
-            uv: v.uv,
-            color: v.color,
-            tex_matrix_scale: v.tex_matrix_scale,
-        });
     }
 
     // SAFETY: the OpenGL context is current on this thread while draw prep runs,
@@ -626,7 +691,7 @@ fn ensure_cached_tmesh(
         gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
         gl.buffer_data_u8_slice(
             glow::ARRAY_BUFFER,
-            bytemuck::cast_slice(raw.as_slice()),
+            bytemuck::cast_slice(vertices),
             glow::STATIC_DRAW,
         );
         gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -637,7 +702,7 @@ fn ensure_cached_tmesh(
         cache_key,
         CachedTMeshGeom {
             vbo,
-            vertex_count: raw.len() as u32,
+            vertex_count: vertices.len() as u32,
         },
     );
     *cached_tmesh_bytes = cached_tmesh_bytes.saturating_add(bytes);
@@ -645,7 +710,9 @@ fn ensure_cached_tmesh(
 }
 
 #[inline(always)]
-pub const fn request_screenshot(_state: &mut State) {}
+pub fn request_screenshot(state: &mut State) {
+    state.screenshot_requested = true;
+}
 
 pub fn draw(
     state: &mut State,
@@ -699,6 +766,26 @@ pub fn draw(
         *last = Some(want);
     }
 
+    #[inline(always)]
+    fn apply_depth_test(gl: &glow::Context, want: bool, last: &mut Option<bool>) {
+        if *last == Some(want) {
+            return;
+        }
+        // SAFETY: depth-state calls only mutate GL state on the current context and
+        // do not retain Rust pointers.
+        unsafe {
+            if want {
+                gl.enable(glow::DEPTH_TEST);
+                gl.depth_func(glow::LEQUAL);
+                gl.depth_mask(true);
+            } else {
+                gl.depth_mask(false);
+                gl.disable(glow::DEPTH_TEST);
+            }
+        }
+        *last = Some(want);
+    }
+
     let backend_prepare_started = Instant::now();
     {
         let prep = &mut state.prep;
@@ -724,7 +811,11 @@ pub fn draw(
         let c = render_list.clear_color;
         gl.color_mask(true, true, true, true);
         gl.clear_color(c[0], c[1], c[2], 1.0);
-        gl.clear(glow::COLOR_BUFFER_BIT);
+        gl.clear_depth_f32(1.0);
+        gl.depth_mask(true);
+        gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+        gl.depth_mask(false);
+        gl.disable(glow::DEPTH_TEST);
         // Keep the presented window surface opaque even when EGL hands us an
         // alpha-bearing default framebuffer. Otherwise Linux compositors can
         // treat the game as translucent and the whole scene looks ghosted.
@@ -742,12 +833,13 @@ pub fn draw(
         let mut last_sprite_instance_start: Option<u32> = None;
         let mut last_tmesh_instance_start: Option<u32> = None;
         let mut last_tmesh_source: Option<TexturedMeshSource> = None;
+        let mut last_depth_test = Some(false);
 
-        if !state.prep.sprite_instances.is_empty() {
+        if !render_list.sprite_instances.is_empty() {
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(state.shared_instance_vbo));
             gl.buffer_data_u8_slice(
                 glow::ARRAY_BUFFER,
-                bytemuck::cast_slice(state.prep.sprite_instances.as_slice()),
+                bytemuck::cast_slice(render_list.sprite_instances.as_slice()),
                 glow::DYNAMIC_DRAW,
             );
         }
@@ -780,6 +872,7 @@ pub fn draw(
             match op {
                 DrawOp::Sprite(run) => {
                     apply_blend(gl, run.blend, &mut last_blend);
+                    apply_depth_test(gl, false, &mut last_depth_test);
 
                     let cam = render_list
                         .cameras
@@ -867,6 +960,14 @@ pub fn draw(
                             inst_stride,
                             base + 2 * vec4_size + 6 * vec2_size,
                         );
+                        gl.vertex_attrib_pointer_f32(
+                            11,
+                            1,
+                            glow::FLOAT,
+                            false,
+                            inst_stride,
+                            base + 3 * vec4_size + 6 * vec2_size,
+                        );
                         last_sprite_instance_start = Some(run.instance_start);
                     }
 
@@ -907,6 +1008,7 @@ pub fn draw(
                     }
 
                     apply_blend(gl, run.blend, &mut last_blend);
+                    apply_depth_test(gl, false, &mut last_depth_test);
 
                     let cam = render_list
                         .cameras
@@ -928,14 +1030,16 @@ pub fn draw(
                         bytemuck::cast_slice(&mvp_array),
                     );
 
-                    let prim = match run.mode {
-                        MeshMode::Triangles => glow::TRIANGLES,
-                    };
-                    gl.draw_arrays(prim, run.vertex_start as i32, run.vertex_count as i32);
+                    gl.draw_arrays(
+                        glow::TRIANGLES,
+                        run.vertex_start as i32,
+                        run.vertex_count as i32,
+                    );
                     vertices = vertices.saturating_add(run.vertex_count);
                 }
                 DrawOp::TexturedMesh(run) => {
                     apply_blend(gl, run.blend, &mut last_blend);
+                    apply_depth_test(gl, run.depth_test, &mut last_depth_test);
 
                     if last_prog != Some(2) {
                         gl.use_program(Some(state.tmesh_program));
@@ -947,7 +1051,7 @@ pub fn draw(
                     }
 
                     if last_tmesh_source != Some(run.source) {
-                        let stride = std::mem::size_of::<TexturedMeshVertexRaw>() as i32;
+                        let stride = std::mem::size_of::<TexturedMeshVertex>() as i32;
                         let Some(vertex_buffer) = (match run.source {
                             TexturedMeshSource::Transient { .. } => Some(state.tmesh_vbo),
                             TexturedMeshSource::Cached { cache_key, .. } => {
@@ -1048,6 +1152,14 @@ pub fn draw(
                             inst_stride,
                             base + 5 * col_size + 2 * uv_size,
                         );
+                        gl.vertex_attrib_pointer_f32(
+                            12,
+                            1,
+                            glow::FLOAT,
+                            false,
+                            inst_stride,
+                            base + 5 * col_size + 3 * uv_size,
+                        );
                         last_tmesh_instance_start = Some(run.instance_start);
                     }
 
@@ -1078,13 +1190,10 @@ pub fn draw(
                         last_bound_tex = Some(texture);
                     }
 
-                    let prim = match run.mode {
-                        MeshMode::Triangles => glow::TRIANGLES,
-                    };
                     let draw_start = run.source.vertex_start() as i32;
                     let draw_count = run.source.vertex_count() as i32;
                     gl.draw_arrays_instanced(
-                        prim,
+                        glow::TRIANGLES,
                         draw_start,
                         draw_count,
                         run.instance_count as i32,
@@ -1095,10 +1204,37 @@ pub fn draw(
                 }
             }
         }
+        apply_depth_test(gl, false, &mut last_depth_test);
         gl.bind_vertex_array(None);
         gl.use_program(None);
     }
     stats.backend_record_us = elapsed_us_since(backend_record_started);
+
+    if state.screenshot_requested {
+        state.screenshot_requested = false;
+        state.captured_frame = None;
+        let (width, height) = state.window_size;
+        if width > 0 && height > 0 {
+            let byte_len = width as usize * height as usize * 4;
+            let mut pixels = vec![0u8; byte_len];
+            // SAFETY: reads RGBA bytes from the back buffer before swap.
+            unsafe {
+                state.gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
+                state.gl.read_buffer(glow::BACK);
+                state.gl.read_pixels(
+                    0,
+                    0,
+                    width as i32,
+                    height as i32,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    PixelPackData::Slice(Some(pixels.as_mut_slice())),
+                );
+            }
+            flip_rows_rgba_in_place(width as usize, height as usize, &mut pixels);
+            state.captured_frame = RgbaImage::from_raw(width, height, pixels);
+        }
+    }
 
     let present_started = Instant::now();
     state.gl_surface.swap_buffers(&state.gl_context)?;
@@ -1132,34 +1268,10 @@ pub fn draw(
 }
 
 pub fn capture_frame(state: &mut State) -> Result<RgbaImage, Box<dyn Error>> {
-    let (width, height) = state.window_size;
-    if width == 0 || height == 0 {
-        return Err(
-            std::io::Error::other("Cannot capture screenshot at zero-sized viewport").into(),
-        );
-    }
-
-    let byte_len = width as usize * height as usize * 4;
-    let mut pixels = vec![0u8; byte_len];
-    // SAFETY: the current OpenGL context writes RGBA bytes into the owned `pixels`
-    // buffer for the exact viewport rectangle requested.
-    unsafe {
-        state.gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-        state.gl.read_buffer(state.api.screenshot_read_buffer());
-        state.gl.read_pixels(
-            0,
-            0,
-            width as i32,
-            height as i32,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            PixelPackData::Slice(Some(pixels.as_mut_slice())),
-        );
-    }
-
-    flip_rows_rgba_in_place(width as usize, height as usize, &mut pixels);
-    RgbaImage::from_raw(width, height, pixels)
-        .ok_or_else(|| std::io::Error::other("Failed to build screenshot image").into())
+    state
+        .captured_frame
+        .take()
+        .ok_or_else(|| std::io::Error::other("No captured screenshot frame available").into())
 }
 
 #[inline(always)]
@@ -1223,6 +1335,7 @@ fn create_opengl_context(
     window: &Window,
     vsync_enabled: bool,
     gfx_debug_enabled: bool,
+    high_dpi_enabled: bool,
 ) -> Result<
     (
         Surface<WindowSurface>,
@@ -1310,7 +1423,7 @@ fn create_opengl_context(
         (display, vsync_logic)
     };
 
-    let (width, height): (u32, u32) = window.inner_size().into();
+    let (width, height) = opengl_render_size(window, high_dpi_enabled);
     let raw_window_handle = window.window_handle()?.as_raw();
     #[cfg(target_os = "windows")]
     let (surface, context, api) = {
@@ -1593,7 +1706,7 @@ fn find_config(
     let template = ConfigTemplateBuilder::new()
         .with_api(api)
         .with_alpha_size(0)
-        .with_depth_size(0)
+        .with_depth_size(24)
         .with_stencil_size(0)
         .with_transparency(false)
         .compatible_with_native_window(raw_window_handle)

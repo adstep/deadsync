@@ -54,6 +54,101 @@ impl FromStr for DefaultFailType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum RandomBackgroundMode {
+    #[default]
+    Off,
+    RandomMovies,
+}
+
+impl RandomBackgroundMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::RandomMovies => "RandomMovies",
+        }
+    }
+}
+
+impl FromStr for RandomBackgroundMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "off" | "none" | "false" | "0" => Ok(Self::Off),
+            "randommovies" | "randommovie" | "movies" | "movie" | "on" | "true" | "1" => {
+                Ok(Self::RandomMovies)
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum DefaultSyncOffset {
+    #[default]
+    Null,
+    Itg,
+}
+
+impl DefaultSyncOffset {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Null => "NULL",
+            Self::Itg => "ITG",
+        }
+    }
+}
+
+impl FromStr for DefaultSyncOffset {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "null" | "none" | "off" => Ok(Self::Null),
+            "itg" => Ok(Self::Itg),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Which side of the screen the persistent build-version watermark sits on.
+/// Independent of [`Config::show_version_overlay`] so toggling visibility
+/// doesn't forget the user's preferred side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum VersionOverlaySide {
+    Left,
+    #[default]
+    Right,
+}
+
+impl VersionOverlaySide {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+        }
+    }
+}
+
+impl FromStr for VersionOverlaySide {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "left" | "l" | "lhs" => Ok(Self::Left),
+            "right" | "r" | "rhs" => Ok(Self::Right),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectMusicPatternInfoMode {
     Tech,
@@ -79,6 +174,92 @@ impl FromStr for SelectMusicPatternInfoMode {
             "tech" => Ok(Self::Tech),
             "stamina" => Ok(Self::Stamina),
             "auto" => Ok(Self::Auto),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectMusicStepArtistBoxMode {
+    Default,
+    Legacy,
+    Expanded,
+}
+
+impl SelectMusicStepArtistBoxMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Legacy => "Legacy",
+            Self::Expanded => "Expanded",
+        }
+    }
+
+    pub const fn is_expanded(self, theme: ThemeFlag) -> bool {
+        match self {
+            Self::Default => select_music_step_artist_default_expanded(theme),
+            Self::Legacy => false,
+            Self::Expanded => true,
+        }
+    }
+}
+
+const fn select_music_step_artist_default_expanded(theme: ThemeFlag) -> bool {
+    match theme {
+        ThemeFlag::SimplyLove => false,
+    }
+}
+
+impl FromStr for SelectMusicStepArtistBoxMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "default" | "theme" | "themedefault" => Ok(Self::Default),
+            "legacy" | "small" | "sl" | "simplylove" => Ok(Self::Legacy),
+            "expanded" | "large" | "arrowcloud" | "ac" => Ok(Self::Expanded),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectMusicItlRankMode {
+    None,
+    Chart,
+    Overall,
+}
+
+impl SelectMusicItlRankMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Chart => "Chart",
+            Self::Overall => "Overall",
+        }
+    }
+}
+
+impl FromStr for SelectMusicItlRankMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "none" | "off" | "disabled" | "disable" => Ok(Self::None),
+            "chart" | "chartrank" | "leaderboard" | "leaderrank" => Ok(Self::Chart),
+            "overall" | "overallrank" | "zmod" | "tournament" => Ok(Self::Overall),
             _ => Err(()),
         }
     }
@@ -120,6 +301,43 @@ impl FromStr for SelectMusicItlWheelMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SelectMusicSongSelectBgMode {
+    #[default]
+    Off,
+    Banner,
+    Bg,
+}
+
+impl SelectMusicSongSelectBgMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Banner => "Banner",
+            Self::Bg => "BG",
+        }
+    }
+}
+
+impl FromStr for SelectMusicSongSelectBgMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "off" | "none" | "false" | "0" => Ok(Self::Off),
+            "banner" | "banners" => Ok(Self::Banner),
+            "bg" | "background" | "backgrounds" => Ok(Self::Bg),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectMusicWheelStyle {
     Itg,
@@ -148,6 +366,80 @@ impl FromStr for SelectMusicWheelStyle {
         match key.as_str() {
             "itg" => Ok(Self::Itg),
             "iidx" => Ok(Self::Iidx),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualStyle {
+    Hearts,
+    Arrows,
+    Bears,
+    Ducks,
+    Cats,
+    Spooky,
+    Gay,
+    Stars,
+    Thonk,
+    Technique,
+    Srpg9,
+}
+
+impl VisualStyle {
+    pub const ALL: [Self; 11] = [
+        Self::Hearts,
+        Self::Arrows,
+        Self::Bears,
+        Self::Ducks,
+        Self::Cats,
+        Self::Spooky,
+        Self::Gay,
+        Self::Stars,
+        Self::Thonk,
+        Self::Technique,
+        Self::Srpg9,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hearts => "Hearts",
+            Self::Arrows => "Arrows",
+            Self::Bears => "Bears",
+            Self::Ducks => "Ducks",
+            Self::Cats => "Cats",
+            Self::Spooky => "Spooky",
+            Self::Gay => "Gay",
+            Self::Stars => "Stars",
+            Self::Thonk => "Thonk",
+            Self::Technique => "Technique",
+            Self::Srpg9 => "SRPG9",
+        }
+    }
+}
+
+impl FromStr for VisualStyle {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "hearts" | "heart" | "default" => Ok(Self::Hearts),
+            "arrows" | "arrow" => Ok(Self::Arrows),
+            "bears" | "bear" => Ok(Self::Bears),
+            "ducks" | "duck" => Ok(Self::Ducks),
+            "cats" | "cat" => Ok(Self::Cats),
+            "spooky" => Ok(Self::Spooky),
+            "gay" => Ok(Self::Gay),
+            "stars" | "star" => Ok(Self::Stars),
+            "thonk" => Ok(Self::Thonk),
+            "technique" => Ok(Self::Technique),
+            "srpg9" | "srpg" => Ok(Self::Srpg9),
             _ => Err(()),
         }
     }
@@ -386,6 +678,180 @@ impl FromStr for MachinePreferredPlayMode {
     }
 }
 
+/// When to auto-show the ArrowCloud QR-login screen after the user picks
+/// a profile.  Mirrors Simply Love's `QRLogin` theme pref.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ArrowCloudQrLoginWhen {
+    /// Always show the login screen after Select Profile.
+    Always,
+    /// Show only when at least one joined Local player has no saved API
+    /// key.  Default.
+    #[default]
+    Sometimes,
+    /// Never auto-show; only the manual Options entry can launch it.
+    Disabled,
+}
+
+impl ArrowCloudQrLoginWhen {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Always => "Always",
+            Self::Sometimes => "Sometimes",
+            Self::Disabled => "Disabled",
+        }
+    }
+}
+
+impl FromStr for ArrowCloudQrLoginWhen {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "always" => Ok(Self::Always),
+            "sometimes" => Ok(Self::Sometimes),
+            "disabled" | "never" | "off" | "no" => Ok(Self::Disabled),
+            _ => Err(()),
+        }
+    }
+}
+
+/// When to auto-show the GrooveStats QR-login screen after the user picks
+/// a profile.  Mirrors Simply Love's `QRLogin` theme pref — same wire
+/// values and same default as the ArrowCloud variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GrooveStatsQrLoginWhen {
+    /// Always show the login screen after Select Profile.
+    Always,
+    /// Show only when at least one joined Local player has no saved
+    /// GrooveStats API key.  Default.
+    #[default]
+    Sometimes,
+    /// Never auto-show; only the manual Options entry / Manage Local
+    /// Profiles "Link GrooveStats" action can launch it.
+    Disabled,
+}
+
+impl GrooveStatsQrLoginWhen {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Always => "Always",
+            Self::Sometimes => "Sometimes",
+            Self::Disabled => "Disabled",
+        }
+    }
+}
+
+impl FromStr for GrooveStatsQrLoginWhen {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "always" => Ok(Self::Always),
+            "sometimes" => Ok(Self::Sometimes),
+            "disabled" | "never" | "off" | "no" => Ok(Self::Disabled),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Machine-wide font preference, ported from Simply Love's `ThemeFont` pref.
+///
+/// Controls which font is used for the Bold / Header / Footer / numbers /
+/// ScreenEval roles in static UI text. The Normal (body) role stays Miso
+/// regardless of this pref -- matches SL's `Mega Normal.redir ->
+/// Miso/_miso light`.
+///
+/// Gameplay-side fonts (combo, judgment, hold judgment) are not affected;
+/// those follow each player's `ComboFont` profile pref.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum MachineFont {
+    /// Default; Bold/Header/Footer = Wendy, numbers = Wendy monospace.
+    #[default]
+    Wendy,
+    /// Bold/Header/Footer = Mega alphanumeric, numbers = Mega monospace.
+    Mega,
+}
+
+impl MachineFont {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Wendy => "Wendy",
+            Self::Mega => "Mega",
+        }
+    }
+}
+
+impl FromStr for MachineFont {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "common" | "wendy" => Ok(Self::Wendy),
+            "mega" => Ok(Self::Mega),
+            _ => Err(()),
+        }
+    }
+}
+
+pub const MACHINE_FONT_VARIANTS: [MachineFont; 2] = [MachineFont::Wendy, MachineFont::Mega];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum MachineBarColor {
+    #[default]
+    Default,
+    Colored,
+    Transparent,
+}
+
+impl MachineBarColor {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Colored => "Colored",
+            Self::Transparent => "Transparent",
+        }
+    }
+
+    pub const fn resolve(self, visual_style: VisualStyle) -> Self {
+        match (self, visual_style) {
+            (Self::Default, VisualStyle::Technique) => Self::Transparent,
+            (Self::Default, VisualStyle::Srpg9) => Self::Colored,
+            _ => self,
+        }
+    }
+}
+
+impl FromStr for MachineBarColor {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut key = String::with_capacity(s.len());
+        for ch in s.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                key.push(ch.to_ascii_lowercase());
+            }
+        }
+        match key.as_str() {
+            "default" => Ok(Self::Default),
+            "colored" | "color" | "colour" | "coloured" | "srpg" | "srpg9" => Ok(Self::Colored),
+            "transparent" | "clear" | "technique" => Ok(Self::Transparent),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameFlag {
     Dance,
@@ -565,5 +1031,196 @@ impl FromStr for LogLevel {
             "trace" => Ok(Self::Trace),
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn machine_font_default_is_wendy() {
+        assert_eq!(MachineFont::default(), MachineFont::Wendy);
+    }
+
+    #[test]
+    fn machine_font_round_trips_through_from_str_display() {
+        for &v in &MACHINE_FONT_VARIANTS {
+            assert_eq!(MachineFont::from_str(v.as_str()), Ok(v));
+        }
+    }
+
+    #[test]
+    fn machine_font_from_str_is_case_insensitive_and_accepts_common_alias() {
+        assert_eq!(MachineFont::from_str("Wendy"), Ok(MachineFont::Wendy));
+        assert_eq!(MachineFont::from_str("wendy"), Ok(MachineFont::Wendy));
+        assert_eq!(MachineFont::from_str("Mega"), Ok(MachineFont::Mega));
+        assert_eq!(MachineFont::from_str("mega"), Ok(MachineFont::Mega));
+        // SL/Arrow Cloud use Common as the font-redir family internally;
+        // accept old saved DeadSync configs and hand-edited ini values.
+        assert_eq!(MachineFont::from_str("common"), Ok(MachineFont::Wendy));
+        assert_eq!(MachineFont::from_str("COMMON"), Ok(MachineFont::Wendy));
+    }
+
+    #[test]
+    fn machine_font_from_str_rejects_unknown() {
+        assert_eq!(MachineFont::from_str(""), Err(()));
+        assert_eq!(MachineFont::from_str("Unprofessional"), Err(()));
+        assert_eq!(MachineFont::from_str("miso"), Err(()));
+    }
+
+    #[test]
+    fn machine_font_variants_table_is_exhaustive() {
+        // Sanity: every enum variant is in MACHINE_FONT_VARIANTS so the
+        // operator UI cycles through everything the type can represent.
+        // Update this if a new variant is added.
+        assert_eq!(MACHINE_FONT_VARIANTS.len(), 2);
+        assert!(MACHINE_FONT_VARIANTS.contains(&MachineFont::Wendy));
+        assert!(MACHINE_FONT_VARIANTS.contains(&MachineFont::Mega));
+    }
+
+    #[test]
+    fn machine_bar_color_defaults_to_default() {
+        assert_eq!(MachineBarColor::default(), MachineBarColor::Default);
+    }
+
+    #[test]
+    fn machine_bar_color_round_trips() {
+        for value in [
+            MachineBarColor::Default,
+            MachineBarColor::Colored,
+            MachineBarColor::Transparent,
+        ] {
+            assert_eq!(MachineBarColor::from_str(value.as_str()), Ok(value));
+        }
+    }
+
+    #[test]
+    fn machine_bar_color_accepts_theme_style_aliases() {
+        assert_eq!(
+            MachineBarColor::from_str("SRPG9"),
+            Ok(MachineBarColor::Colored)
+        );
+        assert_eq!(
+            MachineBarColor::from_str("Technique"),
+            Ok(MachineBarColor::Transparent)
+        );
+    }
+
+    #[test]
+    fn machine_bar_color_default_resolves_from_visual_style() {
+        assert_eq!(
+            MachineBarColor::Default.resolve(VisualStyle::Hearts),
+            MachineBarColor::Default
+        );
+        assert_eq!(
+            MachineBarColor::Default.resolve(VisualStyle::Technique),
+            MachineBarColor::Transparent
+        );
+        assert_eq!(
+            MachineBarColor::Default.resolve(VisualStyle::Srpg9),
+            MachineBarColor::Colored
+        );
+        assert_eq!(
+            MachineBarColor::Transparent.resolve(VisualStyle::Srpg9),
+            MachineBarColor::Transparent
+        );
+    }
+
+    #[test]
+    fn random_background_mode_defaults_to_off() {
+        assert_eq!(RandomBackgroundMode::default(), RandomBackgroundMode::Off);
+    }
+
+    #[test]
+    fn random_background_mode_round_trips() {
+        assert_eq!(
+            RandomBackgroundMode::from_str(RandomBackgroundMode::Off.as_str()),
+            Ok(RandomBackgroundMode::Off)
+        );
+        assert_eq!(
+            RandomBackgroundMode::from_str(RandomBackgroundMode::RandomMovies.as_str()),
+            Ok(RandomBackgroundMode::RandomMovies)
+        );
+    }
+
+    #[test]
+    fn random_background_mode_accepts_common_aliases() {
+        assert_eq!(
+            RandomBackgroundMode::from_str("Random Movies"),
+            Ok(RandomBackgroundMode::RandomMovies)
+        );
+        assert_eq!(
+            RandomBackgroundMode::from_str("0"),
+            Ok(RandomBackgroundMode::Off)
+        );
+    }
+
+    #[test]
+    fn default_sync_offset_defaults_to_null() {
+        assert_eq!(DefaultSyncOffset::default(), DefaultSyncOffset::Null);
+    }
+
+    #[test]
+    fn default_sync_offset_round_trips() {
+        assert_eq!(
+            DefaultSyncOffset::from_str(DefaultSyncOffset::Null.as_str()),
+            Ok(DefaultSyncOffset::Null)
+        );
+        assert_eq!(
+            DefaultSyncOffset::from_str(DefaultSyncOffset::Itg.as_str()),
+            Ok(DefaultSyncOffset::Itg)
+        );
+    }
+
+    #[test]
+    fn song_select_bg_mode_defaults_to_off() {
+        assert_eq!(
+            SelectMusicSongSelectBgMode::default(),
+            SelectMusicSongSelectBgMode::Off
+        );
+    }
+
+    #[test]
+    fn song_select_bg_mode_round_trips() {
+        for value in [
+            SelectMusicSongSelectBgMode::Off,
+            SelectMusicSongSelectBgMode::Banner,
+            SelectMusicSongSelectBgMode::Bg,
+        ] {
+            assert_eq!(
+                SelectMusicSongSelectBgMode::from_str(value.as_str()),
+                Ok(value)
+            );
+        }
+    }
+
+    #[test]
+    fn song_select_bg_mode_accepts_background_alias() {
+        assert_eq!(
+            SelectMusicSongSelectBgMode::from_str("Background"),
+            Ok(SelectMusicSongSelectBgMode::Bg)
+        );
+    }
+
+    #[test]
+    fn step_artist_box_mode_round_trips() {
+        for value in [
+            SelectMusicStepArtistBoxMode::Default,
+            SelectMusicStepArtistBoxMode::Legacy,
+            SelectMusicStepArtistBoxMode::Expanded,
+        ] {
+            assert_eq!(
+                SelectMusicStepArtistBoxMode::from_str(value.as_str()),
+                Ok(value)
+            );
+        }
+    }
+
+    #[test]
+    fn step_artist_box_default_tracks_theme() {
+        assert!(!SelectMusicStepArtistBoxMode::Default.is_expanded(ThemeFlag::SimplyLove));
+        assert!(!SelectMusicStepArtistBoxMode::Legacy.is_expanded(ThemeFlag::SimplyLove));
+        assert!(SelectMusicStepArtistBoxMode::Expanded.is_expanded(ThemeFlag::SimplyLove));
     }
 }

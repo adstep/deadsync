@@ -1,3 +1,4 @@
+use super::super::choice;
 use super::super::row::index_binding;
 use super::*;
 use crate::game::profile as gp;
@@ -9,22 +10,43 @@ const PERSPECTIVE: ChoiceBinding<usize> = index_binding!(
     gp::Perspective::Overhead,
     perspective,
     gp::update_perspective_for_side,
-    false
+    false,
+    Some(CycleInit {
+        from_profile: |p| {
+            PERSPECTIVE_VARIANTS
+                .iter()
+                .position(|&v| v == p.perspective)
+                .unwrap_or(0)
+        }
+    })
 );
 const COMBO_FONT: ChoiceBinding<usize> = index_binding!(
     COMBO_FONT_VARIANTS,
     gp::ComboFont::Wendy,
     combo_font,
     gp::update_combo_font_for_side,
-    true
+    true,
+    Some(CycleInit {
+        from_profile: |p| {
+            COMBO_FONT_VARIANTS
+                .iter()
+                .position(|&v| v == p.combo_font)
+                .unwrap_or(0)
+        }
+    })
 );
-const BACKGROUND_FILTER: ChoiceBinding<usize> = index_binding!(
-    BACKGROUND_FILTER_VARIANTS,
-    gp::BackgroundFilter::Darkest,
-    background_filter,
-    gp::update_background_filter_for_side,
-    false
-);
+const BACKGROUND_FILTER: NumericBinding = NumericBinding {
+    parse: parse_i32_percent,
+    apply: |p, v| {
+        p.background_filter = gp::BackgroundFilter::from_i32(v);
+        Outcome::persisted()
+    },
+    persist_for_side: gp::update_background_filter_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.background_filter.percent() as i32,
+        format: |v| format!("{v}%"),
+    }),
+};
 
 const JUDGMENT_OFFSET_X: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -33,6 +55,10 @@ const JUDGMENT_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_judgment_offset_x_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.judgment_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX),
+        format: |v| format!("{v}"),
+    }),
 };
 const JUDGMENT_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -41,6 +67,10 @@ const JUDGMENT_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_judgment_offset_y_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.judgment_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX),
+        format: |v| format!("{v}"),
+    }),
 };
 const COMBO_OFFSET_X: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -49,6 +79,10 @@ const COMBO_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_combo_offset_x_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.combo_offset_x.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX),
+        format: |v| format!("{v}"),
+    }),
 };
 const COMBO_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -57,6 +91,10 @@ const COMBO_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_combo_offset_y_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.combo_offset_y.clamp(HUD_OFFSET_MIN, HUD_OFFSET_MAX),
+        format: |v| format!("{v}"),
+    }),
 };
 const NOTEFIELD_OFFSET_X: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -65,6 +103,10 @@ const NOTEFIELD_OFFSET_X: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_notefield_offset_x_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.note_field_offset_x.clamp(0, 50),
+        format: |v| format!("{v}"),
+    }),
 };
 const NOTEFIELD_OFFSET_Y: NumericBinding = NumericBinding {
     parse: parse_i32,
@@ -73,6 +115,10 @@ const NOTEFIELD_OFFSET_Y: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_notefield_offset_y_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.note_field_offset_y.clamp(-50, 50),
+        format: |v| format!("{v}"),
+    }),
 };
 const VISUAL_DELAY: NumericBinding = NumericBinding {
     parse: parse_i32_ms,
@@ -81,6 +127,10 @@ const VISUAL_DELAY: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_visual_delay_ms_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.visual_delay_ms.clamp(-100, 100),
+        format: |v| format!("{v}ms"),
+    }),
 };
 const GLOBAL_OFFSET_SHIFT: NumericBinding = NumericBinding {
     parse: parse_i32_ms,
@@ -89,6 +139,25 @@ const GLOBAL_OFFSET_SHIFT: NumericBinding = NumericBinding {
         Outcome::persisted()
     },
     persist_for_side: gp::update_global_offset_shift_ms_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| p.global_offset_shift_ms.clamp(-100, 100),
+        format: |v| format!("{v}ms"),
+    }),
+};
+const SPACING: NumericBinding = NumericBinding {
+    parse: parse_i32_percent,
+    apply: |p, v| {
+        p.spacing_percent = v;
+        Outcome::persisted()
+    },
+    persist_for_side: gp::update_spacing_percent_for_side,
+    init: Some(NumericInit {
+        from_profile: |p| {
+            p.spacing_percent
+                .clamp(SPACING_PERCENT_MIN, SPACING_PERCENT_MAX)
+        },
+        format: |v| format!("{v}%"),
+    }),
 };
 
 /// Shared boilerplate for a noteskin-style cycle row implemented via
@@ -100,11 +169,10 @@ fn apply_noteskin_delta(
     player_idx: usize,
     row_id: RowId,
     delta: isize,
+    wrap: NavWrap,
     apply: fn(&mut State, usize, &str, bool, gp::PlayerSide),
 ) -> Outcome {
-    let Some(new_index) =
-        super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
-    else {
+    let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap) else {
         return Outcome::NONE;
     };
     let choice = state
@@ -114,18 +182,19 @@ fn apply_noteskin_delta(
         .and_then(|r| r.choices.get(new_index))
         .cloned()
         .unwrap_or_default();
-    let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
+    let (should_persist, side) = choice::persist_ctx(player_idx);
     apply(state, player_idx, &choice, should_persist, side);
     Outcome::persisted()
 }
 
 const NOTE_SKIN: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
+    apply: |state, player_idx, row_id, delta, wrap| {
         apply_noteskin_delta(
             state,
             player_idx,
             row_id,
             delta,
+            wrap,
             |state, player_idx, choice, should_persist, side| {
                 let name = if choice.is_empty() {
                     gp::NoteSkin::DEFAULT_NAME.to_string()
@@ -137,18 +206,23 @@ const NOTE_SKIN: CustomBinding = CustomBinding {
                 if should_persist {
                     gp::update_noteskin_for_side(side, setting);
                 }
-                sync_noteskin_previews_for_player(state, player_idx);
+                sync_noteskin_previews_for_player(
+                    &mut state.noteskin,
+                    &state.player_profiles[player_idx],
+                    player_idx,
+                );
             },
         )
     },
 };
 const MINE_SKIN: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
+    apply: |state, player_idx, row_id, delta, wrap| {
         apply_noteskin_delta(
             state,
             player_idx,
             row_id,
             delta,
+            wrap,
             |state, player_idx, choice, should_persist, side| {
                 let match_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
                 let setting = if choice == match_label.as_ref() {
@@ -162,18 +236,23 @@ const MINE_SKIN: CustomBinding = CustomBinding {
                 if should_persist {
                     gp::update_mine_noteskin_for_side(side, setting);
                 }
-                sync_noteskin_previews_for_player(state, player_idx);
+                sync_noteskin_previews_for_player(
+                    &mut state.noteskin,
+                    &state.player_profiles[player_idx],
+                    player_idx,
+                );
             },
         )
     },
 };
 const RECEPTOR_SKIN: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
+    apply: |state, player_idx, row_id, delta, wrap| {
         apply_noteskin_delta(
             state,
             player_idx,
             row_id,
             delta,
+            wrap,
             |state, player_idx, choice, should_persist, side| {
                 let match_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
                 let setting = if choice == match_label.as_ref() {
@@ -187,18 +266,23 @@ const RECEPTOR_SKIN: CustomBinding = CustomBinding {
                 if should_persist {
                     gp::update_receptor_noteskin_for_side(side, setting);
                 }
-                sync_noteskin_previews_for_player(state, player_idx);
+                sync_noteskin_previews_for_player(
+                    &mut state.noteskin,
+                    &state.player_profiles[player_idx],
+                    player_idx,
+                );
             },
         )
     },
 };
 const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        apply_noteskin_delta(
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let outcome = apply_noteskin_delta(
             state,
             player_idx,
             row_id,
             delta,
+            wrap,
             |state, player_idx, choice, should_persist, side| {
                 let match_label = tr("PlayerOptions", MATCH_NOTESKIN_LABEL);
                 let no_tap_label = tr("PlayerOptions", NO_TAP_EXPLOSION_LABEL);
@@ -215,14 +299,60 @@ const TAP_EXPLOSION_SKIN: CustomBinding = CustomBinding {
                 if should_persist {
                     gp::update_tap_explosion_noteskin_for_side(side, setting);
                 }
-                sync_noteskin_previews_for_player(state, player_idx);
+                sync_noteskin_previews_for_player(
+                    &mut state.noteskin,
+                    &state.player_profiles[player_idx],
+                    player_idx,
+                );
             },
-        )
+        );
+        if outcome.persisted {
+            Outcome::persisted_with_visibility()
+        } else {
+            outcome
+        }
+    },
+};
+
+const TAP_EXPLOSION_OPTION_BITS: &[u32] = &[
+    gp::TapExplosionMask::FANTASTIC.bits() as u32,
+    gp::TapExplosionMask::EXCELLENT.bits() as u32,
+    gp::TapExplosionMask::GREAT.bits() as u32,
+    gp::TapExplosionMask::DECENT.bits() as u32,
+    gp::TapExplosionMask::WAY_OFF.bits() as u32,
+    gp::TapExplosionMask::MISS.bits() as u32,
+    gp::TapExplosionMask::HELD.bits() as u32,
+    gp::TapExplosionMask::HOLDING.bits() as u32,
+];
+
+const TAP_EXPLOSION_OPTIONS: BitmaskBinding = BitmaskBinding::Generic {
+    init: BitmaskInit {
+        from_profile: |p| p.tap_explosion_active_mask.bits() as u32,
+        get_active: |m| m.tap_explosion.bits() as u32,
+        set_active: |m, b| {
+            debug_assert_eq!(
+                b & !(u8::MAX as u32),
+                0,
+                "TapExplosionMask init bits exceed storage width",
+            );
+            m.tap_explosion = gp::TapExplosionMask::from_bits_retain(b as u8);
+        },
+        cursor: CursorInit::FirstActiveBit,
+    },
+    writeback: BitmaskWriteback {
+        project: |_m, p, b| {
+            p.tap_explosion_active_mask = gp::TapExplosionMask::from_bits_truncate(b as u8);
+        },
+        persist_for_side: |s, p| {
+            gp::update_tap_explosion_mask_for_side(s, p.tap_explosion_active_mask);
+        },
+        bit_mapping: BitMapping::Explicit(TAP_EXPLOSION_OPTION_BITS),
+        sync_visibility: false,
     },
 };
 
 const MUSIC_RATE: CustomBinding = CustomBinding {
-    apply: |state, _player_idx, row_id, delta| {
+    apply: |state, _player_idx, row_id, delta, _wrap| {
         let increment = 0.01f32;
         state.music_rate += delta as f32 * increment;
         state.music_rate = (state.music_rate / increment).round() * increment;
@@ -241,7 +371,7 @@ const MUSIC_RATE: CustomBinding = CustomBinding {
 };
 
 const SPEED_MOD: CustomBinding = CustomBinding {
-    apply: |state, player_idx, _row_id, delta| {
+    apply: |state, player_idx, _row_id, delta, _wrap| {
         let speed_mod = {
             let speed_mod = &mut state.speed_mod[player_idx];
             let (upper, increment) = match speed_mod.mod_type {
@@ -259,9 +389,8 @@ const SPEED_MOD: CustomBinding = CustomBinding {
 };
 
 const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
         else {
             return Outcome::NONE;
         };
@@ -307,9 +436,8 @@ const TYPE_OF_SPEED_MOD: CustomBinding = CustomBinding {
 };
 
 const MINI: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
         else {
             return Outcome::NONE;
         };
@@ -326,7 +454,7 @@ const MINI: CustomBinding = CustomBinding {
             return Outcome::persisted();
         };
         state.player_profiles[player_idx].mini_percent = val;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
+        let (should_persist, side) = choice::persist_ctx(player_idx);
         if should_persist {
             gp::update_mini_percent_for_side(side, val);
         }
@@ -335,18 +463,17 @@ const MINI: CustomBinding = CustomBinding {
 };
 
 const JUDGMENT_FONT: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
         else {
             return Outcome::NONE;
         };
         let setting = assets::judgment_texture_choices()
             .get(new_index)
-            .map(|choice| gp::JudgmentGraphic::new(&choice.key))
+            .map(|choice| gp::JudgmentGraphic::new(choice.key.as_ref()))
             .unwrap_or_default();
         state.player_profiles[player_idx].judgment_graphic = setting;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
+        let (should_persist, side) = choice::persist_ctx(player_idx);
         if should_persist {
             gp::update_judgment_graphic_for_side(
                 side,
@@ -358,18 +485,17 @@ const JUDGMENT_FONT: CustomBinding = CustomBinding {
 };
 
 const HOLD_JUDGMENT: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
         else {
             return Outcome::NONE;
         };
         let setting = assets::hold_judgment_texture_choices()
             .get(new_index)
-            .map(|choice| gp::HoldJudgmentGraphic::new(&choice.key))
+            .map(|choice| gp::HoldJudgmentGraphic::new(choice.key.as_ref()))
             .unwrap_or_default();
         state.player_profiles[player_idx].hold_judgment_graphic = setting;
-        let (should_persist, side) = super::super::choice::persist_ctx(player_idx);
+        let (should_persist, side) = choice::persist_ctx(player_idx);
         if should_persist {
             gp::update_hold_judgment_graphic_for_side(
                 side,
@@ -382,10 +508,31 @@ const HOLD_JUDGMENT: CustomBinding = CustomBinding {
     },
 };
 
+const HELD_GRAPHIC: CustomBinding = CustomBinding {
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
+        else {
+            return Outcome::NONE;
+        };
+        let setting = assets::held_miss_texture_choices()
+            .get(new_index)
+            .map(|choice| gp::HeldMissGraphic::new(choice.key.as_ref()))
+            .unwrap_or_default();
+        state.player_profiles[player_idx].held_miss_graphic = setting;
+        let (should_persist, side) = choice::persist_ctx(player_idx);
+        if should_persist {
+            gp::update_held_miss_graphic_for_side(
+                side,
+                state.player_profiles[player_idx].held_miss_graphic.clone(),
+            );
+        }
+        Outcome::persisted()
+    },
+};
+
 const STEPCHART: CustomBinding = CustomBinding {
-    apply: |state, player_idx, row_id, delta| {
-        let Some(new_index) =
-            super::super::choice::cycle_choice_index(state, player_idx, row_id, delta)
+    apply: |state, player_idx, row_id, delta, wrap| {
+        let Some(new_index) = choice::cycle_choice_index(state, player_idx, row_id, delta, wrap)
         else {
             return Outcome::NONE;
         };
@@ -408,6 +555,269 @@ const STEPCHART: CustomBinding = CustomBinding {
         Outcome::persisted()
     },
 };
+
+fn push_mini_row(b: &mut RowBuilder) {
+    b.push(Row::custom(
+        RowId::Mini,
+        lookup_key("PlayerOptions", "Mini"),
+        lookup_key("PlayerOptionsHelp", "MiniHelp"),
+        MINI,
+        (gp::MINI_PERCENT_MIN..=gp::MINI_PERCENT_MAX)
+            .map(|v| format!("{v}%"))
+            .collect(),
+    ));
+}
+
+fn push_spacing_row(b: &mut RowBuilder) {
+    b.push(Row::numeric(
+        RowId::Spacing,
+        lookup_key("PlayerOptions", "Spacing"),
+        lookup_key("PlayerOptionsHelp", "SpacingHelp"),
+        SPACING,
+        (SPACING_PERCENT_MIN..=SPACING_PERCENT_MAX)
+            .map(|v| format!("{v}%"))
+            .collect(),
+    ));
+}
+
+fn push_perspective_row(b: &mut RowBuilder) {
+    b.push(Row::cycle(
+        RowId::Perspective,
+        lookup_key("PlayerOptions", "Perspective"),
+        lookup_key("PlayerOptionsHelp", "PerspectiveHelp"),
+        CycleBinding::Index(PERSPECTIVE),
+        vec![
+            tr("PlayerOptions", "PerspectiveOverhead").to_string(),
+            tr("PlayerOptions", "PerspectiveHallway").to_string(),
+            tr("PlayerOptions", "PerspectiveDistant").to_string(),
+            tr("PlayerOptions", "PerspectiveIncoming").to_string(),
+            tr("PlayerOptions", "PerspectiveSpace").to_string(),
+        ],
+    ));
+}
+
+fn push_noteskin_row(b: &mut RowBuilder, noteskin_names: &[String]) {
+    b.push(Row::custom(
+        RowId::NoteSkin,
+        lookup_key("PlayerOptions", "NoteSkin"),
+        lookup_key("PlayerOptionsHelp", "NoteSkinHelp"),
+        NOTE_SKIN,
+        if noteskin_names.is_empty() {
+            vec![crate::game::profile::NoteSkin::DEFAULT_NAME.to_string()]
+        } else {
+            noteskin_names.to_vec()
+        },
+    ));
+}
+
+fn push_mineskin_row(b: &mut RowBuilder, noteskin_names: &[String]) {
+    b.push(Row::custom(
+        RowId::MineSkin,
+        lookup_key("PlayerOptions", "MineSkin"),
+        lookup_key("PlayerOptionsHelp", "MineSkinHelp"),
+        MINE_SKIN,
+        build_noteskin_override_choices(noteskin_names),
+    ));
+}
+
+fn push_receptorskin_row(b: &mut RowBuilder, noteskin_names: &[String]) {
+    b.push(Row::custom(
+        RowId::ReceptorSkin,
+        lookup_key("PlayerOptions", "ReceptorSkin"),
+        lookup_key("PlayerOptionsHelp", "ReceptorSkinHelp"),
+        RECEPTOR_SKIN,
+        build_noteskin_override_choices(noteskin_names),
+    ));
+}
+
+fn push_tap_explosion_skin_row(b: &mut RowBuilder, noteskin_names: &[String]) {
+    b.push(Row::custom(
+        RowId::TapExplosionSkin,
+        lookup_key("PlayerOptions", "TapExplosionSkin"),
+        lookup_key("PlayerOptionsHelp", "TapExplosionSkinHelp"),
+        TAP_EXPLOSION_SKIN,
+        build_tap_explosion_noteskin_choices(noteskin_names),
+    ));
+}
+
+fn push_tap_explosion_options_row(b: &mut RowBuilder) {
+    b.push(Row::bitmask(
+        RowId::TapExplosionOptions,
+        lookup_key("PlayerOptions", "TapExplosionOptions"),
+        lookup_key("PlayerOptionsHelp", "TapExplosionOptionsHelp"),
+        TAP_EXPLOSION_OPTIONS,
+        vec![
+            tr("PlayerOptions", "TapExplosionOptionsFantastics").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsExcellents").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsGreats").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsDecents").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsWayOffs").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsMisses").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsHelds").to_string(),
+            tr("PlayerOptions", "TapExplosionOptionsHolding").to_string(),
+        ],
+    ));
+}
+
+fn push_judgment_font_row(b: &mut RowBuilder) {
+    b.push(Row::custom(
+        RowId::JudgmentFont,
+        lookup_key("PlayerOptions", "JudgmentFont"),
+        lookup_key("PlayerOptionsHelp", "JudgmentFontHelp"),
+        JUDGMENT_FONT,
+        assets::judgment_texture_choices()
+            .iter()
+            .map(|choice| choice.label.clone())
+            .collect(),
+    ));
+}
+
+fn push_judgment_offset_rows(b: &mut RowBuilder) {
+    b.push(
+        Row::numeric(
+            RowId::JudgmentOffsetX,
+            lookup_key("PlayerOptions", "JudgmentOffsetX"),
+            lookup_key("PlayerOptionsHelp", "JudgmentOffsetXHelp"),
+            JUDGMENT_OFFSET_X,
+            hud_offset_choices(),
+        )
+        .with_initial_choice_index(HUD_OFFSET_ZERO_INDEX),
+    );
+    b.push(
+        Row::numeric(
+            RowId::JudgmentOffsetY,
+            lookup_key("PlayerOptions", "JudgmentOffsetY"),
+            lookup_key("PlayerOptionsHelp", "JudgmentOffsetYHelp"),
+            JUDGMENT_OFFSET_Y,
+            hud_offset_choices(),
+        )
+        .with_initial_choice_index(HUD_OFFSET_ZERO_INDEX),
+    );
+}
+
+fn push_combo_font_row(b: &mut RowBuilder) {
+    b.push(Row::cycle(
+        RowId::ComboFont,
+        lookup_key("PlayerOptions", "ComboFont"),
+        lookup_key("PlayerOptionsHelp", "ComboFontHelp"),
+        CycleBinding::Index(COMBO_FONT),
+        vec![
+            tr("PlayerOptions", "ComboFontWendy").to_string(),
+            tr("PlayerOptions", "ComboFontArialRounded").to_string(),
+            tr("PlayerOptions", "ComboFontAsap").to_string(),
+            tr("PlayerOptions", "ComboFontBebasNeue").to_string(),
+            tr("PlayerOptions", "ComboFontSourceCode").to_string(),
+            tr("PlayerOptions", "ComboFontWork").to_string(),
+            tr("PlayerOptions", "ComboFontWendyCursed").to_string(),
+            tr("PlayerOptions", "ComboFontMega").to_string(),
+            tr("PlayerOptions", "ComboFontNone").to_string(),
+        ],
+    ));
+}
+
+fn push_combo_offset_rows(b: &mut RowBuilder) {
+    b.push(
+        Row::numeric(
+            RowId::ComboOffsetX,
+            lookup_key("PlayerOptions", "ComboOffsetX"),
+            lookup_key("PlayerOptionsHelp", "ComboOffsetXHelp"),
+            COMBO_OFFSET_X,
+            hud_offset_choices(),
+        )
+        .with_initial_choice_index(HUD_OFFSET_ZERO_INDEX),
+    );
+    b.push(
+        Row::numeric(
+            RowId::ComboOffsetY,
+            lookup_key("PlayerOptions", "ComboOffsetY"),
+            lookup_key("PlayerOptionsHelp", "ComboOffsetYHelp"),
+            COMBO_OFFSET_Y,
+            hud_offset_choices(),
+        )
+        .with_initial_choice_index(HUD_OFFSET_ZERO_INDEX),
+    );
+}
+
+fn push_hold_judgment_row(b: &mut RowBuilder) {
+    b.push(Row::custom(
+        RowId::HoldJudgment,
+        lookup_key("PlayerOptions", "HoldJudgment"),
+        lookup_key("PlayerOptionsHelp", "HoldJudgmentHelp"),
+        HOLD_JUDGMENT,
+        assets::hold_judgment_texture_choices()
+            .iter()
+            .map(|choice| choice.label.clone())
+            .collect(),
+    ));
+}
+
+fn push_held_graphic_row(b: &mut RowBuilder) {
+    b.push(Row::custom(
+        RowId::HeldGraphic,
+        lookup_key("PlayerOptions", "HeldGraphic"),
+        lookup_key("PlayerOptionsHelp", "HeldGraphicHelp"),
+        HELD_GRAPHIC,
+        assets::held_miss_texture_choices()
+            .iter()
+            .map(|choice| choice.label.clone())
+            .collect(),
+    ));
+}
+
+fn push_background_filter_row(b: &mut RowBuilder) {
+    b.push(
+        Row::numeric(
+            RowId::BackgroundFilter,
+            lookup_key("PlayerOptions", "BackgroundFilter"),
+            lookup_key("PlayerOptionsHelp", "BackgroundFilterHelp"),
+            BACKGROUND_FILTER,
+            (0..=gp::BackgroundFilter::MAX_PERCENT)
+                .map(|v| format!("{v}%"))
+                .collect(),
+        )
+        .with_initial_choice_index(gp::BackgroundFilter::DEFAULT.percent() as usize),
+    );
+}
+
+fn push_notefield_offset_rows(b: &mut RowBuilder) {
+    b.push(Row::numeric(
+        RowId::NoteFieldOffsetX,
+        lookup_key("PlayerOptions", "NoteFieldOffsetX"),
+        lookup_key("PlayerOptionsHelp", "NoteFieldOffsetXHelp"),
+        NOTEFIELD_OFFSET_X,
+        (gp::NOTE_FIELD_OFFSET_X_MIN..=gp::NOTE_FIELD_OFFSET_X_MAX)
+            .map(|v| v.to_string())
+            .collect(),
+    ));
+    b.push(Row::numeric(
+        RowId::NoteFieldOffsetY,
+        lookup_key("PlayerOptions", "NoteFieldOffsetY"),
+        lookup_key("PlayerOptionsHelp", "NoteFieldOffsetYHelp"),
+        NOTEFIELD_OFFSET_Y,
+        (gp::NOTE_FIELD_OFFSET_Y_MIN..=gp::NOTE_FIELD_OFFSET_Y_MAX)
+            .map(|v| v.to_string())
+            .collect(),
+    ));
+}
+
+pub(super) fn push_display_modifier_rows(b: &mut RowBuilder, noteskin_names: &[String]) {
+    push_mini_row(b);
+    push_spacing_row(b);
+    push_perspective_row(b);
+    push_noteskin_row(b, noteskin_names);
+    push_mineskin_row(b, noteskin_names);
+    push_receptorskin_row(b, noteskin_names);
+    push_tap_explosion_skin_row(b, noteskin_names);
+    push_tap_explosion_options_row(b);
+    push_judgment_font_row(b);
+    push_judgment_offset_rows(b);
+    push_combo_font_row(b);
+    push_combo_offset_rows(b);
+    push_hold_judgment_row(b);
+    push_held_graphic_row(b);
+    push_background_filter_row(b);
+    push_notefield_offset_rows(b);
+}
 
 pub(super) fn build_main_rows(
     song: &SongData,
@@ -510,348 +920,87 @@ pub(super) fn build_main_rows(
             )
         };
     let mut b = RowBuilder::new();
-    b.push(Row {
-        id: RowId::TypeOfSpeedMod,
-        behavior: RowBehavior::Custom(TYPE_OF_SPEED_MOD),
-        name: lookup_key("PlayerOptions", "TypeOfSpeedMod"),
-        choices: vec![
-            tr("PlayerOptions", "SpeedModTypeX").to_string(),
-            tr("PlayerOptions", "SpeedModTypeC").to_string(),
-            tr("PlayerOptions", "SpeedModTypeM").to_string(),
-        ],
-        selected_choice_index: [speed_mod.mod_type.choice_index(); PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "TypeOfSpeedModHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::SpeedMod,
-        behavior: RowBehavior::Custom(SPEED_MOD),
-        name: lookup_key("PlayerOptions", "SpeedMod"),
-        choices: vec![speed_mod_value_str], // Display only the current value
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "SpeedModHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::Mini,
-        behavior: RowBehavior::Custom(MINI),
-        name: lookup_key("PlayerOptions", "Mini"),
-        choices: (-100..=150).map(|v| format!("{v}%")).collect(),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "MiniHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::Perspective,
-        behavior: RowBehavior::Cycle(CycleBinding::Index(PERSPECTIVE)),
-        name: lookup_key("PlayerOptions", "Perspective"),
-        choices: vec![
-            tr("PlayerOptions", "PerspectiveOverhead").to_string(),
-            tr("PlayerOptions", "PerspectiveHallway").to_string(),
-            tr("PlayerOptions", "PerspectiveDistant").to_string(),
-            tr("PlayerOptions", "PerspectiveIncoming").to_string(),
-            tr("PlayerOptions", "PerspectiveSpace").to_string(),
-        ],
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "PerspectiveHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::NoteSkin,
-        behavior: RowBehavior::Custom(NOTE_SKIN),
-        name: lookup_key("PlayerOptions", "NoteSkin"),
-        choices: if noteskin_names.is_empty() {
-            vec![crate::game::profile::NoteSkin::DEFAULT_NAME.to_string()]
-        } else {
-            noteskin_names.to_vec()
-        },
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "NoteSkinHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::MineSkin,
-        behavior: RowBehavior::Custom(MINE_SKIN),
-        name: lookup_key("PlayerOptions", "MineSkin"),
-        choices: build_noteskin_override_choices(noteskin_names),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "MineSkinHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::ReceptorSkin,
-        behavior: RowBehavior::Custom(RECEPTOR_SKIN),
-        name: lookup_key("PlayerOptions", "ReceptorSkin"),
-        choices: build_noteskin_override_choices(noteskin_names),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "ReceptorSkinHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::TapExplosionSkin,
-        behavior: RowBehavior::Custom(TAP_EXPLOSION_SKIN),
-        name: lookup_key("PlayerOptions", "TapExplosionSkin"),
-        choices: build_tap_explosion_noteskin_choices(noteskin_names),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "TapExplosionSkinHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::JudgmentFont,
-        behavior: RowBehavior::Custom(JUDGMENT_FONT),
-        name: lookup_key("PlayerOptions", "JudgmentFont"),
-        choices: assets::judgment_texture_choices()
-            .iter()
-            .map(|choice| choice.label.clone())
-            .collect(),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "JudgmentFontHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::JudgmentOffsetX,
-        behavior: RowBehavior::Numeric(JUDGMENT_OFFSET_X),
-        name: lookup_key("PlayerOptions", "JudgmentOffsetX"),
-        choices: hud_offset_choices(),
-        selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "JudgmentOffsetXHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::JudgmentOffsetY,
-        behavior: RowBehavior::Numeric(JUDGMENT_OFFSET_Y),
-        name: lookup_key("PlayerOptions", "JudgmentOffsetY"),
-        choices: hud_offset_choices(),
-        selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "JudgmentOffsetYHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::ComboFont,
-        behavior: RowBehavior::Cycle(CycleBinding::Index(COMBO_FONT)),
-        name: lookup_key("PlayerOptions", "ComboFont"),
-        choices: vec![
-            tr("PlayerOptions", "ComboFontWendy").to_string(),
-            tr("PlayerOptions", "ComboFontArialRounded").to_string(),
-            tr("PlayerOptions", "ComboFontAsap").to_string(),
-            tr("PlayerOptions", "ComboFontBebasNeue").to_string(),
-            tr("PlayerOptions", "ComboFontSourceCode").to_string(),
-            tr("PlayerOptions", "ComboFontWork").to_string(),
-            tr("PlayerOptions", "ComboFontWendyCursed").to_string(),
-            tr("PlayerOptions", "ComboFontNone").to_string(),
-        ],
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "ComboFontHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::ComboOffsetX,
-        behavior: RowBehavior::Numeric(COMBO_OFFSET_X),
-        name: lookup_key("PlayerOptions", "ComboOffsetX"),
-        choices: hud_offset_choices(),
-        selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "ComboOffsetXHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::ComboOffsetY,
-        behavior: RowBehavior::Numeric(COMBO_OFFSET_Y),
-        name: lookup_key("PlayerOptions", "ComboOffsetY"),
-        choices: hud_offset_choices(),
-        selected_choice_index: [HUD_OFFSET_ZERO_INDEX; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "ComboOffsetYHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::HoldJudgment,
-        behavior: RowBehavior::Custom(HOLD_JUDGMENT),
-        name: lookup_key("PlayerOptions", "HoldJudgment"),
-        choices: assets::hold_judgment_texture_choices()
-            .iter()
-            .map(|choice| choice.label.clone())
-            .collect(),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "HoldJudgmentHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::BackgroundFilter,
-        behavior: RowBehavior::Cycle(CycleBinding::Index(BACKGROUND_FILTER)),
-        name: lookup_key("PlayerOptions", "BackgroundFilter"),
-        choices: vec![
-            tr("PlayerOptions", "BackgroundFilterOff").to_string(),
-            tr("PlayerOptions", "BackgroundFilterDark").to_string(),
-            tr("PlayerOptions", "BackgroundFilterDarker").to_string(),
-            tr("PlayerOptions", "BackgroundFilterDarkest").to_string(),
-        ],
-        selected_choice_index: [3; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "BackgroundFilterHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::NoteFieldOffsetX,
-        behavior: RowBehavior::Numeric(NOTEFIELD_OFFSET_X),
-        name: lookup_key("PlayerOptions", "NoteFieldOffsetX"),
-        choices: (0..=50).map(|v| v.to_string()).collect(),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "NoteFieldOffsetXHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::NoteFieldOffsetY,
-        behavior: RowBehavior::Numeric(NOTEFIELD_OFFSET_Y),
-        name: lookup_key("PlayerOptions", "NoteFieldOffsetY"),
-        choices: (-50..=50).map(|v| v.to_string()).collect(),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "NoteFieldOffsetYHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::VisualDelay,
-        behavior: RowBehavior::Numeric(VISUAL_DELAY),
-        name: lookup_key("PlayerOptions", "VisualDelay"),
-        choices: (-100..=100).map(|v| format!("{v}ms")).collect(),
-        selected_choice_index: [100; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "VisualDelayHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::GlobalOffsetShift,
-        behavior: RowBehavior::Numeric(GLOBAL_OFFSET_SHIFT),
-        name: lookup_key("PlayerOptions", "GlobalOffsetShift"),
-        choices: (-100..=100).map(|v| format!("{v}ms")).collect(),
-        selected_choice_index: [100; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "GlobalOffsetShiftHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::MusicRate,
-        behavior: RowBehavior::Custom(MUSIC_RATE),
-        name: lookup_key("PlayerOptions", "MusicRate"),
-        choices: vec![fmt_music_rate(session_music_rate.clamp(0.5, 3.0))],
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "MusicRateHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::Stepchart,
-        behavior: RowBehavior::Custom(STEPCHART),
-        name: lookup_key("PlayerOptions", "Stepchart"),
-        choices: stepchart_choices,
-        selected_choice_index: initial_stepchart_choice_index,
-        help: tr("PlayerOptionsHelp", "StepchartHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: Some(stepchart_choice_indices),
-        mirror_across_players: false,
-    });
-    b.push(Row {
-        id: RowId::WhatComesNext,
-        behavior: RowBehavior::Custom(super::WHAT_COMES_NEXT),
-        name: lookup_key("PlayerOptions", "WhatComesNext"),
-        choices: what_comes_next_choices(OptionsPane::Main, return_screen),
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: tr("PlayerOptionsHelp", "WhatComesNextHelp")
-            .split("\\n")
-            .map(|s| s.to_string())
-            .collect(),
-        choice_difficulty_indices: None,
-        mirror_across_players: true,
-    });
-    b.push(Row {
-        id: RowId::Exit,
-        behavior: RowBehavior::Exit,
-        name: lookup_key("Common", "Exit"),
-        choices: vec![tr("Common", "Exit").to_string()],
-        selected_choice_index: [0; PLAYER_SLOTS],
-        help: vec![String::new()],
-        choice_difficulty_indices: None,
-        mirror_across_players: false,
-    });
+    b.push(
+        Row::custom(
+            RowId::TypeOfSpeedMod,
+            lookup_key("PlayerOptions", "TypeOfSpeedMod"),
+            lookup_key("PlayerOptionsHelp", "TypeOfSpeedModHelp"),
+            TYPE_OF_SPEED_MOD,
+            vec![
+                tr("PlayerOptions", "SpeedModTypeX").to_string(),
+                tr("PlayerOptions", "SpeedModTypeC").to_string(),
+                tr("PlayerOptions", "SpeedModTypeM").to_string(),
+            ],
+        )
+        .with_initial_choice_index(speed_mod.mod_type.choice_index()),
+    );
+    b.push(Row::custom(
+        RowId::SpeedMod,
+        lookup_key("PlayerOptions", "SpeedMod"),
+        lookup_key("PlayerOptionsHelp", "SpeedModHelp"),
+        SPEED_MOD,
+        vec![speed_mod_value_str], // Display only the current value
+    ));
+    push_mini_row(&mut b);
+    push_perspective_row(&mut b);
+    push_noteskin_row(&mut b, noteskin_names);
+    push_judgment_font_row(&mut b);
+    push_combo_font_row(&mut b);
+    push_hold_judgment_row(&mut b);
+    push_held_graphic_row(&mut b);
+    push_background_filter_row(&mut b);
+    b.push(
+        Row::numeric(
+            RowId::VisualDelay,
+            lookup_key("PlayerOptions", "VisualDelay"),
+            lookup_key("PlayerOptionsHelp", "VisualDelayHelp"),
+            VISUAL_DELAY,
+            (gp::VISUAL_DELAY_MS_MIN..=gp::VISUAL_DELAY_MS_MAX)
+                .map(|v| format!("{v}ms"))
+                .collect(),
+        )
+        .with_initial_choice_index((-gp::VISUAL_DELAY_MS_MIN) as usize),
+    );
+    b.push(
+        Row::numeric(
+            RowId::GlobalOffsetShift,
+            lookup_key("PlayerOptions", "GlobalOffsetShift"),
+            lookup_key("PlayerOptionsHelp", "GlobalOffsetShiftHelp"),
+            GLOBAL_OFFSET_SHIFT,
+            (gp::VISUAL_DELAY_MS_MIN..=gp::VISUAL_DELAY_MS_MAX)
+                .map(|v| format!("{v}ms"))
+                .collect(),
+        )
+        .with_initial_choice_index((-gp::VISUAL_DELAY_MS_MIN) as usize),
+    );
+    b.push(Row::custom(
+        RowId::MusicRate,
+        lookup_key("PlayerOptions", "MusicRate"),
+        lookup_key("PlayerOptionsHelp", "MusicRateHelp"),
+        MUSIC_RATE,
+        vec![fmt_music_rate(session_music_rate.clamp(0.5, 3.0))],
+    ));
+    b.push(
+        Row::custom(
+            RowId::Stepchart,
+            lookup_key("PlayerOptions", "Stepchart"),
+            lookup_key("PlayerOptionsHelp", "StepchartHelp"),
+            STEPCHART,
+            stepchart_choices,
+        )
+        .with_initial_choice_indices(initial_stepchart_choice_index)
+        .with_choice_difficulty_indices(stepchart_choice_indices),
+    );
+    b.push(
+        Row::custom(
+            RowId::WhatComesNext,
+            lookup_key("PlayerOptions", "WhatComesNext"),
+            lookup_key("PlayerOptionsHelp", "WhatComesNextHelp"),
+            super::WHAT_COMES_NEXT,
+            what_comes_next_choices(OptionsPane::Main, return_screen),
+        )
+        .with_mirror_across_players(),
+    );
+    b.push(Row::exit());
     b.finish()
 }

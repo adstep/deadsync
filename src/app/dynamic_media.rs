@@ -8,6 +8,7 @@ use crate::game::profile;
 use image::RgbaImage;
 use log::warn;
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::mpsc,
@@ -23,17 +24,14 @@ struct DynamicVideoState {
 
 struct PreparedBannerVideo {
     key: String,
+    path: PathBuf,
     poster: RgbaImage,
     player: video::Player,
 }
 
 enum BannerVideoPrepResult {
     Ready(PreparedBannerVideo),
-    Failed {
-        key: String,
-        path: PathBuf,
-        msg: String,
-    },
+    Failed { path: PathBuf, msg: String },
 }
 
 struct PreparedGameplayBackground {
@@ -60,6 +58,7 @@ struct DynamicBackgroundState {
     key: String,
     path: PathBuf,
     video: Option<video::Player>,
+    video_started_at_sec: f32,
 }
 
 pub(crate) struct DynamicMedia {
@@ -71,6 +70,7 @@ pub(crate) struct DynamicMedia {
     current_dynamic_cdtitle: Option<(String, PathBuf)>,
     current_dynamic_pack_banner: Option<(String, PathBuf)>,
     dynamic_pack_banner_keys: std::collections::HashSet<String>,
+    wheel_item_background_keys: HashSet<String>,
     current_dynamic_background: Option<DynamicBackgroundState>,
     active_song_lua_videos: HashMap<String, video::Player>,
     failed_song_lua_video_keys: HashSet<String>,
@@ -95,6 +95,7 @@ impl DynamicMedia {
             current_dynamic_cdtitle: None,
             current_dynamic_pack_banner: None,
             dynamic_pack_banner_keys: std::collections::HashSet::new(),
+            wheel_item_background_keys: HashSet::new(),
             current_dynamic_background: None,
             active_song_lua_videos: HashMap::new(),
             failed_song_lua_video_keys: HashSet::new(),
@@ -126,6 +127,7 @@ impl DynamicMedia {
             self.active_banner_videos
                 .len()
                 .saturating_add(self.dynamic_pack_banner_keys.len())
+                .saturating_add(self.wheel_item_background_keys.len())
                 .saturating_add(self.active_song_lua_videos.len())
                 .saturating_add(self.failed_song_lua_video_keys.len())
                 .saturating_add(self.current_profile_avatars.len())
@@ -134,7 +136,10 @@ impl DynamicMedia {
         if let Some(state) = self.current_dynamic_banner.take() {
             keys.push(state.key);
         }
-        keys.extend(self.active_banner_videos.drain().map(|(key, _)| key));
+        keys.extend(self.active_banner_videos.drain().map(|(key, state)| {
+            retire_dynamic_video_state(state);
+            key
+        }));
         if let Some((key, _)) = self.current_dynamic_cdtitle.take() {
             keys.push(key);
         }
@@ -143,10 +148,14 @@ impl DynamicMedia {
             keys.push(key);
         }
         keys.extend(self.dynamic_pack_banner_keys.drain());
+        keys.extend(self.wheel_item_background_keys.drain());
         if let Some(state) = self.current_dynamic_background.take() {
-            keys.push(state.key);
+            keys.push(retire_dynamic_background_state(state));
         }
-        keys.extend(self.active_song_lua_videos.drain().map(|(key, _)| key));
+        keys.extend(self.active_song_lua_videos.drain().map(|(key, player)| {
+            retire_video_player(player);
+            key
+        }));
         keys.extend(self.failed_song_lua_video_keys.drain());
         keys.extend(self.gameplay_background_keys.drain());
         self.pending_gameplay_background_preps.clear();
@@ -280,6 +289,32 @@ impl DynamicMedia {
         }
     }
 
+    pub(crate) fn set_wheel_item_backgrounds(
+        &mut self,
+        assets: &mut AssetManager,
+        backend: &mut Backend,
+        paths: Vec<PathBuf>,
+    ) {
+        let mut desired = HashSet::with_capacity(paths.len());
+        for path in paths {
+            let key = path.to_string_lossy().into_owned();
+            if desired.insert(key) {
+                media_cache::ensure_banner_texture(assets, backend, &path);
+            }
+        }
+
+        let old = std::mem::replace(&mut self.wheel_item_background_keys, desired);
+        let mut release_keys = Vec::with_capacity(old.len());
+        for key in old {
+            if !self.wheel_item_background_keys.contains(&key) {
+                release_keys.push(key);
+            }
+        }
+        for key in dynamic::dedupe_dynamic_keys(release_keys) {
+            self.release_texture_key(assets, backend, key);
+        }
+    }
+
     pub(crate) fn set_banner(
         &mut self,
         assets: &mut AssetManager,
@@ -352,7 +387,9 @@ impl DynamicMedia {
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
         for key in stale_keys {
-            self.active_banner_videos.remove(&key);
+            if let Some(state) = self.active_banner_videos.remove(&key) {
+                retire_dynamic_video_state(state);
+            }
             self.release_texture_key(assets, backend, key);
         }
         self.drain_banner_video_preps(assets, desired_path);
@@ -387,7 +424,9 @@ impl DynamicMedia {
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
         for key in stale_keys {
-            self.active_banner_videos.remove(&key);
+            if let Some(state) = self.active_banner_videos.remove(&key) {
+                retire_dynamic_video_state(state);
+            }
             self.release_texture_key(assets, backend, key);
         }
         self.drain_banner_video_preps_multi(assets, desired_paths);
@@ -412,6 +451,7 @@ impl DynamicMedia {
         assets: &mut AssetManager,
         backend: &mut Backend,
         path_opt: Option<PathBuf>,
+        video_started_at_sec: f32,
     ) -> String {
         const FALLBACK_KEY: &str = "__black";
 
@@ -460,6 +500,7 @@ impl DynamicMedia {
                     key: key.clone(),
                     path,
                     video,
+                    video_started_at_sec: video_started_at_sec.max(0.0),
                 });
                 return key;
             }
@@ -483,6 +524,7 @@ impl DynamicMedia {
                                     key: key.clone(),
                                     path,
                                     video: Some(video.player),
+                                    video_started_at_sec: video_started_at_sec.max(0.0),
                                 });
                                 return key;
                             }
@@ -517,6 +559,7 @@ impl DynamicMedia {
                                 key: key.clone(),
                                 path,
                                 video: None,
+                                video_started_at_sec: video_started_at_sec.max(0.0),
                             });
                             return key;
                         }
@@ -560,6 +603,7 @@ impl DynamicMedia {
                         key: key.clone(),
                         path,
                         video: None,
+                        video_started_at_sec: video_started_at_sec.max(0.0),
                     });
                     key
                 }
@@ -581,40 +625,45 @@ impl DynamicMedia {
         assets: &mut AssetManager,
         backend: &mut Backend,
         desired_path: Option<&Path>,
+        desired_key: Option<&str>,
         animate_video: bool,
+        gameplay_time_sec: f32,
     ) -> Option<String> {
         const FALLBACK_KEY: &str = "__black";
-
-        let desired_key = desired_path.map(|path| path.to_string_lossy().into_owned());
-        if self.failed_gameplay_background_key.as_deref() != desired_key.as_deref() {
-            self.failed_gameplay_background_key = None;
-        }
 
         let Some(path) = desired_path else {
             self.failed_gameplay_background_key = None;
             self.reset_pending_gameplay_background();
+            let had_background = self.current_dynamic_background.is_some();
             self.destroy_current_dynamic_background(assets, backend);
-            return Some(FALLBACK_KEY.to_string());
+            return had_background.then(|| FALLBACK_KEY.to_string());
         };
-        let desired_key = desired_key.unwrap();
+        let desired_key = desired_key
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| path.to_string_lossy());
+        let desired_key = desired_key.as_ref();
+        if self.failed_gameplay_background_key.as_deref() != Some(desired_key) {
+            self.failed_gameplay_background_key = None;
+        }
         let wants_video = animate_video && dynamic::is_dynamic_video_path(path);
 
         if wants_video {
-            self.drain_gameplay_background_preps(&desired_key);
+            self.drain_gameplay_background_preps(assets, backend, desired_key, gameplay_time_sec);
         } else {
             self.reset_pending_gameplay_background();
         }
 
-        if !assets.has_texture_key(&desired_key) {
-            if self.failed_gameplay_background_key.as_deref() != Some(desired_key.as_str()) {
+        if !assets.has_texture_key(desired_key) {
+            if self.failed_gameplay_background_key.as_deref() != Some(desired_key) {
                 warn!(
                     "Gameplay background '{}' was not prewarmed; using fallback.",
                     path.display()
                 );
-                self.failed_gameplay_background_key = Some(desired_key.clone());
+                self.failed_gameplay_background_key = Some(desired_key.to_owned());
+                self.destroy_current_dynamic_background(assets, backend);
+                return Some(FALLBACK_KEY.to_string());
             }
-            self.destroy_current_dynamic_background(assets, backend);
-            return Some(FALLBACK_KEY.to_string());
+            return None;
         }
 
         let current_matches = self
@@ -642,26 +691,23 @@ impl DynamicMedia {
         if !current_path_matches {
             self.destroy_current_dynamic_background(assets, backend);
             self.current_dynamic_background = Some(DynamicBackgroundState {
-                key: desired_key.clone(),
+                key: desired_key.to_owned(),
                 path: path.to_path_buf(),
                 video: None,
+                video_started_at_sec: gameplay_time_sec.max(0.0),
             });
             if wants_video
-                && !self
-                    .pending_gameplay_background_preps
-                    .contains(&desired_key)
-                && self.failed_gameplay_background_key.as_deref() != Some(desired_key.as_str())
+                && !self.pending_gameplay_background_preps.contains(desired_key)
+                && self.failed_gameplay_background_key.as_deref() != Some(desired_key)
             {
                 self.spawn_gameplay_background_prep(path);
             }
-            return Some(desired_key);
+            return Some(desired_key.to_owned());
         }
 
         if wants_video
-            && !self
-                .pending_gameplay_background_preps
-                .contains(&desired_key)
-            && self.failed_gameplay_background_key.as_deref() != Some(desired_key.as_str())
+            && !self.pending_gameplay_background_preps.contains(desired_key)
+            && self.failed_gameplay_background_key.as_deref() != Some(desired_key)
         {
             self.spawn_gameplay_background_prep(path);
         }
@@ -693,7 +739,9 @@ impl DynamicMedia {
             .collect::<Vec<_>>();
 
         for key in stale_active {
-            self.active_song_lua_videos.remove(&key);
+            if let Some(player) = self.active_song_lua_videos.remove(&key) {
+                retire_video_player(player);
+            }
             self.release_texture_key(assets, backend, key);
         }
         for key in stale_failed {
@@ -761,10 +809,11 @@ impl DynamicMedia {
         backend: &mut Backend,
     ) {
         self.destroy_current_dynamic_background(assets, backend);
-        for key in self.active_song_lua_videos.drain().map(|(key, _)| key) {
+        for (key, player) in std::mem::take(&mut self.active_song_lua_videos) {
+            retire_video_player(player);
             self.release_texture_key(assets, backend, key);
         }
-        for key in self.failed_song_lua_video_keys.drain() {
+        for key in std::mem::take(&mut self.failed_song_lua_video_keys) {
             self.release_texture_key(assets, backend, key);
         }
         self.reset_pending_gameplay_background();
@@ -819,8 +868,12 @@ impl DynamicMedia {
         &mut self,
         assets: &mut AssetManager,
         gameplay_time_sec: Option<f32>,
+        ui_time_sec: f32,
     ) {
         for (key, video) in &mut self.active_banner_videos {
+            if assets.has_pending_texture_upload(key) {
+                continue;
+            }
             let play_time = video.started_at.elapsed().as_secs_f32();
             if let Some(frame) = video.player.take_due_frame(play_time) {
                 assets.queue_texture_upload(key.clone(), frame);
@@ -829,8 +882,10 @@ impl DynamicMedia {
 
         if let Some(state) = self.current_dynamic_background.as_mut()
             && let Some(video) = state.video.as_mut()
+            && !assets.has_pending_texture_upload(&state.key)
         {
-            let play_time = gameplay_time_sec.unwrap_or(0.0).max(0.0);
+            let play_time = gameplay_time_sec.unwrap_or(ui_time_sec).max(0.0);
+            let play_time = background_video_play_time(play_time, state.video_started_at_sec);
             if let Some(frame) = video.take_due_frame(play_time) {
                 assets.queue_texture_upload(state.key.clone(), frame);
             }
@@ -838,6 +893,9 @@ impl DynamicMedia {
 
         let song_lua_play_time = gameplay_time_sec.unwrap_or(0.0).max(0.0);
         for (key, player) in &mut self.active_song_lua_videos {
+            if assets.has_pending_texture_upload(key) {
+                continue;
+            }
             if let Some(frame) = player.take_due_frame(song_lua_play_time) {
                 assets.queue_texture_upload(key.clone(), frame);
             }
@@ -867,6 +925,7 @@ impl DynamicMedia {
                 .as_ref()
                 .is_some_and(|(owned, _)| owned == key)
             || self.dynamic_pack_banner_keys.contains(key)
+            || self.wheel_item_background_keys.contains(key)
             || self
                 .current_dynamic_background
                 .as_ref()
@@ -927,7 +986,7 @@ impl DynamicMedia {
         backend: &mut Backend,
     ) {
         if let Some(state) = self.current_dynamic_background.take() {
-            self.release_texture_key(assets, backend, state.key);
+            self.release_texture_key(assets, backend, retire_dynamic_background_state(state));
         }
     }
 
@@ -970,19 +1029,22 @@ impl DynamicMedia {
                 BannerVideoPrepResult::Ready(prepared) => {
                     self.pending_banner_video_preps.remove(&prepared.path);
                     if Some(prepared.path.as_path()) != desired_path {
+                        retire_video_player(prepared.player);
                         continue;
                     }
                     assets.queue_texture_upload(prepared.key.clone(), prepared.poster);
-                    self.active_banner_videos.insert(
+                    if let Some(old) = self.active_banner_videos.insert(
                         prepared.key,
                         DynamicVideoState {
                             player: prepared.player,
                             started_at: Instant::now(),
                             path: prepared.path,
                         },
-                    );
+                    ) {
+                        retire_dynamic_video_state(old);
+                    }
                 }
-                BannerVideoPrepResult::Failed { key: _, path, msg } => {
+                BannerVideoPrepResult::Failed { path, msg } => {
                     self.pending_banner_video_preps.remove(&path);
                     if Some(path.as_path()) == desired_path {
                         warn!("Failed to start banner video '{}': {msg}", path.display());
@@ -1005,19 +1067,22 @@ impl DynamicMedia {
                         dynamic::is_dynamic_video_path(path)
                             && path.as_path() == prepared.path.as_path()
                     }) {
+                        retire_video_player(prepared.player);
                         continue;
                     }
                     assets.queue_texture_upload(prepared.key.clone(), prepared.poster);
-                    self.active_banner_videos.insert(
+                    if let Some(old) = self.active_banner_videos.insert(
                         prepared.key,
                         DynamicVideoState {
                             player: prepared.player,
                             started_at: Instant::now(),
                             path: prepared.path,
                         },
-                    );
+                    ) {
+                        retire_dynamic_video_state(old);
+                    }
                 }
-                BannerVideoPrepResult::Failed { key: _, path, msg } => {
+                BannerVideoPrepResult::Failed { path, msg } => {
                     self.pending_banner_video_preps.remove(&path);
                     if desired_paths.iter().any(|desired| {
                         dynamic::is_dynamic_video_path(desired)
@@ -1030,12 +1095,19 @@ impl DynamicMedia {
         }
     }
 
-    fn drain_gameplay_background_preps(&mut self, desired_key: &str) {
+    fn drain_gameplay_background_preps(
+        &mut self,
+        assets: &mut AssetManager,
+        backend: &mut Backend,
+        desired_key: &str,
+        gameplay_time_sec: f32,
+    ) {
         while let Ok(result) = self.gameplay_background_prep_rx.try_recv() {
             match result {
                 GameplayBackgroundPrepResult::Ready(prepared) => {
                     self.pending_gameplay_background_preps.remove(&prepared.key);
                     if prepared.key != desired_key {
+                        retire_video_player(prepared.player);
                         continue;
                     }
                     self.failed_gameplay_background_key = None;
@@ -1043,12 +1115,20 @@ impl DynamicMedia {
                         && state.key == prepared.key
                         && state.path == prepared.path
                     {
-                        state.video = Some(prepared.player);
+                        if let Some(old) = state.video.replace(prepared.player) {
+                            retire_video_player(old);
+                        }
+                        state.video_started_at_sec = gameplay_time_sec.max(0.0);
                     } else {
+                        if let Some(state) = self.current_dynamic_background.take() {
+                            let key = retire_dynamic_background_state(state);
+                            self.release_texture_key(assets, backend, key);
+                        }
                         self.current_dynamic_background = Some(DynamicBackgroundState {
                             key: prepared.key,
                             path: prepared.path,
                             video: Some(prepared.player),
+                            video_started_at_sec: gameplay_time_sec.max(0.0),
                         });
                     }
                 }
@@ -1068,7 +1148,11 @@ impl DynamicMedia {
     }
 
     fn clear_gameplay_background_results(&mut self) {
-        while self.gameplay_background_prep_rx.try_recv().is_ok() {}
+        while let Ok(result) = self.gameplay_background_prep_rx.try_recv() {
+            if let GameplayBackgroundPrepResult::Ready(prepared) = result {
+                retire_video_player(prepared.player);
+            }
+        }
     }
     fn destroy_current_profile_avatar_for_side(
         &mut self,
@@ -1090,27 +1174,29 @@ fn prepare_banner_video(key: String, path: PathBuf) -> BannerVideoPrepResult {
         return match video::open(&path, true) {
             Ok(video) => BannerVideoPrepResult::Ready(PreparedBannerVideo {
                 key,
+                path,
                 poster: video.poster,
                 player: video.player,
             }),
-            Err(msg) => BannerVideoPrepResult::Failed { key, path, msg },
+            Err(msg) => BannerVideoPrepResult::Failed { path, msg },
         };
     }
 
     let poster = match media_cache::load_banner_source_rgba(&path) {
         Ok(rgba) => rgba,
         Err(msg) => {
-            return BannerVideoPrepResult::Failed { key, path, msg };
+            return BannerVideoPrepResult::Failed { path, msg };
         }
     };
     let player = match video::open_player(&path, true) {
         Ok(player) => player,
         Err(msg) => {
-            return BannerVideoPrepResult::Failed { key, path, msg };
+            return BannerVideoPrepResult::Failed { path, msg };
         }
     };
     BannerVideoPrepResult::Ready(PreparedBannerVideo {
         key,
+        path,
         poster,
         player,
     })
@@ -1125,6 +1211,30 @@ fn prepare_gameplay_background(key: String, path: PathBuf) -> GameplayBackground
     }
 }
 
+fn retire_video_player(player: video::Player) {
+    player.retire_async();
+}
+
+fn retire_video_player_opt(player: Option<video::Player>) {
+    if let Some(player) = player {
+        retire_video_player(player);
+    }
+}
+
+fn retire_dynamic_video_state(state: DynamicVideoState) {
+    retire_video_player(state.player);
+}
+
+fn retire_dynamic_background_state(mut state: DynamicBackgroundState) -> String {
+    retire_video_player_opt(state.video.take());
+    state.key
+}
+
+#[inline(always)]
+fn background_video_play_time(gameplay_time_sec: f32, started_at_sec: f32) -> f32 {
+    (gameplay_time_sec - started_at_sec).max(0.0)
+}
+
 impl Default for DynamicMedia {
     fn default() -> Self {
         Self::new()
@@ -1134,6 +1244,12 @@ impl Default for DynamicMedia {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gameplay_background_video_uses_local_play_time() {
+        assert_eq!(background_video_play_time(12.5, 10.0), 2.5);
+        assert_eq!(background_video_play_time(9.0, 10.0), 0.0);
+    }
 
     #[test]
     fn shared_dynamic_key_stays_until_last_owner_releases_it() {
@@ -1151,6 +1267,7 @@ mod tests {
             key: key.clone(),
             path,
             video: None,
+            video_started_at_sec: 0.0,
         });
 
         media.current_dynamic_banner = None;
@@ -1227,7 +1344,6 @@ mod tests {
         media
             .banner_video_prep_tx
             .send(BannerVideoPrepResult::Failed {
-                key: key.clone(),
                 path: PathBuf::from(&key),
                 msg: "failed".to_string(),
             })

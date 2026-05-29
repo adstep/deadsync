@@ -1,5 +1,6 @@
 use crate::act;
 use crate::assets::i18n::{self, tr, tr_fmt};
+use crate::assets::{FontRole, current_machine_font_key};
 // Screen navigation is handled in app
 use crate::engine::input::{InputEvent, RawKeyboardEvent, VirtualAction};
 use crate::engine::present::actors::{Actor, TextAlign};
@@ -13,14 +14,14 @@ use crate::game::song::get_song_cache;
 use crate::screens::components::menu::logo::{self, LogoParams};
 use crate::screens::components::menu::menu_list::{self};
 use crate::screens::components::menu::menu_splash;
-use crate::screens::components::shared::{heart_bg, screen_bar};
+use crate::screens::components::shared::{screen_bar, transitions, visual_style_bg};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use winit::keyboard::KeyCode;
 
-use crate::engine::space::{screen_center_x, screen_height, screen_width};
+use crate::engine::space::screen_center_x;
 
 /* ---------------------------- transitions ---------------------------- */
 const TRANSITION_IN_DURATION: f32 = 0.5;
@@ -40,6 +41,11 @@ const MENU_ROW_SPACING: f32 = 28.0;
 const INFO_PX: f32 = 15.0;
 const INFO_GAP: f32 = 5.0;
 const INFO_MARGIN_ABOVE: f32 = 20.0;
+const STATUS_BASE_X: f32 = 10.0;
+const STATUS_BASE_Y: f32 = 15.0;
+const STATUS_ZOOM: f32 = 0.8;
+const STATUS_LINE_HEIGHT: f32 = 18.0;
+const STATUS_BLOCK_GAP: f32 = 6.0;
 
 #[derive(Clone)]
 struct StatusTextCache<K, const N: usize> {
@@ -95,9 +101,9 @@ pub struct State {
     pub active_color_index: i32,
     pub rainbow_mode: bool,
     pub started_by_p2: bool,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     i18n_revision: Cell<u64>,
-    info_text_cache: RefCell<Option<Arc<str>>>,
+    info_text_cache: RefCell<Option<(Option<String>, Arc<str>)>>,
     groovestats_text_cache: RefCell<Option<StatusTextCache<GrooveStatusKey, 3>>>,
     arrowcloud_text_cache: RefCell<Option<StatusTextCache<ArrowCloudStatusKey, 1>>>,
     menu_lr_chord: screen_input::MenuLrChordTracker,
@@ -110,7 +116,7 @@ pub fn init() -> State {
         active_color_index: color::DEFAULT_COLOR_INDEX, // was 0
         rainbow_mode: false,
         started_by_p2: false,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         i18n_revision: Cell::new(i18n::revision()),
         info_text_cache: RefCell::new(None),
         groovestats_text_cache: RefCell::new(None),
@@ -135,15 +141,7 @@ pub fn handle_raw_key_event(_state: &mut State, key: &RawKeyboardEvent) -> Scree
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition(active_color_index: i32) -> (Vec<Actor>, f32) {
@@ -153,13 +151,7 @@ pub fn out_transition(active_color_index: i32) -> (Vec<Actor>, f32) {
     actors.extend(menu_splash::build(active_color_index));
 
     // Full-screen fade to black behind the hearts.
-    let fade = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
+    let fade = transitions::fade_out_black_actor(TRANSITION_OUT_DURATION, 1200);
     actors.push(fade);
 
     (actors, TRANSITION_OUT_DURATION)
@@ -182,16 +174,24 @@ fn sync_i18n_cache(state: &State) {
 
 #[inline(always)]
 fn menu_info_text(state: &State) -> Arc<str> {
-    if let Some(text) = state.info_text_cache.borrow().as_ref() {
+    let banner_tag = update_banner_tag();
+    if let Some((cached_tag, text)) = state.info_text_cache.borrow().as_ref()
+        && cached_tag == &banner_tag
+    {
         return text.clone();
     }
 
-    let version = env!("CARGO_PKG_VERSION");
+    let version = crate::engine::version::current().to_string();
     let song_cache = get_song_cache();
     let num_packs = song_cache.len();
     let num_songs: usize = song_cache.iter().map(|pack| pack.songs.len()).sum();
     let num_courses = get_course_cache().len();
-    let version_line = tr_fmt("Menu", "VersionLine", &[("version", version)]);
+    let mut version_line = tr_fmt("Menu", "VersionLine", &[("version", &version)]).to_string();
+    if let Some(tag) = banner_tag.as_deref() {
+        let suffix = tr_fmt("Menu", "UpdateAvailableSuffix", &[("version", tag)]);
+        version_line.push(' ');
+        version_line.push_str(&suffix);
+    }
     let songs = num_songs.to_string();
     let packs = num_packs.to_string();
     let courses = num_courses.to_string();
@@ -201,8 +201,15 @@ fn menu_info_text(state: &State) -> Arc<str> {
         &[("songs", &songs), ("packs", &packs), ("courses", &courses)],
     );
     let text = Arc::<str>::from(format!("{version_line}\n{summary}"));
-    *state.info_text_cache.borrow_mut() = Some(text.clone());
+    *state.info_text_cache.borrow_mut() = Some((banner_tag, text.clone()));
     text
+}
+
+fn update_banner_tag() -> Option<String> {
+    match crate::engine::updater::state::snapshot()? {
+        crate::engine::updater::UpdateState::Available(info) => Some(info.tag),
+        _ => None,
+    }
 }
 
 #[inline(always)]
@@ -386,7 +393,7 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
     } else {
         [0.0, 0.0, 0.0, 1.0]
     };
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: backdrop,
         alpha_mul: 1.0,
@@ -441,7 +448,7 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
         row_spacing: MENU_ROW_SPACING,
         selected_color: selected,
         normal_color: normal,
-        font: "wendy",
+        font: current_machine_font_key(FontRole::Bold),
     };
     actors.extend(menu_list::build_vertical_menu(params));
 
@@ -451,7 +458,7 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
     let event_mode = tr("Common", "EventMode");
     let press_start = tr("Common", "PressStart");
 
-    actors.push(screen_bar::build(screen_bar::ScreenBarParams {
+    actors.push(screen_bar::build_title_menu(screen_bar::ScreenBarParams {
         title: event_mode.as_ref(),
         title_placement: screen_bar::ScreenBarTitlePlacement::Center,
         position: screen_bar::ScreenBarPosition::Bottom,
@@ -465,59 +472,53 @@ pub fn get_actors(state: &State, alpha_multiplier: f32) -> Vec<Actor> {
     }));
 
     // --- GrooveStats Info Pane (top-left) ---
-    let frame_zoom = 0.8;
-    let base_x = 10.0;
-    let base_y = 15.0;
     let gs_text = groovestats_text(state);
     actors.push(status_text_actor(
         gs_text.main.clone(),
         0.0,
-        base_x,
-        base_y,
-        frame_zoom,
+        STATUS_BASE_X,
+        STATUS_BASE_Y,
+        STATUS_ZOOM,
         alpha_multiplier,
         TextAlign::Left,
     ));
-    let line_height_offset = 18.0;
     for line_idx in 0..gs_text.line_count {
         if let Some(text) = gs_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
                 text.clone(),
                 0.0,
-                base_x,
-                (line_height_offset * (line_idx as f32 + 1.0)).mul_add(frame_zoom, base_y),
-                frame_zoom,
+                STATUS_BASE_X,
+                (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, STATUS_BASE_Y),
+                STATUS_ZOOM,
                 alpha_multiplier,
                 TextAlign::Left,
             ));
         }
     }
 
-    // --- Arrow Cloud Info Pane (top-right) ---
-    let ac_frame_zoom = 0.8;
-    let ac_base_x = screen_width() - 10.0;
-    let ac_base_y = 15.0;
+    // --- Arrow Cloud Info Pane (below GrooveStats/BoogieStats) ---
+    let ac_base_y = (STATUS_LINE_HEIGHT * (gs_text.line_count as f32 + 1.0))
+        .mul_add(STATUS_ZOOM, STATUS_BASE_Y + STATUS_BLOCK_GAP);
     let ac_text = arrowcloud_text(state);
     actors.push(status_text_actor(
         ac_text.main.clone(),
-        1.0,
-        ac_base_x,
+        0.0,
+        STATUS_BASE_X,
         ac_base_y,
-        ac_frame_zoom,
+        STATUS_ZOOM,
         alpha_multiplier,
-        TextAlign::Right,
+        TextAlign::Left,
     ));
-    let ac_line_height_offset = 18.0;
     for line_idx in 0..ac_text.line_count {
         if let Some(text) = ac_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
                 text.clone(),
-                1.0,
-                ac_base_x,
-                (ac_line_height_offset * (line_idx as f32 + 1.0)).mul_add(ac_frame_zoom, ac_base_y),
-                ac_frame_zoom,
+                0.0,
+                STATUS_BASE_X,
+                (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, ac_base_y),
+                STATUS_ZOOM,
                 alpha_multiplier,
-                TextAlign::Right,
+                TextAlign::Left,
             ));
         }
     }
@@ -542,6 +543,29 @@ fn start_selected(state: &mut State, started_by_p2: bool) -> ScreenAction {
         1 => ScreenAction::Navigate(Screen::Options),
         2 => ScreenAction::Exit,
         _ => ScreenAction::None,
+    }
+}
+
+#[inline(always)]
+const fn menu_nav_delta(action: VirtualAction) -> Option<isize> {
+    match action {
+        VirtualAction::p1_left
+        | VirtualAction::p1_menu_left
+        | VirtualAction::p1_up
+        | VirtualAction::p1_menu_up
+        | VirtualAction::p2_left
+        | VirtualAction::p2_menu_left
+        | VirtualAction::p2_up
+        | VirtualAction::p2_menu_up => Some(-1),
+        VirtualAction::p1_right
+        | VirtualAction::p1_menu_right
+        | VirtualAction::p1_down
+        | VirtualAction::p1_menu_down
+        | VirtualAction::p2_right
+        | VirtualAction::p2_menu_right
+        | VirtualAction::p2_down
+        | VirtualAction::p2_menu_down => Some(1),
+        _ => None,
     }
 }
 
@@ -582,25 +606,45 @@ pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
     if !ev.pressed {
         return ScreenAction::None;
     }
+    if let Some(delta) = menu_nav_delta(ev.action) {
+        move_selection(state, delta);
+        return ScreenAction::None;
+    }
     match ev.action {
         VirtualAction::p1_start | VirtualAction::p2_start => {
             start_selected(state, matches!(ev.action, VirtualAction::p2_start))
         }
         VirtualAction::p1_back | VirtualAction::p2_back => ScreenAction::Exit,
-        VirtualAction::p1_up
-        | VirtualAction::p1_menu_up
-        | VirtualAction::p2_up
-        | VirtualAction::p2_menu_up => {
-            move_selection(state, -1);
-            ScreenAction::None
-        }
-        VirtualAction::p1_down
-        | VirtualAction::p1_menu_down
-        | VirtualAction::p2_down
-        | VirtualAction::p2_menu_down => {
-            move_selection(state, 1);
-            ScreenAction::None
-        }
         _ => ScreenAction::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::menu_nav_delta;
+    use crate::engine::input::VirtualAction;
+
+    #[test]
+    fn title_menu_left_and_up_move_previous() {
+        assert_eq!(menu_nav_delta(VirtualAction::p1_left), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_menu_left), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_up), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_menu_up), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_left), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_menu_left), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_up), Some(-1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_menu_up), Some(-1));
+    }
+
+    #[test]
+    fn title_menu_right_and_down_move_next() {
+        assert_eq!(menu_nav_delta(VirtualAction::p1_right), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_menu_right), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_down), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p1_menu_down), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_right), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_menu_right), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_down), Some(1));
+        assert_eq!(menu_nav_delta(VirtualAction::p2_menu_down), Some(1));
     }
 }

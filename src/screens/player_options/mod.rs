@@ -6,24 +6,22 @@ use crate::engine::gfx::BlendMode;
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
-use crate::engine::space::{
-    screen_center_x, screen_center_y, screen_height, screen_width, widescale,
-};
+use crate::engine::space::{screen_center_x, screen_center_y, screen_height, widescale};
 use crate::game::chart::ChartData;
 use crate::game::parsing::noteskin::{
     self, NUM_QUANTIZATIONS, NoteAnimPart, Noteskin, Quantization, SpriteSlot,
 };
 use crate::game::song::SongData;
-use crate::screens::components::shared::heart_bg;
 use crate::screens::components::shared::noteskin_model::noteskin_model_actor;
 use crate::screens::components::shared::screen_bar::{
-    self, AvatarParams, ScreenBarParams, ScreenBarPosition, ScreenBarTitlePlacement,
+    self, ScreenBarParams, ScreenBarPosition, ScreenBarTitlePlacement,
 };
+use crate::screens::components::shared::{transitions, visual_style_bg};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // --- Submodules ---
 mod choice;
@@ -126,6 +124,17 @@ pub fn init(
         return_screen,
         fixed_stepchart.as_ref(),
     );
+    let mut display_row_map = build_rows(
+        &song,
+        &speed_mod_p1,
+        chart_steps_index,
+        preferred_difficulty_index,
+        session_music_rate,
+        OptionsPane::Display,
+        &noteskin_names,
+        return_screen,
+        fixed_stepchart.as_ref(),
+    );
     let mut advanced_row_map = build_rows(
         &song,
         &speed_mod_p1,
@@ -149,57 +158,51 @@ pub fn init(
         fixed_stepchart.as_ref(),
     );
     let player_profiles = [p1_profile.clone(), p2_profile.clone()];
-    // `apply_profile_defaults` populates 8 of its 17 returned masks (Scroll,
-    // Insert, Remove, Holds, Accel, Effect, Appearance, EarlyDw) only when
-    // the corresponding row exists in the passed `row_map`. Those rows live
-    // on the Advanced and Uncommon panes, so we must call the function on
-    // every pane and OR the results together. Otherwise persisted profile
-    // state for those rows would silently appear empty here and get
-    // overwritten the moment the user touches any choice on those rows.
-    let p1_main = apply_profile_defaults(&mut main_row_map, &player_profiles[P1], P1);
-    let p2_main = apply_profile_defaults(&mut main_row_map, &player_profiles[P2], P2);
-    let p1_advanced = apply_profile_defaults(&mut advanced_row_map, &player_profiles[P1], P1);
-    let p2_advanced = apply_profile_defaults(&mut advanced_row_map, &player_profiles[P2], P2);
-    let p1_uncommon = apply_profile_defaults(&mut uncommon_row_map, &player_profiles[P1], P1);
-    let p2_uncommon = apply_profile_defaults(&mut uncommon_row_map, &player_profiles[P2], P2);
-    let (
-        scroll_active_mask_p1,
-        hide_active_mask_p1,
-        insert_active_mask_p1,
-        remove_active_mask_p1,
-        holds_active_mask_p1,
-        accel_effects_active_mask_p1,
-        visual_effects_active_mask_p1,
-        appearance_effects_active_mask_p1,
-        fa_plus_active_mask_p1,
-        early_dw_active_mask_p1,
-        gameplay_extras_active_mask_p1,
-        gameplay_extras_more_active_mask_p1,
-        results_extras_active_mask_p1,
-        life_bar_options_active_mask_p1,
-        error_bar_active_mask_p1,
-        error_bar_options_active_mask_p1,
-        measure_counter_options_active_mask_p1,
-    ) = or_active_masks(or_active_masks(p1_main, p1_advanced), p1_uncommon);
-    let (
-        scroll_active_mask_p2,
-        hide_active_mask_p2,
-        insert_active_mask_p2,
-        remove_active_mask_p2,
-        holds_active_mask_p2,
-        accel_effects_active_mask_p2,
-        visual_effects_active_mask_p2,
-        appearance_effects_active_mask_p2,
-        fa_plus_active_mask_p2,
-        early_dw_active_mask_p2,
-        gameplay_extras_active_mask_p2,
-        gameplay_extras_more_active_mask_p2,
-        results_extras_active_mask_p2,
-        life_bar_options_active_mask_p2,
-        error_bar_active_mask_p2,
-        error_bar_options_active_mask_p2,
-        measure_counter_options_active_mask_p2,
-    ) = or_active_masks(or_active_masks(p2_main, p2_advanced), p2_uncommon);
+    // Each `BitmaskBinding` lives on exactly one pane's row, and
+    // `apply_derived_masks` is a pure function of `profile`, so calling
+    // `apply_profile_defaults` once per (pane, player) with the same
+    // `&mut PlayerOptionMasks` accumulates writes safely without needing
+    // a per-pane merge step.
+    let mut p1_masks = PlayerOptionMasks::default();
+    let mut p2_masks = PlayerOptionMasks::default();
+    apply_profile_defaults(&mut main_row_map, &player_profiles[P1], P1, &mut p1_masks);
+    apply_profile_defaults(&mut main_row_map, &player_profiles[P2], P2, &mut p2_masks);
+    apply_profile_defaults(
+        &mut display_row_map,
+        &player_profiles[P1],
+        P1,
+        &mut p1_masks,
+    );
+    apply_profile_defaults(
+        &mut display_row_map,
+        &player_profiles[P2],
+        P2,
+        &mut p2_masks,
+    );
+    apply_profile_defaults(
+        &mut advanced_row_map,
+        &player_profiles[P1],
+        P1,
+        &mut p1_masks,
+    );
+    apply_profile_defaults(
+        &mut advanced_row_map,
+        &player_profiles[P2],
+        P2,
+        &mut p2_masks,
+    );
+    apply_profile_defaults(
+        &mut uncommon_row_map,
+        &player_profiles[P1],
+        P1,
+        &mut p1_masks,
+    );
+    apply_profile_defaults(
+        &mut uncommon_row_map,
+        &player_profiles[P2],
+        P2,
+        &mut p2_masks,
+    );
 
     let cols_per_player = noteskin_cols_per_player(crate::game::profile::get_session_play_style());
     let mut initial_noteskin_names = vec![crate::game::profile::NoteSkin::DEFAULT_NAME.to_string()];
@@ -216,115 +219,68 @@ pub fn init(
         }
     }
     let mut noteskin_cache = build_noteskin_cache(cols_per_player, &initial_noteskin_names);
-    let noteskin_previews: [Option<Arc<Noteskin>>; PLAYER_SLOTS] = std::array::from_fn(|i| {
-        cached_or_load_noteskin(
-            &mut noteskin_cache,
-            &player_profiles[i].noteskin,
-            cols_per_player,
-        )
-    });
-    let mine_noteskin_previews: [Option<Arc<Noteskin>>; PLAYER_SLOTS] = std::array::from_fn(|i| {
-        resolved_noteskin_override_preview(
-            &mut noteskin_cache,
-            &player_profiles[i].noteskin,
-            player_profiles[i].mine_noteskin.as_ref(),
-            cols_per_player,
-        )
-    });
-    let receptor_noteskin_previews: [Option<Arc<Noteskin>>; PLAYER_SLOTS] =
-        std::array::from_fn(|i| {
-            resolved_noteskin_override_preview(
+    let noteskin_previews: [PlayerNoteskinPreviews; PLAYER_SLOTS] = std::array::from_fn(|i| {
+        let profile_noteskin = &player_profiles[i].noteskin;
+        PlayerNoteskinPreviews {
+            base: cached_or_load_noteskin(&mut noteskin_cache, profile_noteskin, cols_per_player),
+            mine: resolved_noteskin_override_preview(
                 &mut noteskin_cache,
-                &player_profiles[i].noteskin,
+                profile_noteskin,
+                player_profiles[i].mine_noteskin.as_ref(),
+                cols_per_player,
+            ),
+            receptor: resolved_noteskin_override_preview(
+                &mut noteskin_cache,
+                profile_noteskin,
                 player_profiles[i].receptor_noteskin.as_ref(),
                 cols_per_player,
-            )
-        });
-    let tap_explosion_noteskin_previews: [Option<Arc<Noteskin>>; PLAYER_SLOTS] =
-        std::array::from_fn(|i| {
-            resolved_tap_explosion_preview(
+            ),
+            tap_explosion: resolved_tap_explosion_preview(
                 &mut noteskin_cache,
-                &player_profiles[i].noteskin,
+                profile_noteskin,
                 player_profiles[i].tap_explosion_noteskin.as_ref(),
                 cols_per_player,
-            )
-        });
+            ),
+        }
+    });
+    let noteskin = NoteskinState {
+        cache: noteskin_cache,
+        previews: noteskin_previews,
+    };
     let active = session_active_players();
     let main_row_tweens = init_row_tweens(
         &main_row_map,
         [0; PLAYER_SLOTS],
         active,
-        [hide_active_mask_p1, hide_active_mask_p2],
-        [error_bar_active_mask_p1, error_bar_active_mask_p2],
+        [p1_masks, p2_masks],
         allow_per_player_global_offsets,
     );
     let mut panes = [
         PaneState::new(main_row_map),
+        PaneState::new(display_row_map),
         PaneState::new(advanced_row_map),
         PaneState::new(uncommon_row_map),
     ];
     panes[OptionsPane::Main.index()].row_tweens = main_row_tweens;
     panes[OptionsPane::Main.index()].arcade_row_focus = [true; PLAYER_SLOTS];
-    State {
+    let mut state = State {
         song,
         return_screen,
         fixed_stepchart,
         chart_steps_index,
         chart_difficulty_index,
         panes,
-        scroll_active_mask: [scroll_active_mask_p1, scroll_active_mask_p2],
-        hide_active_mask: [hide_active_mask_p1, hide_active_mask_p2],
-        insert_active_mask: [insert_active_mask_p1, insert_active_mask_p2],
-        remove_active_mask: [remove_active_mask_p1, remove_active_mask_p2],
-        holds_active_mask: [holds_active_mask_p1, holds_active_mask_p2],
-        accel_effects_active_mask: [accel_effects_active_mask_p1, accel_effects_active_mask_p2],
-        visual_effects_active_mask: [visual_effects_active_mask_p1, visual_effects_active_mask_p2],
-        appearance_effects_active_mask: [
-            appearance_effects_active_mask_p1,
-            appearance_effects_active_mask_p2,
-        ],
-        fa_plus_active_mask: [fa_plus_active_mask_p1, fa_plus_active_mask_p2],
-        early_dw_active_mask: [early_dw_active_mask_p1, early_dw_active_mask_p2],
-        gameplay_extras_active_mask: [
-            gameplay_extras_active_mask_p1,
-            gameplay_extras_active_mask_p2,
-        ],
-        gameplay_extras_more_active_mask: [
-            gameplay_extras_more_active_mask_p1,
-            gameplay_extras_more_active_mask_p2,
-        ],
-        results_extras_active_mask: [results_extras_active_mask_p1, results_extras_active_mask_p2],
-        life_bar_options_active_mask: [
-            life_bar_options_active_mask_p1,
-            life_bar_options_active_mask_p2,
-        ],
-        error_bar_active_mask: [error_bar_active_mask_p1, error_bar_active_mask_p2],
-        error_bar_options_active_mask: [
-            error_bar_options_active_mask_p1,
-            error_bar_options_active_mask_p2,
-        ],
-        measure_counter_options_active_mask: [
-            measure_counter_options_active_mask_p1,
-            measure_counter_options_active_mask_p2,
-        ],
+        option_masks: [p1_masks, p2_masks],
         active_color_index,
         speed_mod: [speed_mod_p1, speed_mod_p2],
         music_rate: session_music_rate,
         current_pane: OptionsPane::Main,
-        scroll_focus_player: P1,
-        bg: heart_bg::State::new(),
-        nav_key_held_direction: [None; PLAYER_SLOTS],
-        nav_key_held_since: [None; PLAYER_SLOTS],
-        nav_key_last_scrolled_at: [None; PLAYER_SLOTS],
-        start_held_since: [None; PLAYER_SLOTS],
-        start_last_triggered_at: [None; PLAYER_SLOTS],
+        bg: visual_style_bg::State::new(),
+        nav_input: [PlayerNavInput::default(); PLAYER_SLOTS],
+        start_input: [PlayerStartInput::default(); PLAYER_SLOTS],
         allow_per_player_global_offsets,
         player_profiles,
-        noteskin_cache,
-        noteskin: noteskin_previews,
-        mine_noteskin: mine_noteskin_previews,
-        receptor_noteskin: receptor_noteskin_previews,
-        tap_explosion_noteskin: tap_explosion_noteskin_previews,
+        noteskin,
         preview_time: 0.0,
         preview_beat: 0.0,
         help_anim_time: [0.0; PLAYER_SLOTS],
@@ -332,30 +288,36 @@ pub fn init(
         combo_preview_elapsed: 0.0,
         pane_transition: PaneTransition::None,
         menu_lr_chord: screen_input::MenuLrChordTracker::default(),
+    };
+    sync_speed_mod_type_rows(&mut state);
+    state
+}
+
+fn sync_speed_mod_type_row(row_map: &mut RowMap, speed_mod: &[SpeedMod; PLAYER_SLOTS]) {
+    let Some(row) = row_map.get_mut(RowId::TypeOfSpeedMod) else {
+        return;
+    };
+    for player_idx in 0..PLAYER_SLOTS {
+        row.selected_choice_index[player_idx] = speed_mod[player_idx]
+            .mod_type
+            .choice_index()
+            .min(row.choices.len().saturating_sub(1));
+    }
+}
+
+pub(crate) fn sync_speed_mod_type_rows(state: &mut State) {
+    let speed_mod = state.speed_mod.clone();
+    for pane in &mut state.panes {
+        sync_speed_mod_type_row(&mut pane.row_map, &speed_mod);
     }
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 #[inline(always)]

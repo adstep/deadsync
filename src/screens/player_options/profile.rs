@@ -1,4 +1,5 @@
 use super::*;
+use crate::assets::{FontRole, current_machine_font_key};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpeedModType {
@@ -123,6 +124,130 @@ pub(super) fn tilt_intensity_choices() -> Vec<String> {
         ));
     }
     out
+}
+
+#[inline(always)]
+pub(super) fn fmt_average_error_bar_intensity(value: f32) -> String {
+    format!("{value:.2}x")
+}
+
+pub(super) fn average_error_bar_intensity_choices() -> Vec<String> {
+    let count = ((AVERAGE_ERROR_BAR_INTENSITY_MAX - AVERAGE_ERROR_BAR_INTENSITY_MIN)
+        / AVERAGE_ERROR_BAR_INTENSITY_STEP)
+        .round() as usize
+        + 1;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        out.push(fmt_average_error_bar_intensity(
+            AVERAGE_ERROR_BAR_INTENSITY_MIN + i as f32 * AVERAGE_ERROR_BAR_INTENSITY_STEP,
+        ));
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_average_error_bar_interval_ms(ms: u32) -> String {
+    format!("{ms}ms")
+}
+
+pub(super) fn average_error_bar_interval_choices() -> Vec<String> {
+    let count = ((AVERAGE_ERROR_BAR_INTERVAL_MS_MAX - AVERAGE_ERROR_BAR_INTERVAL_MS_MIN)
+        / AVERAGE_ERROR_BAR_INTERVAL_MS_STEP) as usize
+        + 1;
+    let mut out = Vec::with_capacity(count);
+    let mut ms = AVERAGE_ERROR_BAR_INTERVAL_MS_MIN;
+    while ms <= AVERAGE_ERROR_BAR_INTERVAL_MS_MAX {
+        out.push(fmt_average_error_bar_interval_ms(ms));
+        ms += AVERAGE_ERROR_BAR_INTERVAL_MS_STEP;
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_long_error_bar_intensity(value: f32) -> String {
+    format!("{value:.2}x")
+}
+
+pub(super) fn long_error_bar_intensity_choices() -> Vec<String> {
+    let count = ((LONG_ERROR_BAR_INTENSITY_MAX - LONG_ERROR_BAR_INTENSITY_MIN)
+        / LONG_ERROR_BAR_INTENSITY_STEP)
+        .round() as usize
+        + 1;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        out.push(fmt_long_error_bar_intensity(
+            LONG_ERROR_BAR_INTENSITY_MIN + i as f32 * LONG_ERROR_BAR_INTENSITY_STEP,
+        ));
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_long_error_bar_threshold_ms(ms: u32) -> String {
+    format!("{ms}ms")
+}
+
+pub(super) fn long_error_bar_threshold_choices() -> Vec<String> {
+    let mut out = Vec::with_capacity(
+        (LONG_ERROR_BAR_THRESHOLD_MS_MAX - LONG_ERROR_BAR_THRESHOLD_MS_MIN + 1) as usize,
+    );
+    for ms in LONG_ERROR_BAR_THRESHOLD_MS_MIN..=LONG_ERROR_BAR_THRESHOLD_MS_MAX {
+        out.push(fmt_long_error_bar_threshold_ms(ms));
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_long_error_bar_min_samples(n: u32) -> String {
+    format!("{n}")
+}
+
+pub(super) fn long_error_bar_min_samples_choices() -> Vec<String> {
+    let mut out = Vec::with_capacity(
+        (LONG_ERROR_BAR_MIN_SAMPLES_MAX - LONG_ERROR_BAR_MIN_SAMPLES_MIN + 1) as usize,
+    );
+    for n in LONG_ERROR_BAR_MIN_SAMPLES_MIN..=LONG_ERROR_BAR_MIN_SAMPLES_MAX {
+        out.push(fmt_long_error_bar_min_samples(n));
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_long_error_bar_buffer_cap(n: u32) -> String {
+    format!("{n}")
+}
+
+pub(super) fn long_error_bar_buffer_cap_choices() -> Vec<String> {
+    let mut out = Vec::with_capacity(
+        (LONG_ERROR_BAR_BUFFER_CAP_MAX - LONG_ERROR_BAR_BUFFER_CAP_MIN + 1) as usize,
+    );
+    for n in LONG_ERROR_BAR_BUFFER_CAP_MIN..=LONG_ERROR_BAR_BUFFER_CAP_MAX {
+        out.push(fmt_long_error_bar_buffer_cap(n));
+    }
+    out
+}
+
+#[inline(always)]
+pub(super) fn fmt_tilt_threshold_ms(ms: u32) -> String {
+    format!("{ms}ms")
+}
+
+pub(super) fn tilt_threshold_choices() -> Vec<String> {
+    let mut out = Vec::with_capacity((TILT_THRESHOLD_MAX_MS - TILT_THRESHOLD_MIN_MS + 1) as usize);
+    for ms in TILT_THRESHOLD_MIN_MS..=TILT_THRESHOLD_MAX_MS {
+        out.push(fmt_tilt_threshold_ms(ms));
+    }
+    out
+}
+
+pub(super) fn parse_tilt_threshold_ms(choice: &str) -> Option<u32> {
+    choice
+        .trim()
+        .trim_end_matches("ms")
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .map(crate::game::profile::clamp_tilt_threshold_ms)
 }
 
 pub(super) fn custom_fantastic_window_choices() -> Vec<String> {
@@ -302,7 +427,7 @@ pub(super) fn speed_mod_helper_scaled_text(
 pub(super) fn measure_wendy_text_width(asset_manager: &AssetManager, text: &str) -> f32 {
     let mut out_w = 1.0_f32;
     asset_manager.with_fonts(|all_fonts| {
-        asset_manager.with_font("wendy", |metrics_font| {
+        asset_manager.with_font(current_machine_font_key(FontRole::Header), |metrics_font| {
             let w = crate::engine::present::font::measure_line_width_logical(
                 metrics_font,
                 text,

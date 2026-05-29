@@ -1,12 +1,10 @@
-use crate::act;
 use crate::engine::input::{
     InputEvent, InputSource, PadEvent, RawKeyboardEvent, VirtualAction, with_keymap,
 };
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
-use crate::engine::space::{screen_height, screen_width};
 use crate::game::profile;
-use crate::screens::components::shared::{heart_bg, test_input};
+use crate::screens::components::shared::{test_input, transitions, visual_style_bg};
 use crate::screens::{Screen, ScreenAction};
 use std::time::{Duration, Instant};
 /* ---------------------------- transitions ---------------------------- */
@@ -16,6 +14,39 @@ const BACK_HOLD_SECONDS: f32 = 0.33;
 const MENU_LR_CHORD_WINDOW: Duration = Duration::from_millis(75);
 const MENU_LR_LEFT: u8 = 1 << 0;
 const MENU_LR_RIGHT: u8 = 1 << 1;
+
+#[inline(always)]
+pub fn reset_hold_repeat(
+    held_for: &mut Duration,
+    next_repeat_at: &mut Duration,
+    initial_delay: Duration,
+) {
+    *held_for = Duration::ZERO;
+    *next_repeat_at = initial_delay;
+}
+
+pub fn advance_hold_repeat(
+    held_for: &mut Duration,
+    next_repeat_at: &mut Duration,
+    repeat_interval: Duration,
+    dt: f32,
+) -> bool {
+    if dt <= 0.0 || !dt.is_finite() {
+        return false;
+    }
+    *held_for = held_for.saturating_add(Duration::from_secs_f32(dt));
+    if *held_for <= *next_repeat_at {
+        return false;
+    }
+    if repeat_interval == Duration::ZERO {
+        *next_repeat_at = *held_for;
+        return true;
+    }
+    while *next_repeat_at <= *held_for {
+        *next_repeat_at = next_repeat_at.saturating_add(repeat_interval);
+    }
+    true
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 struct MenuLrChordSideState {
@@ -206,7 +237,7 @@ pub fn menu_lr_both_held(chord: &MenuLrChordTracker, side: profile::PlayerSide) 
 
 pub struct State {
     pub active_color_index: i32,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     test_input: test_input::State,
     back_hold_active: bool,
     back_hold_secs: f32,
@@ -215,7 +246,7 @@ pub struct State {
 pub fn init() -> State {
     State {
         active_color_index: color::DEFAULT_COLOR_INDEX,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         test_input: test_input::State::default(),
         back_hold_active: false,
         back_hold_secs: 0.0,
@@ -241,26 +272,11 @@ pub fn update(state: &mut State, dt: f32) -> Option<ScreenAction> {
 /* ----------------------------- transitions ----------------------------- */
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 /* ------------------------------- input -------------------------------- */
@@ -306,12 +322,22 @@ pub fn handle_raw_pad_event(state: &mut State, pad_event: &PadEvent) {
     test_input::apply_raw_pad_event(&mut state.test_input, pad_event);
 }
 
+#[inline(always)]
+pub fn set_fsr_view(state: &mut State, view: Option<test_input::FsrView>) {
+    test_input::set_fsr_view(&mut state.test_input, view);
+}
+
+#[inline(always)]
+pub fn take_fsr_command(state: &mut State) -> Option<test_input::FsrCommand> {
+    test_input::take_fsr_command(&mut state.test_input)
+}
+
 /* ------------------------------- drawing ------------------------------- */
 
 pub fn get_actors(state: &State) -> Vec<Actor> {
     let mut actors: Vec<Actor> = Vec::with_capacity(56);
 
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -319,6 +345,7 @@ pub fn get_actors(state: &State) -> Vec<Actor> {
 
     actors.extend(test_input::build_test_input_screen_content(
         &state.test_input,
+        state.active_color_index,
     ));
     actors
 }
@@ -333,6 +360,7 @@ mod tests {
     fn input_event(action: VirtualAction, pressed: bool, timestamp: Instant) -> InputEvent {
         InputEvent {
             action,
+            input_slot: 0,
             pressed,
             source: InputSource::Keyboard,
             timestamp,

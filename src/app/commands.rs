@@ -15,6 +15,7 @@ pub(super) enum Command {
     SetBanner(Option<PathBuf>),
     SetCdTitle(Option<PathBuf>),
     SetPackBanner(Option<PathBuf>),
+    SetWheelItemBackgrounds(Vec<PathBuf>),
     SetDensityGraph {
         slot: DensityGraphSlot,
         chart_opt: Option<DensityGraphSource>,
@@ -61,6 +62,7 @@ impl App {
             Command::SetBanner(_)
                 | Command::SetCdTitle(_)
                 | Command::SetPackBanner(_)
+                | Command::SetWheelItemBackgrounds(_)
                 | Command::SetDensityGraph { .. }
                 | Command::SetDynamicBackground(_)
                 | Command::PlayMusic { .. }
@@ -74,6 +76,7 @@ impl App {
             Command::SetBanner(_) => "SetBanner",
             Command::SetCdTitle(_) => "SetCdTitle",
             Command::SetPackBanner(_) => "SetPackBanner",
+            Command::SetWheelItemBackgrounds(_) => "SetWheelItemBackgrounds",
             Command::SetDensityGraph { .. } => "SetDensityGraph",
             Command::FetchOnlineGrade(_) => "FetchOnlineGrade",
             Command::PlayMusic { .. } => "PlayMusic",
@@ -101,6 +104,7 @@ impl App {
             Command::SetBanner(path_opt) => self.apply_banner(path_opt),
             Command::SetCdTitle(path_opt) => self.apply_cdtitle(path_opt),
             Command::SetPackBanner(path_opt) => self.apply_pack_banner(path_opt),
+            Command::SetWheelItemBackgrounds(paths) => self.apply_wheel_item_backgrounds(paths),
             Command::SetDensityGraph { slot, chart_opt } => {
                 self.apply_density_graph(slot, chart_opt)
             }
@@ -210,6 +214,13 @@ impl App {
         }
     }
 
+    fn apply_wheel_item_backgrounds(&mut self, paths: Vec<PathBuf>) {
+        if let Some(backend) = self.backend.as_mut() {
+            self.dynamic_media
+                .set_wheel_item_backgrounds(&mut self.asset_manager, backend, paths);
+        }
+    }
+
     pub(super) fn apply_density_graph(
         &mut self,
         slot: DensityGraphSlot,
@@ -298,14 +309,48 @@ impl App {
 
     pub(super) fn apply_dynamic_background(&mut self, path_opt: Option<PathBuf>) {
         if let Some(backend) = self.backend.as_mut() {
+            let video_started_at_sec = self
+                .state
+                .screens
+                .gameplay_state
+                .as_ref()
+                .map(|state| {
+                    crate::game::gameplay::song_time_ns_to_seconds(state.current_music_time_ns)
+                })
+                .or_else(|| {
+                    self.state.screens.practice_state.as_ref().map(|state| {
+                        crate::game::gameplay::song_time_ns_to_seconds(
+                            state.gameplay.current_music_time_ns,
+                        )
+                    })
+                })
+                .unwrap_or(0.0);
             let key = self.dynamic_media.set_background(
                 &mut self.asset_manager,
                 backend,
                 path_opt.clone(),
+                video_started_at_sec,
             );
+            let key = Arc::<str>::from(key);
+            let path_key = path_opt
+                .as_deref()
+                .map(crate::game::gameplay::media_path_key);
+            let show_video_backgrounds = crate::config::get().show_video_backgrounds;
             if let Some(gs) = &mut self.state.screens.gameplay_state {
-                gs.current_background_path = path_opt;
-                gs.background_texture_key = key;
+                let was_dirty = gs.background_path_dirty;
+                gs.current_background_path = path_opt.clone();
+                gs.current_background_key = path_key.clone();
+                gs.background_allow_video = show_video_backgrounds;
+                gs.background_path_dirty = was_dirty;
+                gs.background_texture_key = key.clone();
+            }
+            if let Some(ps) = &mut self.state.screens.practice_state {
+                let was_dirty = ps.gameplay.background_path_dirty;
+                ps.gameplay.current_background_path = path_opt;
+                ps.gameplay.current_background_key = path_key;
+                ps.gameplay.background_allow_video = show_video_backgrounds;
+                ps.gameplay.background_path_dirty = was_dirty;
+                ps.gameplay.background_texture_key = key;
             }
         }
     }

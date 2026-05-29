@@ -1,13 +1,13 @@
 use crate::act;
 use crate::assets::i18n::{tr, tr_fmt};
-use crate::assets::{self, AssetManager};
+use crate::assets::{self, AssetManager, visual_styles};
 use crate::config::dirs;
 use crate::engine::audio;
 use crate::engine::gfx::BlendMode;
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::{self, Actor};
 use crate::engine::present::color;
-use crate::engine::space::{screen_center_x, screen_center_y, screen_height, screen_width};
+use crate::engine::space::{screen_center_x, screen_center_y};
 use crate::game::parsing::noteskin::{self, NUM_QUANTIZATIONS, Noteskin, Quantization};
 use crate::game::profile::{self, ActiveProfile};
 use crate::game::scores;
@@ -16,7 +16,7 @@ use crate::screens::components::shared::noteskin_model::noteskin_model_actor;
 use crate::screens::components::shared::screen_bar::{
     ScreenBarParams, ScreenBarPosition, ScreenBarTitlePlacement,
 };
-use crate::screens::components::shared::{heart_bg, screen_bar};
+use crate::screens::components::shared::{screen_bar, visual_style_bg};
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
 use std::collections::HashMap;
@@ -108,7 +108,7 @@ pub struct State {
     p2_selected_index: usize,
     exit_anim: bool,
     choices: Vec<Choice>,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     noteskin_cache: NoteskinCache,
     p1_preview_noteskin: Option<Arc<Noteskin>>,
     p2_preview_noteskin: Option<Arc<Noteskin>>,
@@ -416,7 +416,7 @@ pub fn init() -> State {
         p2_selected_index,
         exit_anim: false,
         choices,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         noteskin_cache,
         p1_preview_noteskin: None,
         p2_preview_noteskin: None,
@@ -462,6 +462,42 @@ pub fn set_joined(state: &mut State, p1_joined: bool, p2_joined: bool) {
     );
 }
 
+/// Configure the overlay for a late-join scenario: the existing player is
+/// pre-readied with their current profile, and only `joining_side` needs to
+/// pick a profile. Used when a second player presses Start mid-set on a
+/// screen with an embedded profile-select overlay.
+pub fn enter_late_join(state: &mut State, joining_side: profile::PlayerSide) {
+    match joining_side {
+        profile::PlayerSide::P1 => {
+            state.p1_joined = true;
+            state.p1_ready = false;
+            state.p1_join_pulse_t = 0.0;
+            state.p2_joined = true;
+            state.p2_ready = true;
+            state.p2_join_pulse_t = JOIN_PULSE_DURATION;
+        }
+        profile::PlayerSide::P2 => {
+            state.p1_joined = true;
+            state.p1_ready = true;
+            state.p1_join_pulse_t = JOIN_PULSE_DURATION;
+            state.p2_joined = true;
+            state.p2_ready = false;
+            state.p2_join_pulse_t = 0.0;
+        }
+    }
+
+    state.p1_preview_noteskin = preview_noteskin_for_choice(
+        &mut state.noteskin_cache,
+        &state.choices,
+        state.p1_selected_index,
+    );
+    state.p2_preview_noteskin = preview_noteskin_for_choice(
+        &mut state.noteskin_cache,
+        &state.choices,
+        state.p2_selected_index,
+    );
+}
+
 pub fn update(state: &mut State, dt: f32) {
     const BPM: f32 = 120.0;
     let dt = dt.max(0.0);
@@ -475,26 +511,11 @@ pub fn update(state: &mut State, dt: f32) {
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    super::transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    super::transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 #[inline(always)]
@@ -811,63 +832,16 @@ pub fn handle_input(state: &mut State, ev: &InputEvent) -> ScreenAction {
     }
 }
 
-fn apply_alpha_to_actor(actor: &mut Actor, alpha: f32) {
-    match actor {
-        Actor::Sprite { tint, .. } => tint[3] *= alpha,
-        Actor::Text { color, .. } => color[3] *= alpha,
-        Actor::Mesh { vertices, .. } => {
-            let mut out: Vec<crate::engine::gfx::MeshVertex> = Vec::with_capacity(vertices.len());
-            for v in vertices.iter() {
-                let mut c = v.color;
-                c[3] *= alpha;
-                out.push(crate::engine::gfx::MeshVertex {
-                    pos: v.pos,
-                    color: c,
-                });
-            }
-            *vertices = std::sync::Arc::from(out);
-        }
-        Actor::TexturedMesh { tint, .. } => tint[3] *= alpha,
-        Actor::Frame {
-            background,
-            children,
-            ..
-        } => {
-            if let Some(actors::Background::Color(c)) = background {
-                c[3] *= alpha;
-            }
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Camera { children, .. } => {
-            for child in children {
-                apply_alpha_to_actor(child, alpha);
-            }
-        }
-        Actor::Shadow { color, child, .. } => {
-            color[3] *= alpha;
-            apply_alpha_to_actor(child, alpha);
-        }
-    }
-}
-
 #[inline(always)]
 fn exit_anim_t(exiting: bool) -> f32 {
-    if !exiting {
-        return 0.0;
-    }
-
-    use crate::engine::present::{anim, runtime};
-    static STEPS: std::sync::OnceLock<Vec<anim::Step>> = std::sync::OnceLock::new();
-    let dur = EXIT_ANIM_DURATION.max(0.0);
-    let steps = STEPS.get_or_init(|| vec![anim::linear(dur).x(dur).build()]);
-
-    let mut init = anim::TweenState::default();
-    init.x = 0.0;
-    const SITE_BASE: u64 = runtime::site_base(file!(), line!(), column!());
-    let sid = runtime::site_id(SITE_BASE, 0x53454C5052455849u64); // "SELPREXI"
-    runtime::materialize(sid, init, steps).x.max(0.0)
+    static STEPS: std::sync::OnceLock<Vec<crate::engine::present::anim::Step>> =
+        std::sync::OnceLock::new();
+    super::transitions::linear_elapsed(
+        exiting,
+        EXIT_ANIM_DURATION,
+        &STEPS,
+        0x53454C5052455849u64, // "SELPREXI"
+    )
 }
 
 #[inline(always)]
@@ -1030,11 +1004,31 @@ fn apply_zoom_to_actor(actor: &mut Actor, pivot: [f32; 2], zoom: f32) {
                 apply_zoom_to_actor(child, pivot, zoom);
             }
         }
+        Actor::SharedFrame {
+            offset,
+            size,
+            children,
+            ..
+        } => {
+            offset[0] = scale_about(offset[0], pivot[0], zoom);
+            offset[1] = scale_about(offset[1], pivot[1], zoom);
+            for s in size.iter_mut() {
+                if let actors::SizeSpec::Px(v) = s {
+                    *v *= zoom;
+                }
+            }
+            if let Some(children) = std::sync::Arc::get_mut(children) {
+                for child in children {
+                    apply_zoom_to_actor(child, pivot, zoom);
+                }
+            }
+        }
         Actor::Camera { children, .. } => {
             for child in children {
                 apply_zoom_to_actor(child, pivot, zoom);
             }
         }
+        Actor::CameraPush { .. } | Actor::CameraPop => {}
         Actor::Shadow { len, child, .. } => {
             len[0] *= zoom;
             len[1] *= zoom;
@@ -1071,11 +1065,16 @@ fn apply_offset_to_actor(actor: &mut Actor, dx: f32, dy: f32) {
             offset[0] += dx;
             offset[1] += dy;
         }
+        Actor::SharedFrame { offset, .. } => {
+            offset[0] += dx;
+            offset[1] += dy;
+        }
         Actor::Camera { children, .. } => {
             for child in children {
                 apply_offset_to_actor(child, dx, dy);
             }
         }
+        Actor::CameraPush { .. } | Actor::CameraPop => {}
         Actor::Shadow { child, .. } => apply_offset_to_actor(child, dx, dy),
     }
 }
@@ -1086,8 +1085,12 @@ fn apply_z_offset(actor: &mut Actor, dz: i16) {
         | Actor::Text { z, .. }
         | Actor::Mesh { z, .. }
         | Actor::TexturedMesh { z, .. }
-        | Actor::Frame { z, .. } => *z = z.saturating_add(dz),
-        Actor::Camera { .. } | Actor::Shadow { .. } => {}
+        | Actor::Frame { z, .. }
+        | Actor::SharedFrame { z, .. } => *z = z.saturating_add(dz),
+        Actor::Camera { .. }
+        | Actor::CameraPush { .. }
+        | Actor::CameraPop
+        | Actor::Shadow { .. } => {}
     }
     match actor {
         Actor::Frame { children, .. } | Actor::Camera { children, .. } => {
@@ -1095,7 +1098,15 @@ fn apply_z_offset(actor: &mut Actor, dz: i16) {
                 apply_z_offset(child, dz);
             }
         }
+        Actor::SharedFrame { children, .. } => {
+            if let Some(children) = std::sync::Arc::get_mut(children) {
+                for child in children {
+                    apply_z_offset(child, dz);
+                }
+            }
+        }
         Actor::Shadow { child, .. } => apply_z_offset(child, dz),
+        Actor::CameraPush { .. } | Actor::CameraPop => {}
         _ => {}
     }
 }
@@ -1108,13 +1119,24 @@ fn apply_clip_rect_to_actor(actor: &mut Actor, rect: [f32; 4]) {
                 apply_clip_rect_to_actor(child, rect);
             }
         }
+        Actor::SharedFrame { children, .. } => {
+            if let Some(children) = std::sync::Arc::get_mut(children) {
+                for child in children {
+                    apply_clip_rect_to_actor(child, rect);
+                }
+            }
+        }
         Actor::Camera { children, .. } => {
             for child in children {
                 apply_clip_rect_to_actor(child, rect);
             }
         }
         Actor::Shadow { child, .. } => apply_clip_rect_to_actor(child, rect),
-        Actor::Sprite { .. } | Actor::Mesh { .. } | Actor::TexturedMesh { .. } => {}
+        Actor::Sprite { .. }
+        | Actor::Mesh { .. }
+        | Actor::TexturedMesh { .. }
+        | Actor::CameraPush { .. }
+        | Actor::CameraPop => {}
     }
 }
 
@@ -1154,8 +1176,10 @@ fn push_join_prompt(
         .sin()
         .mul_add(0.5, 0.5);
     let shade = 0.5f32.mul_add(f, 0.5);
+    let salt = u64::from(cx.to_bits());
 
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(cx, cy):
         zoomto(FRAME_W_JOIN + FRAME_BORDER, frame_h + FRAME_BORDER):
@@ -1165,6 +1189,7 @@ fn push_join_prompt(
         z(100)
     ));
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(cx, cy):
         zoomto(FRAME_W_JOIN, frame_h):
@@ -1209,9 +1234,11 @@ fn push_scroller_frame(
     // - Scroller highlight + info pane use semi-transparent black overlays (alpha 0.5)
     let col_frame = color::simply_love_rgba(color_index);
     let col_frame_top = color::lighten_rgba(col_frame);
+    let salt = u64::from(frame_cx.to_bits());
 
     // Frame border.
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(frame_cx, frame_cy):
         zoomto(FRAME_W_SCROLLER + FRAME_BORDER, frame_h + FRAME_BORDER):
@@ -1222,6 +1249,7 @@ fn push_scroller_frame(
     ));
     // Base fill.
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(frame_cx, frame_cy):
         zoomto(FRAME_W_SCROLLER, frame_h):
@@ -1232,6 +1260,7 @@ fn push_scroller_frame(
     ));
     // Top-edge lighten gradient (approx for diffusetopedge()).
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(frame_cx, frame_cy):
         zoomto(FRAME_W_SCROLLER, frame_h):
@@ -1248,6 +1277,7 @@ fn push_scroller_frame(
     let info_max_w = INFO_PAD.mul_add(-2.5, INFO_W);
 
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.0, 0.0):
         xy(info_x0, frame_y0):
         zoomto(INFO_W, frame_h):
@@ -1260,6 +1290,7 @@ fn push_scroller_frame(
     // Scroller highlight bar.
     let scroller_cx = frame_cx + SCROLLER_CX_OFF;
     out.push(act!(quad:
+        tweensalt(salt):
         align(0.5, 0.5):
         xy(scroller_cx, frame_cy):
         zoomto(SCROLLER_W, ROW_H):
@@ -1322,10 +1353,13 @@ fn push_scroller_frame(
                 diffuse(bg[0], bg[1], bg[2], bg[3] * inner_alpha):
                 z(103)
             ));
-            out.push(act!(sprite("heart.png"):
+            let visual_style = visual_styles::current_style();
+            let texture = visual_styles::select_color_texture_key();
+            let zoom = AVATAR_HEART_ZOOM * visual_styles::select_color_zoom_scale(visual_style);
+            out.push(act!(sprite(texture):
                 align(0.0, 0.0):
                 xy(avatar_x + AVATAR_HEART_X, avatar_y + AVATAR_HEART_Y):
-                zoom(AVATAR_HEART_ZOOM):
+                zoom(zoom):
                 diffuse(1.0, 1.0, 1.0, 0.9 * inner_alpha):
                 z(104)
             ));
@@ -1589,8 +1623,8 @@ fn build_box_actors(
 
     let frame_y0 = frame_h.mul_add(-0.5, cy);
 
-    // IMPORTANT: Apply shake as a post-transform, otherwise the changing X affects
-    // act! tween site_ids (salt includes init.x) and restarts tweens every frame.
+    // IMPORTANT: Apply shake as a post-transform so the frame's explicit tween salt
+    // stays stable and the crop-in tweens do not restart every frame.
     let p1_cx = cx - FRAME_CX_OFF;
     let p2_cx = cx + FRAME_CX_OFF;
     let p1_shake_dx = shake_x(state.p1_shake_t);
@@ -1626,7 +1660,7 @@ fn build_box_actors(
             col_overlay,
         );
         for a in &mut scroller_ui {
-            apply_alpha_to_actor(a, if show_scroller { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_scroller { 1.0 } else { 0.0 });
         }
         p1_ui.extend(scroller_ui);
 
@@ -1647,7 +1681,7 @@ fn build_box_actors(
             join_text,
         );
         for a in &mut join_ui {
-            apply_alpha_to_actor(a, if show_join { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_join { 1.0 } else { 0.0 });
         }
         p1_ui.extend(join_ui);
 
@@ -1712,7 +1746,7 @@ fn build_box_actors(
             col_overlay,
         );
         for a in &mut scroller_ui {
-            apply_alpha_to_actor(a, if show_scroller { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_scroller { 1.0 } else { 0.0 });
         }
         p2_ui.extend(scroller_ui);
 
@@ -1733,7 +1767,7 @@ fn build_box_actors(
             join_text,
         );
         for a in &mut join_ui {
-            apply_alpha_to_actor(a, if show_join { 1.0 } else { 0.0 });
+            a.mul_alpha(if show_join { 1.0 } else { 0.0 });
         }
         p2_ui.extend(join_ui);
 
@@ -1772,7 +1806,7 @@ fn build_box_actors(
     }
 
     for mut a in ui {
-        apply_alpha_to_actor(&mut a, alpha_multiplier);
+        a.mul_alpha(alpha_multiplier);
         actors.push(a);
     }
     actors
@@ -1800,7 +1834,7 @@ pub fn get_actors(
 ) -> Vec<Actor> {
     let mut actors: Vec<Actor> = Vec::with_capacity(160);
 
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,

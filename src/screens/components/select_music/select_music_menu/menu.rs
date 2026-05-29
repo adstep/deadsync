@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::act;
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::Actor;
 use crate::engine::space::{screen_center_x, screen_center_y, screen_height, screen_width};
@@ -15,8 +16,6 @@ const DIM_ALPHA: f32 = 0.8;
 const HINT_Y_OFFSET: f32 = 120.0;
 const HINT_TEXT: &str = "PRESS &SELECT; TO CANCEL";
 const WHEEL_SLOTS: usize = 9;
-const FONT_TOP: &str = "miso";
-const FONT_BOTTOM: &str = "wendy";
 const CATEGORY_INDENT: f32 = 8.0;
 
 pub const FOCUS_TWEEN_SECONDS: f32 = 0.15;
@@ -37,6 +36,7 @@ pub enum Category {
     Profile,
     Advanced,
     Styles,
+    Playlists,
 }
 
 /// A visible entry in the select music menu wheel.
@@ -120,6 +120,7 @@ pub struct CategoryItemLists {
     pub profile: Option<Vec<Item>>,
     pub advanced: Vec<Item>,
     pub styles: Option<Vec<Item>>,
+    pub playlists: Option<Vec<Item>>,
 }
 
 // --- Entry building ---
@@ -132,6 +133,7 @@ pub fn build_entries(lists: &CategoryItemLists, categories: &CategoryState) -> V
         lists.profile.as_deref(),
         &lists.advanced,
         lists.styles.as_deref(),
+        lists.playlists.as_deref(),
         categories,
     )
 }
@@ -142,6 +144,7 @@ fn build_entries_from_slices(
     items_profile: Option<&[Item]>,
     items_advanced: &[Item],
     items_styles: Option<&[Item]>,
+    items_playlists: Option<&[Item]>,
     categories: &CategoryState,
 ) -> Vec<Entry> {
     // If a category is expanded, show ONLY that category header + its items
@@ -152,7 +155,7 @@ fn build_entries_from_slices(
             label: "Sorts...",
         }];
         for item in items_sorts {
-            entries.push(Entry::CategoryItem(*item));
+            entries.push(Entry::CategoryItem(item.clone()));
         }
         return entries;
     }
@@ -163,7 +166,7 @@ fn build_entries_from_slices(
                 label: "Profile...",
             }];
             for item in profile_items {
-                entries.push(Entry::CategoryItem(*item));
+                entries.push(Entry::CategoryItem(item.clone()));
             }
             return entries;
         }
@@ -174,7 +177,7 @@ fn build_entries_from_slices(
             label: "Advanced...",
         }];
         for item in items_advanced {
-            entries.push(Entry::CategoryItem(*item));
+            entries.push(Entry::CategoryItem(item.clone()));
         }
         return entries;
     }
@@ -185,7 +188,19 @@ fn build_entries_from_slices(
                 label: "Styles...",
             }];
             for item in style_items {
-                entries.push(Entry::CategoryItem(*item));
+                entries.push(Entry::CategoryItem(item.clone()));
+            }
+            return entries;
+        }
+    }
+    if categories.is_expanded(Category::Playlists) {
+        if let Some(playlist_items) = items_playlists {
+            let mut entries = vec![Entry::CategoryHeader {
+                category: Category::Playlists,
+                label: "Playlists...",
+            }];
+            for item in playlist_items {
+                entries.push(Entry::CategoryItem(item.clone()));
             }
             return entries;
         }
@@ -195,7 +210,7 @@ fn build_entries_from_slices(
     let mut entries = Vec::new();
 
     for item in items_standalone {
-        entries.push(Entry::StandaloneItem(*item));
+        entries.push(Entry::StandaloneItem(item.clone()));
     }
 
     entries.push(Entry::CategoryHeader {
@@ -221,6 +236,12 @@ fn build_entries_from_slices(
             label: "Styles...",
         });
     }
+    if items_playlists.is_some() {
+        entries.push(Entry::CategoryHeader {
+            category: Category::Playlists,
+            label: "Playlists...",
+        });
+    }
 
     entries
 }
@@ -235,7 +256,7 @@ pub enum InputOutcome {
     Close,
 }
 
-pub fn handle_input(state: &mut VisibleState, entries: &[Entry], ev: &InputEvent) -> InputOutcome {
+pub fn handle_input(state: &mut VisibleState, ev: &InputEvent) -> InputOutcome {
     if !ev.pressed {
         return InputOutcome::None;
     }
@@ -249,7 +270,7 @@ pub fn handle_input(state: &mut VisibleState, entries: &[Entry], ev: &InputEvent
         | VirtualAction::p2_menu_up
         | VirtualAction::p2_left
         | VirtualAction::p2_menu_left => {
-            if move_selection(state, entries.len(), -1) {
+            if move_selection(state, state.cached_entries.len(), -1) {
                 InputOutcome::Moved
             } else {
                 InputOutcome::None
@@ -263,13 +284,13 @@ pub fn handle_input(state: &mut VisibleState, entries: &[Entry], ev: &InputEvent
         | VirtualAction::p2_menu_down
         | VirtualAction::p2_right
         | VirtualAction::p2_menu_right => {
-            if move_selection(state, entries.len(), 1) {
+            if move_selection(state, state.cached_entries.len(), 1) {
                 InputOutcome::Moved
             } else {
                 InputOutcome::None
             }
         }
-        VirtualAction::p1_start | VirtualAction::p2_start => activate(state, entries),
+        VirtualAction::p1_start | VirtualAction::p2_start => activate(state),
         VirtualAction::p1_back
         | VirtualAction::p2_back
         | VirtualAction::p1_select
@@ -294,7 +315,8 @@ pub fn move_selection(state: &mut VisibleState, len: usize, delta: isize) -> boo
     true
 }
 
-fn activate(state: &mut VisibleState, entries: &[Entry]) -> InputOutcome {
+fn activate(state: &mut VisibleState) -> InputOutcome {
+    let entries = &state.cached_entries;
     if entries.is_empty() {
         return InputOutcome::Close;
     }
@@ -305,7 +327,7 @@ fn activate(state: &mut VisibleState, entries: &[Entry]) -> InputOutcome {
             InputOutcome::ToggleCategory(*category)
         }
         Entry::CategoryItem(item) | Entry::StandaloneItem(item) => {
-            InputOutcome::ActivateAction(item.action)
+            InputOutcome::ActivateAction(item.action.clone())
         }
     }
 }
@@ -353,7 +375,7 @@ pub fn build_overlay(p: RenderParams<'_>) -> Vec<Actor> {
 
     // Hint text below the menu
     actors.push(act!(text:
-        font(FONT_BOTTOM):
+        font(current_machine_font_key(FontRole::Bold)):
         settext(HINT_TEXT):
         align(0.5, 0.5):
         xy(cx, cy + HINT_Y_OFFSET):
@@ -467,12 +489,12 @@ fn render_row(
             ));
             // Category label
             let mut label_actor = act!(text:
-                font(FONT_BOTTOM):
+                font(current_machine_font_key(FontRole::Bold)):
                 settext(*label):
                 align(0.0, 0.5):
                 xy(left_x + 27.0, y):
                 zoom(0.4):
-                maxwidth((WIDTH - 50.0) / 0.4):
+                maxwidth(WIDTH - 50.0):
                 diffuse(tint, tint, tint, row_alpha):
                 z(1454):
                 horizalign(left)
@@ -507,14 +529,14 @@ fn render_item_text(
     } else {
         WIDTH - 28.0
     };
-    if !item.top_label.is_empty() {
+    if !item.top_label.as_str().is_empty() {
         let mut top = act!(text:
-            font(FONT_TOP):
-            settext(item.top_label):
+            font(current_machine_font_key(FontRole::Normal)):
+            settext(item.top_label.clone()):
             align(0.0, 1.0):
             xy(x, y - 5.0):
             zoom(0.58):
-            maxwidth(max_w / 0.58):
+            maxwidth(max_w):
             diffuse(tint[0], tint[1], tint[2], row_alpha * 0.85):
             z(1454):
             horizalign(left)
@@ -523,12 +545,12 @@ fn render_item_text(
         actors.push(top);
     }
     let mut bottom = act!(text:
-        font(FONT_BOTTOM):
-        settext(item.bottom_label):
+        font(current_machine_font_key(FontRole::Bold)):
+        settext(item.bottom_label.clone()):
         align(0.0, 0.5):
         xy(x, y + 4.0):
         zoom(0.36):
-        maxwidth(max_w / 0.36):
+        maxwidth(max_w):
         diffuse(tint[0], tint[1], tint[2], row_alpha):
         z(1454):
         horizalign(left)
@@ -539,7 +561,7 @@ fn render_item_text(
 
 #[inline(always)]
 fn item_tint(item: &Item, focus_lerp: f32) -> [f32; 3] {
-    if matches!(item.action, Action::BackToMain) {
+    if matches!(&item.action, Action::BackToMain) {
         [
             lerp_scalar(
                 GO_BACK_COLOR_UNFOCUSED[0],

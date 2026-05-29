@@ -4,7 +4,7 @@ use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
 use crate::engine::space::{screen_center_x, screen_height, screen_width};
-use crate::screens::components::shared::heart_bg;
+use crate::screens::components::shared::{transitions, visual_style_bg};
 use crate::screens::{Screen, ScreenAction};
 
 /* ---------------------------- transitions ---------------------------- */
@@ -78,29 +78,37 @@ const CREDITS: &[CreditLine] = &[
     spacer(),
     spacer(),
     section("DeadSync Founding Members"),
+    name("flashitude"),
+    name("Reikwaza"),
+    name("fingy"),
     name("BSG"),
     name("RootReducer"),
-    name("flashitude"),
+    name("dimo"),
+    name("topher123890"),
     spacer(),
     spacer(),
     section("DeadSync Gold Patrons"),
     name("Wafles"),
     name("nabulator"),
-    name("Reikwaza"),
+    name("CernaML"),
     spacer(),
     spacer(),
     section("DeadSync Supporters"),
+    name("Lisek"),
     name("cookie"),
     spacer(),
     spacer(),
     section("DeadSync Contributors"),
     name("adstep"),
     name("Mason Boeman (maboesanman)"),
+    name("saucepan"),
+    name("din"),
+    name("madewithlinux"),
     name("DolphinChips"),
     name("rehtlaw"),
+    name("Romain Roffé (rofferom)"),
     name("Sereni"),
-    name("madewithlinux"),
-    name("saucepan"),
+    name("Bkid"),
     spacer(),
     spacer(),
     section("rssp Contributors"),
@@ -155,7 +163,7 @@ const TOTAL_SCROLL_ITEMS: f32 = CREDITS.len() as f32 + ITEM_PADDING_START + ITEM
 
 pub struct State {
     pub active_color_index: i32,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     enter_elapsed: f32,
     scroll_items: f32,
 }
@@ -163,7 +171,7 @@ pub struct State {
 pub fn init() -> State {
     State {
         active_color_index: color::DEFAULT_COLOR_INDEX,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         enter_elapsed: 0.0,
         scroll_items: 0.0,
     }
@@ -220,7 +228,7 @@ pub fn get_actors(state: &State) -> Vec<Actor> {
     let screen_w = screen_width();
     let screen_h = screen_height();
 
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -315,24 +323,9 @@ pub fn get_actors(state: &State) -> Vec<Actor> {
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0):
-        z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0):
-        z(1200):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }

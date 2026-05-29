@@ -2,7 +2,8 @@ use super::{
     GrooveStatsSubmitApiAchievement, GrooveStatsSubmitApiEvent, GrooveStatsSubmitApiPlayer,
     GrooveStatsSubmitApiProgress, GrooveStatsSubmitPlayerJob, LeaderboardApiEntry,
     LeaderboardEntry, gameplay_run_passed, gameplay_side_for_player,
-    get_or_fetch_player_leaderboards_for_side_inner, groovestats_eval_state_from_gameplay,
+    get_cached_player_leaderboard_itl_self_rank_for_side,
+    get_or_fetch_player_leaderboards_for_side, groovestats_eval_state_from_gameplay,
     groovestats_judgment_counts, leaderboard_entries_from_api,
 };
 use crate::config::dirs;
@@ -10,7 +11,7 @@ use crate::game::gameplay;
 use crate::game::judgment;
 use crate::game::online::downloads;
 use crate::game::profile;
-use crate::game::song::get_song_cache;
+use crate::game::song::{get_song_cache, song_cache_generation};
 use chrono::Local;
 use log::{debug, warn};
 use serde::de::Deserializer;
@@ -19,11 +20,13 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 
 use bincode::{Decode, Encode};
 
 const ITL_FILE_NAME: &str = "ITL2026.json";
+const ITL_WHEEL_FETCH_ENTRIES: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CachedItlScore {
@@ -46,6 +49,41 @@ struct OnlineItlSelfScoreCacheState {
 
 static ONLINE_ITL_SELF_SCORE_CACHE: std::sync::LazyLock<Mutex<OnlineItlSelfScoreCacheState>> =
     std::sync::LazyLock::new(|| Mutex::new(OnlineItlSelfScoreCacheState::default()));
+static ONLINE_ITL_SELF_SCORE_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Default)]
+struct OnlineItlSelfRankCacheState {
+    session_by_key: HashMap<OnlineItlSelfScoreKey, u32>,
+    loaded_profiles: HashMap<String, HashMap<OnlineItlSelfScoreKey, u32>>,
+}
+
+static ONLINE_ITL_SELF_RANK_CACHE: std::sync::LazyLock<Mutex<OnlineItlSelfRankCacheState>> =
+    std::sync::LazyLock::new(|| Mutex::new(OnlineItlSelfRankCacheState::default()));
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OnlineItlOverallRankCacheKey {
+    api_key: String,
+    profile_id: Option<String>,
+    song_cache_generation: u64,
+    self_score_generation: u64,
+}
+
+#[derive(Clone)]
+struct OnlineItlOverallRankCacheEntry {
+    key: OnlineItlOverallRankCacheKey,
+    ranks: Arc<HashMap<String, u32>>,
+}
+
+#[derive(Default)]
+struct OnlineItlOverallRankCacheState {
+    p1: Option<OnlineItlOverallRankCacheEntry>,
+    p2: Option<OnlineItlOverallRankCacheEntry>,
+}
+
+static ONLINE_ITL_OVERALL_RANK_CACHE: std::sync::LazyLock<Mutex<OnlineItlOverallRankCacheState>> =
+    std::sync::LazyLock::new(|| Mutex::new(OnlineItlOverallRankCacheState::default()));
+static EMPTY_ONLINE_ITL_OVERALL_RANKS: std::sync::LazyLock<Arc<HashMap<String, u32>>> =
+    std::sync::LazyLock::new(|| Arc::new(HashMap::new()));
 
 #[derive(Default)]
 struct ItlScoreCacheState {
@@ -54,6 +92,13 @@ struct ItlScoreCacheState {
 
 static ITL_SCORE_CACHE: std::sync::LazyLock<Mutex<ItlScoreCacheState>> =
     std::sync::LazyLock::new(|| Mutex::new(ItlScoreCacheState::default()));
+
+struct OnlineItlOverallRankInput {
+    api_key: String,
+    profile_id: Option<String>,
+    self_score_generation: u64,
+    by_chart_score: HashMap<String, u32>,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct ItlEvalState {
@@ -206,6 +251,15 @@ fn online_itl_self_score_index_path_for_profile(profile_id: &str) -> PathBuf {
         .join("itl_self.bin")
 }
 
+fn online_itl_self_rank_index_path_for_profile(profile_id: &str) -> PathBuf {
+    dirs::app_dirs()
+        .profiles_root()
+        .join(profile_id)
+        .join("scores")
+        .join("gs")
+        .join("itl_rank.bin")
+}
+
 fn load_online_itl_self_score_index(path: &Path) -> Option<HashMap<OnlineItlSelfScoreKey, u32>> {
     let bytes = fs::read(path).ok()?;
     let (by_key, _) = bincode::decode_from_slice::<HashMap<OnlineItlSelfScoreKey, u32>, _>(
@@ -239,6 +293,36 @@ fn save_online_itl_self_score_index(path: &Path, by_key: &HashMap<OnlineItlSelfS
     }
 }
 
+fn load_online_itl_self_rank_index(path: &Path) -> Option<HashMap<OnlineItlSelfScoreKey, u32>> {
+    load_online_itl_self_score_index(path)
+}
+
+fn save_online_itl_self_rank_index(path: &Path, by_key: &HashMap<OnlineItlSelfScoreKey, u32>) {
+    save_online_itl_self_score_index(path, by_key);
+}
+
+#[inline(always)]
+fn online_itl_overall_rank_entry_for_side(
+    state: &OnlineItlOverallRankCacheState,
+    side: profile::PlayerSide,
+) -> Option<&OnlineItlOverallRankCacheEntry> {
+    match side {
+        profile::PlayerSide::P2 => state.p2.as_ref(),
+        _ => state.p1.as_ref(),
+    }
+}
+
+#[inline(always)]
+fn online_itl_overall_rank_entry_for_side_mut(
+    state: &mut OnlineItlOverallRankCacheState,
+    side: profile::PlayerSide,
+) -> &mut Option<OnlineItlOverallRankCacheEntry> {
+    match side {
+        profile::PlayerSide::P2 => &mut state.p2,
+        _ => &mut state.p1,
+    }
+}
+
 fn ensure_online_itl_self_score_cache_loaded_for_profile(profile_id: &str) {
     let needs_load = {
         let state = ONLINE_ITL_SELF_SCORE_CACHE.lock().unwrap();
@@ -252,6 +336,26 @@ fn ensure_online_itl_self_score_cache_loaded_for_profile(profile_id: &str) {
         load_online_itl_self_score_index(&online_itl_self_score_index_path_for_profile(profile_id))
             .unwrap_or_default();
     ONLINE_ITL_SELF_SCORE_CACHE
+        .lock()
+        .unwrap()
+        .loaded_profiles
+        .entry(profile_id.to_string())
+        .or_insert(by_key);
+}
+
+fn ensure_online_itl_self_rank_cache_loaded_for_profile(profile_id: &str) {
+    let needs_load = {
+        let state = ONLINE_ITL_SELF_RANK_CACHE.lock().unwrap();
+        !state.loaded_profiles.contains_key(profile_id)
+    };
+    if !needs_load {
+        return;
+    }
+
+    let by_key =
+        load_online_itl_self_rank_index(&online_itl_self_rank_index_path_for_profile(profile_id))
+            .unwrap_or_default();
+    ONLINE_ITL_SELF_RANK_CACHE
         .lock()
         .unwrap()
         .loaded_profiles
@@ -275,39 +379,98 @@ pub(super) fn set_cached_online_self_score(
         api_key: api_key.to_string(),
     };
     let profile_id = profile_id.map(str::trim).filter(|id| !id.is_empty());
-    let mut snapshot = None;
-
-    if let Some(profile_id) = profile_id {
+    let (changed, snapshot) = if let Some(profile_id) = profile_id {
         ensure_online_itl_self_score_cache_loaded_for_profile(profile_id);
-        snapshot = {
+        {
             let mut state = ONLINE_ITL_SELF_SCORE_CACHE.lock().unwrap();
-            if let Some(score) = score {
-                state.session_by_key.insert(key.clone(), score);
+            let session_changed = if let Some(score) = score {
+                state.session_by_key.insert(key.clone(), score) != Some(score)
             } else {
-                state.session_by_key.remove(&key);
-            }
+                state.session_by_key.remove(&key).is_some()
+            };
             let Some(profile_scores) = state.loaded_profiles.get_mut(profile_id) else {
                 return;
             };
-            if let Some(score) = score {
-                profile_scores.insert(key.clone(), score);
+            let profile_changed = if let Some(score) = score {
+                profile_scores.insert(key.clone(), score) != Some(score)
             } else {
-                profile_scores.remove(&key);
-            }
-            Some((profile_id.to_string(), profile_scores.clone()))
-        };
+                profile_scores.remove(&key).is_some()
+            };
+            (
+                session_changed || profile_changed,
+                profile_changed.then(|| (profile_id.to_string(), profile_scores.clone())),
+            )
+        }
     } else {
         let mut state = ONLINE_ITL_SELF_SCORE_CACHE.lock().unwrap();
-        if let Some(score) = score {
-            state.session_by_key.insert(key, score);
-        } else {
-            state.session_by_key.remove(&key);
-        }
+        (
+            if let Some(score) = score {
+                state.session_by_key.insert(key, score) != Some(score)
+            } else {
+                state.session_by_key.remove(&key).is_some()
+            },
+            None,
+        )
+    };
+
+    if changed {
+        ONLINE_ITL_SELF_SCORE_GENERATION.fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     if let Some((profile_id, by_key)) = snapshot {
         save_online_itl_self_score_index(
             &online_itl_self_score_index_path_for_profile(profile_id.as_str()),
+            &by_key,
+        );
+    }
+}
+
+pub(super) fn set_cached_online_self_rank(
+    profile_id: Option<&str>,
+    api_key: &str,
+    chart_hash: &str,
+    rank: Option<u32>,
+) {
+    let api_key = api_key.trim();
+    let chart_hash = chart_hash.trim();
+    if api_key.is_empty() || chart_hash.is_empty() {
+        return;
+    }
+    let key = OnlineItlSelfScoreKey {
+        chart_hash: chart_hash.to_string(),
+        api_key: api_key.to_string(),
+    };
+    let profile_id = profile_id.map(str::trim).filter(|id| !id.is_empty());
+    let snapshot = if let Some(profile_id) = profile_id {
+        ensure_online_itl_self_rank_cache_loaded_for_profile(profile_id);
+        let mut state = ONLINE_ITL_SELF_RANK_CACHE.lock().unwrap();
+        if let Some(rank) = rank {
+            state.session_by_key.insert(key.clone(), rank);
+        } else {
+            state.session_by_key.remove(&key);
+        }
+        let Some(profile_ranks) = state.loaded_profiles.get_mut(profile_id) else {
+            return;
+        };
+        let changed = if let Some(rank) = rank {
+            profile_ranks.insert(key, rank) != Some(rank)
+        } else {
+            profile_ranks.remove(&key).is_some()
+        };
+        changed.then(|| (profile_id.to_string(), profile_ranks.clone()))
+    } else {
+        let mut state = ONLINE_ITL_SELF_RANK_CACHE.lock().unwrap();
+        if let Some(rank) = rank {
+            state.session_by_key.insert(key, rank);
+        } else {
+            state.session_by_key.remove(&key);
+        }
+        None
+    };
+
+    if let Some((profile_id, by_key)) = snapshot {
+        save_online_itl_self_rank_index(
+            &online_itl_self_rank_index_path_for_profile(profile_id.as_str()),
             &by_key,
         );
     }
@@ -340,6 +503,243 @@ pub fn get_cached_itl_score_for_song(
         .loaded_profiles
         .get(&profile_id)
         .and_then(|data| itl_score_for_song(song, data))
+}
+
+/// Returns true if the song folder is unlocked for this player's ITL profile.
+/// Songs not present in the unlock map are treated as locked, matching SL.
+pub fn is_itl_song_folder_unlocked_for_side(song_folder: &str, side: profile::PlayerSide) -> bool {
+    let Some(profile_id) = profile::active_local_profile_id_for_side(side) else {
+        return false;
+    };
+    ensure_itl_score_cache_loaded(&profile_id);
+    ITL_SCORE_CACHE
+        .lock()
+        .unwrap()
+        .loaded_profiles
+        .get(&profile_id)
+        .map(|data| {
+            data.unlock_folders
+                .get(song_folder)
+                .copied()
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// True when `pack_dir` matches the SL-style pattern `ITL Online <year> Unlocks`
+/// (case-insensitive, any 4-digit year).
+pub fn is_itl_unlocks_pack(pack_dir: &str) -> bool {
+    let trimmed = pack_dir.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("itl online ") else {
+        return false;
+    };
+    let Some(year_part) = rest.strip_suffix(" unlocks") else {
+        return false;
+    };
+    year_part.len() == 4 && year_part.chars().all(|c| c.is_ascii_digit())
+}
+
+pub fn get_cached_itl_tournament_rank_for_side(
+    chart_hash: &str,
+    side: profile::PlayerSide,
+) -> Option<u32> {
+    get_cached_player_leaderboard_itl_self_rank_for_side(chart_hash, side)
+        .or_else(|| get_cached_online_self_rank_for_side(chart_hash, side))
+}
+
+fn get_cached_online_self_rank_for_side(
+    chart_hash: &str,
+    side: profile::PlayerSide,
+) -> Option<u32> {
+    let key = online_itl_self_score_key_for_side(chart_hash, side)?;
+    let profile_id = profile::active_local_profile_id_for_side(side);
+    if let Some(profile_id) = profile_id.as_deref() {
+        ensure_online_itl_self_rank_cache_loaded_for_profile(profile_id);
+    }
+    let cache = ONLINE_ITL_SELF_RANK_CACHE.lock().unwrap();
+    profile_id
+        .as_deref()
+        .and_then(|profile_id| cache.loaded_profiles.get(profile_id))
+        .and_then(|ranks| ranks.get(&key).copied())
+        .or_else(|| cache.session_by_key.get(&key).copied())
+}
+
+fn online_itl_overall_rank_cache_key_for_side(
+    side: profile::PlayerSide,
+) -> Option<OnlineItlOverallRankCacheKey> {
+    if !profile::is_session_side_joined(side) {
+        return None;
+    }
+    let side_profile = profile::get_for_side(side);
+    let api_key = side_profile.groovestats_api_key.trim();
+    if api_key.is_empty() {
+        return None;
+    }
+
+    let profile_id = profile::active_local_profile_id_for_side(side);
+    if let Some(profile_id) = profile_id.as_deref() {
+        ensure_online_itl_self_score_cache_loaded_for_profile(profile_id);
+    }
+
+    let self_score_generation = {
+        let _cache = ONLINE_ITL_SELF_SCORE_CACHE.lock().unwrap();
+        ONLINE_ITL_SELF_SCORE_GENERATION.load(AtomicOrdering::Relaxed)
+    };
+    let song_cache = get_song_cache();
+    let key = OnlineItlOverallRankCacheKey {
+        api_key: api_key.to_string(),
+        profile_id,
+        song_cache_generation: song_cache_generation(),
+        self_score_generation,
+    };
+    drop(song_cache);
+    Some(key)
+}
+
+fn cached_online_itl_scores_by_chart_for_side(
+    side: profile::PlayerSide,
+) -> Option<OnlineItlOverallRankInput> {
+    if !profile::is_session_side_joined(side) {
+        return None;
+    }
+    let side_profile = profile::get_for_side(side);
+    let api_key = side_profile.groovestats_api_key.trim();
+    if api_key.is_empty() {
+        return None;
+    }
+
+    let profile_id = profile::active_local_profile_id_for_side(side);
+    if let Some(profile_id) = profile_id.as_deref() {
+        ensure_online_itl_self_score_cache_loaded_for_profile(profile_id);
+    }
+
+    let cache = ONLINE_ITL_SELF_SCORE_CACHE.lock().unwrap();
+    let loaded_count = profile_id
+        .as_deref()
+        .and_then(|profile_id| cache.loaded_profiles.get(profile_id))
+        .map_or(0, HashMap::len);
+    let mut by_chart = HashMap::with_capacity(loaded_count + cache.session_by_key.len());
+    if let Some(profile_id) = profile_id.as_deref()
+        && let Some(scores) = cache.loaded_profiles.get(profile_id)
+    {
+        for (key, score) in scores {
+            if key.api_key == api_key {
+                by_chart.insert(key.chart_hash.clone(), *score);
+            }
+        }
+    }
+    for (key, score) in &cache.session_by_key {
+        if key.api_key == api_key {
+            by_chart.insert(key.chart_hash.clone(), *score);
+        }
+    }
+    Some(OnlineItlOverallRankInput {
+        api_key: api_key.to_string(),
+        profile_id,
+        self_score_generation: ONLINE_ITL_SELF_SCORE_GENERATION.load(AtomicOrdering::Relaxed),
+        by_chart_score: by_chart,
+    })
+}
+
+fn apply_online_itl_overall_ranks(
+    out: &mut HashMap<String, u32>,
+    mut by_chart_points: Vec<(String, u32)>,
+) {
+    by_chart_points.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let mut prev_points = None;
+    let mut prev_rank = 0u32;
+    for (idx, (chart_hash, points)) in by_chart_points.into_iter().enumerate() {
+        let rank = if prev_points == Some(points) {
+            prev_rank
+        } else {
+            idx.saturating_add(1) as u32
+        };
+        out.insert(chart_hash, rank);
+        prev_points = Some(points);
+        prev_rank = rank;
+    }
+}
+
+fn build_online_itl_overall_ranks(
+    song_cache: &[crate::game::song::SongPack],
+    by_chart_score: &HashMap<String, u32>,
+) -> HashMap<String, u32> {
+    if by_chart_score.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut single_points = Vec::new();
+    let mut double_points = Vec::new();
+    for pack in song_cache {
+        if !group_name_matches(pack.group_name.as_str()) {
+            continue;
+        }
+        for song in &pack.songs {
+            for chart in &song.charts {
+                if !chart.has_note_data {
+                    continue;
+                }
+                let Some(ex_hundredths) = by_chart_score.get(chart.short_hash.as_str()).copied()
+                else {
+                    continue;
+                };
+                let Some(points) = itl_points_for_chart(chart, ex_hundredths) else {
+                    continue;
+                };
+                if itl_steps_type(chart).eq_ignore_ascii_case("double") {
+                    double_points.push((chart.short_hash.clone(), points));
+                } else {
+                    single_points.push((chart.short_hash.clone(), points));
+                }
+            }
+        }
+    }
+
+    let mut ranks = HashMap::with_capacity(single_points.len() + double_points.len());
+    apply_online_itl_overall_ranks(&mut ranks, single_points);
+    apply_online_itl_overall_ranks(&mut ranks, double_points);
+    ranks
+}
+
+pub fn get_cached_itl_tournament_overall_ranks_for_side(
+    side: profile::PlayerSide,
+) -> Arc<HashMap<String, u32>> {
+    let Some(cache_key) = online_itl_overall_rank_cache_key_for_side(side) else {
+        return EMPTY_ONLINE_ITL_OVERALL_RANKS.clone();
+    };
+    {
+        let cache = ONLINE_ITL_OVERALL_RANK_CACHE.lock().unwrap();
+        if let Some(entry) = online_itl_overall_rank_entry_for_side(&cache, side)
+            && entry.key == cache_key
+        {
+            return entry.ranks.clone();
+        }
+    }
+
+    let Some(input) = cached_online_itl_scores_by_chart_for_side(side) else {
+        return EMPTY_ONLINE_ITL_OVERALL_RANKS.clone();
+    };
+    let song_cache = get_song_cache();
+    let key = OnlineItlOverallRankCacheKey {
+        api_key: input.api_key,
+        profile_id: input.profile_id,
+        song_cache_generation: song_cache_generation(),
+        self_score_generation: input.self_score_generation,
+    };
+    let ranks = Arc::new(build_online_itl_overall_ranks(
+        song_cache.as_slice(),
+        &input.by_chart_score,
+    ));
+    drop(song_cache);
+
+    let mut cache = ONLINE_ITL_OVERALL_RANK_CACHE.lock().unwrap();
+    *online_itl_overall_rank_entry_for_side_mut(&mut cache, side) =
+        Some(OnlineItlOverallRankCacheEntry {
+            key,
+            ranks: ranks.clone(),
+        });
+    ranks
 }
 
 pub fn save_itl_data_from_gameplay(
@@ -548,6 +948,14 @@ pub(super) fn current_score_hundredths(gs: &gameplay::State, player_idx: usize) 
     ex_hundredths(ex_percent)
 }
 
+pub(super) fn current_score_hundredths_for_submit(
+    gs: &gameplay::State,
+    player_idx: usize,
+) -> Option<u32> {
+    itl_all_timing_windows_enabled(&gs.player_profiles[player_idx])
+        .then(|| current_score_hundredths(gs, player_idx))
+}
+
 fn itl_file_path(profile_id: &str) -> PathBuf {
     profile::local_profile_dir_for_id(profile_id).join(ITL_FILE_NAME)
 }
@@ -561,7 +969,8 @@ fn ensure_itl_score_cache_loaded(profile_id: &str) {
         return;
     }
 
-    let data = read_itl_file(profile_id);
+    let mut data = read_itl_file(profile_id);
+    itl_rebuild_song_ranks(&mut data);
     ITL_SCORE_CACHE
         .lock()
         .unwrap()
@@ -903,18 +1312,21 @@ pub(super) fn handle_submit_player_unlocks(
     player: &GrooveStatsSubmitPlayerJob,
     response: &GrooveStatsSubmitApiPlayer,
 ) {
-    if let Some(itl) = response.itl.as_ref()
-        && let Some(profile_id) = player.profile_id.as_deref()
-        && let Some(progress) = itl.progress.as_ref()
-    {
-        for quest in &progress.quests_completed {
-            update_unlock_folders(profile_id, quest.song_download_folders.as_slice());
+    let accept_itl_response = player.itl_score_hundredths.is_some();
+    if accept_itl_response {
+        if let Some(itl) = response.itl.as_ref()
+            && let Some(profile_id) = player.profile_id.as_deref()
+            && let Some(progress) = itl.progress.as_ref()
+        {
+            for quest in &progress.quests_completed {
+                update_unlock_folders(profile_id, quest.song_download_folders.as_slice());
+            }
         }
     }
     if let Some(rpg) = response.rpg.as_ref() {
         handle_submit_event_unlocks(player, rpg);
     }
-    if let Some(itl) = response.itl.as_ref() {
+    if accept_itl_response && let Some(itl) = response.itl.as_ref() {
         handle_submit_event_unlocks(player, itl);
     }
 }
@@ -985,9 +1397,16 @@ fn itl_score_for_song(
     song: &crate::game::song::SongData,
     data: &ItlFileData,
 ) -> Option<CachedItlScore> {
+    itl_entry_for_song(song, data).map(itl_score_from_entry)
+}
+
+fn itl_entry_for_song<'a>(
+    song: &crate::game::song::SongData,
+    data: &'a ItlFileData,
+) -> Option<&'a ItlHashEntry> {
     let song_dir = itl_song_dir(song)?;
     let chart_hash = data.path_map.get(song_dir.as_str())?;
-    data.hash_map.get(chart_hash).map(itl_score_from_entry)
+    data.hash_map.get(chart_hash)
 }
 
 fn itl_song_dir(song: &crate::game::song::SongData) -> Option<String> {
@@ -1257,8 +1676,8 @@ fn itl_judgments_from_gameplay(gs: &gameplay::State, player_idx: usize) -> ItlJu
         w1: counts.fantastic,
         w2: counts.excellent,
         w3: counts.great,
-        w4: counts.decent,
-        w5: counts.way_off,
+        w4: counts.decent_count(),
+        w5: counts.way_off_count(),
         miss: counts.miss,
         total_steps: counts.total_steps,
         holds: counts.holds_held,
@@ -1268,6 +1687,15 @@ fn itl_judgments_from_gameplay(gs: &gameplay::State, player_idx: usize) -> ItlJu
         rolls: counts.rolls_held,
         total_rolls: counts.total_rolls,
     }
+}
+
+#[inline(always)]
+fn itl_all_timing_windows_enabled(profile: &profile::Profile) -> bool {
+    profile
+        .timing_windows
+        .disabled_windows()
+        .iter()
+        .all(|disabled| !*disabled)
 }
 
 fn itl_eval_state(gs: &gameplay::State, player_idx: usize, data: &ItlFileData) -> ItlEvalState {
@@ -1305,6 +1733,8 @@ fn itl_eval_state(gs: &gameplay::State, player_idx: usize, data: &ItlFileData) -
     };
     let remove_mask = gs.player_profiles[player_idx].remove_active_mask.bits();
     let mines_enabled = (remove_mask & (1u8 << 1)) == 0;
+    let all_timing_windows_enabled =
+        itl_all_timing_windows_enabled(&gs.player_profiles[player_idx]);
     let passed = gameplay_run_passed(
         gs.song_completed_naturally,
         gs.players[player_idx].is_failing,
@@ -1312,7 +1742,7 @@ fn itl_eval_state(gs: &gameplay::State, player_idx: usize, data: &ItlFileData) -
         gs.players[player_idx].fail_time.is_some(),
     );
 
-    let mut reason_lines = Vec::with_capacity(4);
+    let mut reason_lines = Vec::with_capacity(5);
     if !gs_valid.valid {
         if gs_valid.reason_lines.is_empty() {
             reason_lines.push("Score is not valid for GrooveStats.".to_string());
@@ -1325,6 +1755,9 @@ fn itl_eval_state(gs: &gameplay::State, player_idx: usize, data: &ItlFileData) -
     }
     if !mines_enabled {
         reason_lines.push("ITL requires mines to be enabled.".to_string());
+    }
+    if !all_timing_windows_enabled {
+        reason_lines.push("ITL requires all timing windows to be enabled.".to_string());
     }
     if !passed {
         reason_lines.push("ITL only saves passing scores.".to_string());
@@ -1381,14 +1814,19 @@ pub fn get_or_fetch_itl_self_score_for_side(
     // Keep the wheel's ITL prefetch aligned with the Select Music scorebox cache width.
     // Smaller requests seed the shared leaderboard cache with partial panes, so the
     // scorebox briefly renders a truncated list before refetching the remaining rows.
-    const ITL_SELF_SCORE_FETCH_ENTRIES: usize = 5;
-    let _ = get_or_fetch_player_leaderboards_for_side_inner(
-        chart_hash,
-        side,
-        ITL_SELF_SCORE_FETCH_ENTRIES,
-        false,
-    )?;
+    let _ = get_or_fetch_player_leaderboards_for_side(chart_hash, side, ITL_WHEEL_FETCH_ENTRIES)?;
     get_cached_itl_self_score_for_side(chart_hash, side)
+}
+
+pub fn get_or_fetch_itl_tournament_rank_for_side(
+    chart_hash: &str,
+    side: profile::PlayerSide,
+) -> Option<u32> {
+    if let Some(rank) = get_cached_itl_tournament_rank_for_side(chart_hash, side) {
+        return Some(rank);
+    }
+    let _ = get_or_fetch_player_leaderboards_for_side(chart_hash, side, ITL_WHEEL_FETCH_ENTRIES)?;
+    get_cached_itl_tournament_rank_for_side(chart_hash, side)
 }
 
 #[cfg(test)]
@@ -1459,6 +1897,8 @@ mod tests {
             banner_path: None,
             background_path: None,
             background_changes: Vec::new(),
+            foreground_changes: Vec::new(),
+            background_lua_changes: Vec::new(),
             foreground_lua_changes: Vec::new(),
             has_lua: false,
             cdtitle_path: None,
@@ -1522,6 +1962,21 @@ mod tests {
     }
 
     #[test]
+    fn itl_requires_all_timing_windows_enabled() {
+        let mut profile = profile::Profile::default();
+        assert!(itl_all_timing_windows_enabled(&profile));
+
+        for setting in [
+            profile::TimingWindowsOption::WayOffs,
+            profile::TimingWindowsOption::DecentsAndWayOffs,
+            profile::TimingWindowsOption::FantasticsAndExcellents,
+        ] {
+            profile.timing_windows = setting;
+            assert!(!itl_all_timing_windows_enabled(&profile));
+        }
+    }
+
+    #[test]
     fn itl_file_reads_simply_love_and_legacy_ex_values() {
         let sl: ItlFileData = serde_json::from_value(json!({
             "hashMap": {
@@ -1556,6 +2011,23 @@ mod tests {
         assert_eq!(load_online_itl_self_score_index(&path), Some(expected));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn online_itl_overall_ranks_share_tied_points() {
+        let mut ranks = HashMap::new();
+        apply_online_itl_overall_ranks(
+            &mut ranks,
+            vec![
+                ("a".to_string(), 19_500),
+                ("b".to_string(), 19_500),
+                ("c".to_string(), 18_000),
+            ],
+        );
+
+        assert_eq!(ranks.get("a"), Some(&1));
+        assert_eq!(ranks.get("b"), Some(&1));
+        assert_eq!(ranks.get("c"), Some(&3));
     }
 
     #[test]

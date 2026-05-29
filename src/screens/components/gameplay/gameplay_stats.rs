@@ -1,9 +1,10 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::{LookupKey, lookup_key, tr};
-use crate::engine::gfx::{BlendMode, MeshMode};
+use crate::assets::{FontRole, current_machine_font_key};
+use crate::engine::gfx::BlendMode;
 use crate::engine::present::actors::{Actor, SizeSpec};
-use crate::engine::present::cache::{TextCache, cached_text};
+use crate::engine::present::cache::{SharedStrCache, TextCache, cached_shared_str, cached_text};
 use crate::engine::present::color;
 use crate::engine::present::compose::TextLayoutCache;
 use crate::engine::present::density;
@@ -21,6 +22,10 @@ use std::sync::{Arc, LazyLock};
 const TEXT_CACHE_LIMIT: usize = 8192;
 const COUNT_PREWARM_CAP: u32 = 2048;
 const TIME_PREWARM_CAP_S: u32 = 600;
+const STEP_STATS_BANNER_W: f32 = 418.0;
+const STEP_STATS_BANNER_H: f32 = 164.0;
+const STEP_STATS_SONG_BANNER_ZOOM: f32 = 0.4;
+const DISABLED_WINDOW_RGBA: [f32; 4] = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
 
 thread_local! {
     static PADDED_NUM_CACHE: RefCell<TextCache<(u32, u8)>> = RefCell::new(HashMap::with_capacity(2048));
@@ -28,14 +33,23 @@ thread_local! {
     static PADDED_BRIGHT_CACHE: RefCell<TextCache<(u32, u8)>> = RefCell::new(HashMap::with_capacity(2048));
     static BLUE_WINDOW_LABEL_CACHE: RefCell<TextCache<i32>> = RefCell::new(HashMap::with_capacity(64));
     static PEAK_NPS_CACHE: RefCell<TextCache<u32>> = RefCell::new(HashMap::with_capacity(512));
+    static SCORE_2DP_CACHE: RefCell<TextCache<u32>> = RefCell::new(HashMap::with_capacity(1024));
     static GAME_TIME_CACHE: RefCell<TextCache<(u32, u8)>> = RefCell::new(HashMap::with_capacity(1024));
     static GAME_TIME_WIDTH_CACHE: RefCell<HashMap<(u32, u8), f32>> = RefCell::new(HashMap::with_capacity(1024));
-    static STR_REF_CACHE: RefCell<TextCache<(usize, usize)>> = RefCell::new(HashMap::with_capacity(512));
+    static LIVE_TIMING_PAIR_CACHE: RefCell<TextCache<(i32, i32)>> = RefCell::new(HashMap::with_capacity(4096));
+    static STR_REF_CACHE: RefCell<SharedStrCache> = RefCell::new(HashMap::with_capacity(512));
 }
 
 static DIGIT_TEXT: LazyLock<[Arc<str>; 10]> =
     LazyLock::new(|| ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].map(Arc::<str>::from));
 static SLASH_TEXT: LazyLock<Arc<str>> = LazyLock::new(|| Arc::<str>::from("/"));
+static LIVE_TIMING_LABELS: LazyLock<[Arc<str>; 3]> = LazyLock::new(|| {
+    [
+        Arc::<str>::from("Mean (64n/All [ms])"),
+        Arc::<str>::from("Mean Abs (64n/All [ms])"),
+        Arc::<str>::from("Max (64n/All [ms])"),
+    ]
+});
 
 #[derive(Clone, Copy)]
 struct LabeledColor {
@@ -104,26 +118,25 @@ fn judgment_label(index: usize) -> Arc<str> {
         .unwrap_or_else(|| Arc::from(""))
 }
 
-fn time_song_left_text() -> Arc<str> {
-    tr("Gameplay", "TimeSong")
-}
-
 fn time_remaining_left_text() -> Arc<str> {
     tr("Gameplay", "TimeRemaining")
-}
-
-fn time_song_right_text() -> Arc<str> {
-    tr("Gameplay", "TimeSong")
 }
 
 fn time_remaining_right_text() -> Arc<str> {
     tr("Gameplay", "TimeRemaining")
 }
 
+fn time_total_text(state: &State) -> Arc<str> {
+    if state.course_display_timing.is_some() {
+        tr("Gameplay", "TimeCourse")
+    } else {
+        tr("Gameplay", "TimeSong")
+    }
+}
+
 #[inline(always)]
 fn cached_str_ref(text: &str) -> Arc<str> {
-    let key = (text.as_ptr() as usize, text.len());
-    cached_text(&STR_REF_CACHE, key, TEXT_CACHE_LIMIT, || text.to_owned())
+    cached_shared_str(&STR_REF_CACHE, text, TEXT_CACHE_LIMIT)
 }
 
 #[inline(always)]
@@ -132,6 +145,71 @@ fn step_stats_player_idx(state: &State, player_side: profile::PlayerSide) -> usi
         (2, profile::PlayerSide::P2) => 1,
         _ => 0,
     }
+}
+
+#[derive(Clone, Copy)]
+struct StepStatsTimeDisplay {
+    total_seconds: f32,
+    elapsed_seconds: f32,
+}
+
+#[inline(always)]
+fn step_stats_music_rate(state: &State) -> f32 {
+    if state.music_rate.is_finite() && state.music_rate > 0.0 {
+        state.music_rate
+    } else {
+        1.0
+    }
+}
+
+fn step_stats_time_display(state: &State, player_idx: usize) -> StepStatsTimeDisplay {
+    let rate = step_stats_music_rate(state);
+    let (base_elapsed, total) = state.course_display_timing.map_or_else(
+        || (0.0, state.song.total_length_seconds.max(0) as f32),
+        |timing| {
+            (
+                timing.elapsed_seconds.max(0.0),
+                timing.total_seconds.max(0.0),
+            )
+        },
+    );
+    let stage_elapsed = state
+        .players
+        .get(player_idx)
+        .and_then(|player| player.fail_time)
+        .unwrap_or(state.current_music_time_display)
+        .max(0.0);
+    let elapsed = (base_elapsed + stage_elapsed).clamp(0.0, total);
+    StepStatsTimeDisplay {
+        total_seconds: total / rate,
+        elapsed_seconds: elapsed / rate,
+    }
+}
+
+fn step_stats_hmr_categories(state: &State, player_idx: usize) -> [(usize, u32, u32); 3] {
+    if player_idx >= state.num_players || player_idx >= gameplay::MAX_PLAYERS {
+        return [(0, 0, 0), (1, 0, 0), (2, 0, 0)];
+    }
+    let p = &state.players[player_idx];
+    let carry = gameplay::display_carry_for_player(state, player_idx);
+    let totals = gameplay::display_totals_for_player(state, player_idx);
+    [
+        (
+            0usize,
+            p.holds_held.saturating_add(carry.holds_held),
+            totals.holds_total,
+        ),
+        (
+            1usize,
+            p.mines_avoided.saturating_add(carry.mines_avoided),
+            totals.mines_total,
+        ),
+        (
+            2usize,
+            p.rolls_held.saturating_add(carry.rolls_held),
+            totals.rolls_total,
+        ),
+    ]
 }
 
 fn clip_density_life_points(points: &mut Vec<[f32; 2]>, offset: f32) {
@@ -220,6 +298,71 @@ pub fn refresh_density_graph_meshes(state: &mut State) {
     }
 }
 
+fn push_density_graph_at(
+    actors: &mut Vec<Actor>,
+    state: &State,
+    player_idx: usize,
+    x0: f32,
+    y0: f32,
+) {
+    if player_idx >= state.num_players {
+        return;
+    }
+
+    const BG_RGB: [f32; 3] = [
+        30.0 / 255.0, // 0x1E
+        40.0 / 255.0, // 0x28
+        47.0 / 255.0, // 0x2F
+    ];
+
+    let graph_w = state.density_graph_graph_w;
+    let graph_h = state.density_graph_graph_h;
+    if graph_w <= 0.0_f32 || graph_h <= 0.0_f32 {
+        return;
+    }
+
+    let bg_alpha = if state.player_profiles[player_idx].transparent_density_graph_bg {
+        0.5
+    } else {
+        1.0
+    };
+
+    actors.push(act!(quad:
+        align(0.0, 0.0): xy(x0, y0):
+        zoomto(graph_w, graph_h):
+        diffuse(BG_RGB[0], BG_RGB[1], BG_RGB[2], bg_alpha):
+        z(59)
+    ));
+
+    if let Some(mesh) = &state.density_graph.mesh[player_idx]
+        && !mesh.is_empty()
+    {
+        actors.push(Actor::Mesh {
+            align: [0.0, 0.0],
+            offset: [x0, y0],
+            size: [SizeSpec::Px(graph_w), SizeSpec::Px(graph_h)],
+            vertices: mesh.clone(),
+            visible: true,
+            blend: BlendMode::Alpha,
+            z: 60,
+        });
+    }
+
+    if let Some(mesh) = &state.density_graph.life_mesh[player_idx]
+        && !mesh.is_empty()
+    {
+        actors.push(Actor::Mesh {
+            align: [0.0, 0.0],
+            offset: [x0, y0],
+            size: [SizeSpec::Px(graph_w), SizeSpec::Px(graph_h)],
+            vertices: mesh.clone(),
+            visible: true,
+            blend: BlendMode::Alpha,
+            z: 61,
+        });
+    }
+}
+
 #[inline(always)]
 fn cached_padded_num(count: u32, digits: usize) -> Arc<str> {
     let digits = digits.clamp(1, u8::MAX as usize) as u8;
@@ -267,6 +410,32 @@ fn cached_blue_window_label(ms: i32) -> Arc<str> {
 }
 
 #[inline(always)]
+fn standard_row_disabled(disabled_windows: [bool; 5], row: usize) -> bool {
+    row < 5 && disabled_windows[row]
+}
+
+#[inline(always)]
+fn split_row_disabled(disabled_windows: [bool; 5], row: usize) -> bool {
+    match row {
+        0 | 1 => disabled_windows[0],
+        2 => disabled_windows[1],
+        3 => disabled_windows[2],
+        4 => disabled_windows[3],
+        5 => disabled_windows[4],
+        _ => false,
+    }
+}
+
+#[inline(always)]
+fn padded_runs_for_window(count: u32, digits: usize, disabled: bool) -> (Arc<str>, Arc<str>) {
+    if disabled {
+        (cached_padded_num(count, digits), Arc::<str>::from(""))
+    } else {
+        cached_padded_runs(count, digits)
+    }
+}
+
+#[inline(always)]
 fn cached_peak_nps_text(peak: f32) -> Arc<str> {
     use crate::assets::i18n::tr_fmt;
     cached_text(&PEAK_NPS_CACHE, peak.to_bits(), TEXT_CACHE_LIMIT, || {
@@ -276,6 +445,24 @@ fn cached_peak_nps_text(peak: f32) -> Arc<str> {
             &[("peak_nps", &format!("{:.2}", peak.max(0.0)))],
         )
         .to_string()
+    })
+}
+
+#[inline(always)]
+fn quantize_centi_u32(value: f64) -> u32 {
+    let value = if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    };
+    ((value * 100.0).round()).clamp(0.0, u32::MAX as f64) as u32
+}
+
+#[inline(always)]
+fn cached_score_2dp(value: f64) -> Arc<str> {
+    let key = quantize_centi_u32(value);
+    cached_text(&SCORE_2DP_CACHE, key, TEXT_CACHE_LIMIT, || {
+        format!("{:.2}", key as f64 / 100.0)
     })
 }
 
@@ -295,6 +482,47 @@ fn cached_game_time(seconds: u32, mode: u8) -> Arc<str> {
             _ => format!("{minutes}:{secs:02}"),
         }
     })
+}
+
+#[inline(always)]
+fn timing_tenths(ms: f32) -> i32 {
+    if ms.is_finite() {
+        (ms * 10.0).round() as i32
+    } else {
+        0
+    }
+}
+
+fn cached_live_timing_pair(recent_ms: f32, all_ms: f32) -> Arc<str> {
+    let key = (timing_tenths(recent_ms), timing_tenths(all_ms));
+    cached_text(&LIVE_TIMING_PAIR_CACHE, key, TEXT_CACHE_LIMIT, || {
+        format!("{:.1}/{:.1}", key.0 as f32 * 0.1, key.1 as f32 * 0.1)
+    })
+}
+
+#[inline(always)]
+fn live_timing_stat_mask(index: usize) -> profile::LiveTimingStatsMask {
+    match index {
+        0 => profile::LiveTimingStatsMask::MEAN,
+        1 => profile::LiveTimingStatsMask::MEAN_ABS,
+        _ => profile::LiveTimingStatsMask::MAX,
+    }
+}
+
+#[inline(always)]
+fn live_timing_enabled_count(mask: profile::LiveTimingStatsMask) -> usize {
+    usize::from(mask.contains(profile::LiveTimingStatsMask::MEAN))
+        + usize::from(mask.contains(profile::LiveTimingStatsMask::MEAN_ABS))
+        + usize::from(mask.contains(profile::LiveTimingStatsMask::MAX))
+}
+
+#[inline(always)]
+fn live_timing_value(stats: crate::game::timing::LiveTimingSnapshot, index: usize) -> Arc<str> {
+    match index {
+        0 => cached_live_timing_pair(stats.recent.mean_ms, stats.all.mean_ms),
+        1 => cached_live_timing_pair(stats.recent.mean_abs_ms, stats.all.mean_abs_ms),
+        _ => cached_live_timing_pair(stats.recent.max_abs_ms, stats.all.max_abs_ms),
+    }
 }
 
 #[inline(always)]
@@ -343,7 +571,7 @@ fn push_versus_count_texts(
     if is_p1 {
         if !dim_text.is_empty() {
             let mut a = act!(text:
-                font("wendy_screenevaluation"): settext(dim_text):
+                font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                 align(0.0, 0.5): xy(anchor_x, y):
                 zoom(numbers_zoom_y):
                 diffuse(dim[0], dim[1], dim[2], dim[3]):
@@ -358,7 +586,7 @@ fn push_versus_count_texts(
         }
         if !bright_text.is_empty() {
             let mut a = act!(text:
-                font("wendy_screenevaluation"): settext(bright_text):
+                font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                 align(0.0, 0.5): xy(anchor_x + dim_len * digit_w, y):
                 zoom(numbers_zoom_y):
                 diffuse(bright[0], bright[1], bright[2], bright[3]):
@@ -374,7 +602,7 @@ fn push_versus_count_texts(
     } else {
         if !bright_text.is_empty() {
             let mut a = act!(text:
-                font("wendy_screenevaluation"): settext(bright_text):
+                font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                 align(1.0, 0.5): xy(anchor_x, y):
                 zoom(numbers_zoom_y):
                 diffuse(bright[0], bright[1], bright[2], bright[3]):
@@ -389,7 +617,7 @@ fn push_versus_count_texts(
         }
         if !dim_text.is_empty() {
             let mut a = act!(text:
-                font("wendy_screenevaluation"): settext(dim_text):
+                font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                 align(1.0, 0.5): xy(anchor_x - bright_len * digit_w, y):
                 zoom(numbers_zoom_y):
                 diffuse(dim[0], dim[1], dim[2], dim[3]):
@@ -454,11 +682,15 @@ pub fn prewarm_text_layout(
 ) {
     let mut max_count = 0u32;
     for player in 0..state.num_players {
+        let totals = gameplay::display_totals_for_player(state, player);
         max_count = max_count
-            .max(state.total_steps[player])
-            .max(state.holds_total[player])
-            .max(state.rolls_total[player])
-            .max(state.mines_total[player]);
+            .max(totals.total_steps)
+            .max(totals.holds_total)
+            .max(totals.rolls_total)
+            .max(totals.mines_total);
+        for (_, achieved, total) in step_stats_hmr_categories(state, player) {
+            max_count = max_count.max(achieved).max(total);
+        }
     }
     let digits = if max_count > 0 {
         (max_count.ilog10() as usize + 1).max(4)
@@ -467,22 +699,70 @@ pub fn prewarm_text_layout(
     };
     for count in 0..=max_count.min(COUNT_PREWARM_CAP) {
         let (dim, bright) = cached_padded_runs(count, digits);
-        cache.prewarm_text(fonts, "wendy_screenevaluation", dim.as_ref(), None);
-        cache.prewarm_text(fonts, "wendy_screenevaluation", bright.as_ref(), None);
+        cache.prewarm_text(
+            fonts,
+            current_machine_font_key(FontRole::ScreenEval),
+            dim.as_ref(),
+            None,
+        );
+        cache.prewarm_text(
+            fonts,
+            current_machine_font_key(FontRole::ScreenEval),
+            bright.as_ref(),
+            None,
+        );
     }
     let (dim, bright) = cached_padded_runs(max_count, digits);
-    cache.prewarm_text(fonts, "wendy_screenevaluation", dim.as_ref(), None);
-    cache.prewarm_text(fonts, "wendy_screenevaluation", bright.as_ref(), None);
+    cache.prewarm_text(
+        fonts,
+        current_machine_font_key(FontRole::ScreenEval),
+        dim.as_ref(),
+        None,
+    );
+    cache.prewarm_text(
+        fonts,
+        current_machine_font_key(FontRole::ScreenEval),
+        bright.as_ref(),
+        None,
+    );
     for player in 0..state.num_players {
+        let totals = gameplay::display_totals_for_player(state, player);
         for count in [
-            state.total_steps[player],
-            state.holds_total[player],
-            state.rolls_total[player],
-            state.mines_total[player],
+            totals.total_steps,
+            totals.holds_total,
+            totals.rolls_total,
+            totals.mines_total,
         ] {
             let (dim, bright) = cached_padded_runs(count, digits);
-            cache.prewarm_text(fonts, "wendy_screenevaluation", dim.as_ref(), None);
-            cache.prewarm_text(fonts, "wendy_screenevaluation", bright.as_ref(), None);
+            cache.prewarm_text(
+                fonts,
+                current_machine_font_key(FontRole::ScreenEval),
+                dim.as_ref(),
+                None,
+            );
+            cache.prewarm_text(
+                fonts,
+                current_machine_font_key(FontRole::ScreenEval),
+                bright.as_ref(),
+                None,
+            );
+        }
+        for (_, achieved, total) in step_stats_hmr_categories(state, player) {
+            for count in [achieved, total] {
+                let (dim, bright) = cached_padded_runs(count, digits);
+                cache.prewarm_text(
+                    fonts,
+                    current_machine_font_key(FontRole::ScreenEval),
+                    dim.as_ref(),
+                    None,
+                );
+                cache.prewarm_text(
+                    fonts,
+                    current_machine_font_key(FontRole::ScreenEval),
+                    bright.as_ref(),
+                    None,
+                );
+            }
         }
     }
     let end_seconds = crate::game::gameplay::song_time_ns_to_seconds(
@@ -490,6 +770,11 @@ pub fn prewarm_text_layout(
     )
     .ceil()
     .max(0.0) as u32;
+    let display_end_seconds = step_stats_time_display(state, 0)
+        .total_seconds
+        .ceil()
+        .max(0.0) as u32;
+    let end_seconds = end_seconds.max(display_end_seconds);
     let mode = game_time_mode(end_seconds as f32);
     for second in 0..=end_seconds.min(TIME_PREWARM_CAP_S) {
         let key = (second, mode);
@@ -501,11 +786,17 @@ pub fn prewarm_text_layout(
     let text = cached_game_time(end_seconds, mode);
     cache.prewarm_text(fonts, "miso", text.as_ref(), None);
     let _ = cached_game_time_width_for_key(key, asset_manager);
-    cache.prewarm_text(fonts, "miso", &time_song_left_text(), None);
+    cache.prewarm_text(fonts, "miso", time_total_text(state).as_ref(), None);
+    cache.prewarm_text(fonts, "miso", &tr("Gameplay", "TimeSong"), None);
+    cache.prewarm_text(fonts, "miso", &tr("Gameplay", "TimeCourse"), None);
     cache.prewarm_text(fonts, "miso", &time_remaining_left_text(), None);
-    cache.prewarm_text(fonts, "miso", &time_song_right_text(), None);
     cache.prewarm_text(fonts, "miso", &time_remaining_right_text(), None);
     cache.prewarm_text(fonts, "miso", SLASH_TEXT.as_ref(), None);
+    for label in LIVE_TIMING_LABELS.iter() {
+        cache.prewarm_text(fonts, "miso", label.as_ref(), None);
+    }
+    let zero_timing = cached_live_timing_pair(0.0, 0.0);
+    cache.prewarm_text(fonts, "miso", zero_timing.as_ref(), None);
     for label in (0..4).map(step_info_label).collect::<Vec<_>>().iter() {
         cache.prewarm_text(fonts, "miso", label.as_ref(), None);
     }
@@ -527,22 +818,22 @@ pub fn prewarm_text_layout(
     }
 }
 
-pub fn build(
+pub fn push_step_stats(
+    actors: &mut Vec<Actor>,
     state: &State,
     asset_manager: &AssetManager,
     playfield_center_x: f32,
     player_side: profile::PlayerSide,
-) -> Vec<Actor> {
+) {
     let wide = is_wide();
     let layout = step_stats_pane_layout(state, playfield_center_x, player_side);
-    let mut actors = Vec::with_capacity(if wide { 48 } else { 1 });
-    build_banner(&mut actors, state, layout, wide, player_side);
-    build_pack_banner(&mut actors, state, layout, wide, player_side);
-    build_steps_info(&mut actors, state, layout, wide, player_side);
-    build_side_pane(&mut actors, state, asset_manager, layout, wide, player_side);
-    build_holds_mines_rolls_pane(&mut actors, state, asset_manager, layout, wide, player_side);
-    build_scorebox_pane(&mut actors, state, layout, wide, player_side);
-    actors
+    actors.reserve(if wide { 48 } else { 1 });
+    build_banner(actors, state, layout, wide, player_side);
+    build_pack_banner(actors, state, layout, wide, player_side);
+    build_steps_info(actors, state, layout, wide, player_side);
+    build_side_pane(actors, state, asset_manager, layout, wide, player_side);
+    build_holds_mines_rolls_pane(actors, state, asset_manager, layout, wide, player_side);
+    build_scorebox_pane(actors, state, layout, wide, player_side);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -615,33 +906,37 @@ fn step_stats_pane_layout(
     }
 }
 
-pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> Vec<Actor> {
+pub fn push_versus_step_stats(
+    actors: &mut Vec<Actor>,
+    state: &State,
+    asset_manager: &AssetManager,
+) {
     if !is_wide() {
-        return vec![];
+        return;
     }
     // Simply Love shows centered step stats in 2P versus on widescreen, but not on ultrawide
     // (ultrawide already has native per-player side panes).
     let is_ultrawide = screen_width() / screen_height().max(1.0) > (21.0 / 9.0);
     if is_ultrawide {
-        return vec![];
+        return;
     }
     if state.num_players < 2 || state.players.len() < 2 {
-        return vec![];
+        return;
     }
     let show_for: [bool; 2] = [
         state.player_profiles[0].data_visualizations == profile::DataVisualizations::StepStatistics,
         state.player_profiles[1].data_visualizations == profile::DataVisualizations::StepStatistics,
     ];
     if !show_for[0] && !show_for[1] {
-        return vec![];
+        return;
     }
 
     let center_x = screen_center_x();
 
-    let total_tapnotes = state.charts[0]
-        .stats
-        .total_steps
-        .max(state.charts[1].stats.total_steps) as f32;
+    let total_tapnotes = (0..state.num_players)
+        .map(|player| gameplay::display_totals_for_player(state, player).total_steps)
+        .max()
+        .unwrap_or(0) as f32;
     let digits = if total_tapnotes > 0.0 {
         (total_tapnotes.log10().floor() as usize + 1).max(4)
     } else {
@@ -663,7 +958,7 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
     let z_bg = 80i16;
     let z_fg = 110i16;
 
-    let mut actors = Vec::with_capacity(128);
+    actors.reserve(128);
     // Center black column behind the counters (SL: VersusStepStatistics.lua).
     actors.push(act!(quad:
         align(0.5, 0.5):
@@ -674,7 +969,7 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
     ));
 
     asset_manager.with_fonts(|all_fonts| {
-        asset_manager.with_font("wendy_screenevaluation", |f| {
+        asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |f| {
             let digit_w = glyph_width_scaled(f, all_fonts, '0', numbers_zoom_x);
             if digit_w <= 0.0 {
                 return;
@@ -706,6 +1001,7 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
                 let show_fa_plus_window = player_profile.show_fa_plus_window;
                 let show_fa_split = show_fa_plus_window || player_profile.custom_fantastic_window;
                 let row_height = if show_fa_split { 29.0 } else { 35.0 };
+                let disabled_windows = player_profile.timing_windows.disabled_windows();
 
                 let (start, end) = state.note_ranges[player_idx];
                 if show_fa_split && end > start {
@@ -732,11 +1028,23 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
                         color::JUDGMENT_DIM_RGBA[5],
                     ];
                     for (row_i, count) in counts.iter().copied().enumerate() {
+                        let disabled = split_row_disabled(disabled_windows, row_i);
                         let y =
                             group_origin_y + (y_base + row_i as f32 * row_height) * group_zoom_y;
-                        let (dim_text, bright_text) = cached_padded_runs(count, digits);
+                        let (dim_text, bright_text) =
+                            padded_runs_for_window(count, digits, disabled);
+                        let dim_color = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            dim_colors[row_i]
+                        };
+                        let bright_color = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            bright_colors[row_i]
+                        };
                         push_versus_count_texts(
-                            &mut actors,
+                            actors,
                             is_p1,
                             anchor_x,
                             y,
@@ -745,8 +1053,8 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
                             numbers_zoom_y,
                             dim_text,
                             bright_text,
-                            dim_colors[row_i],
-                            bright_colors[row_i],
+                            dim_color,
+                            bright_color,
                             z_fg,
                         );
                     }
@@ -760,11 +1068,23 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
                         gameplay::display_judgment_count(state, player_idx, JudgeGrade::Miss),
                     ];
                     for (row_i, count) in counts.iter().copied().enumerate() {
+                        let disabled = standard_row_disabled(disabled_windows, row_i);
                         let y =
                             group_origin_y + (y_base + row_i as f32 * row_height) * group_zoom_y;
-                        let (dim_text, bright_text) = cached_padded_runs(count, digits);
+                        let (dim_text, bright_text) =
+                            padded_runs_for_window(count, digits, disabled);
+                        let dim_color = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            color::JUDGMENT_DIM_RGBA[row_i]
+                        };
+                        let bright_color = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            color::JUDGMENT_RGBA[row_i]
+                        };
                         push_versus_count_texts(
-                            &mut actors,
+                            actors,
                             is_p1,
                             anchor_x,
                             y,
@@ -773,8 +1093,8 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
                             numbers_zoom_y,
                             dim_text,
                             bright_text,
-                            color::JUDGMENT_DIM_RGBA[row_i],
-                            color::JUDGMENT_RGBA[row_i],
+                            dim_color,
+                            bright_color,
                             z_fg,
                         );
                     }
@@ -783,8 +1103,35 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
         });
     });
 
-    if let Some(banner_path) = &state.song.banner_path {
-        let key = banner_path.to_string_lossy().into_owned();
+    for (player_idx, show) in show_for.iter().copied().enumerate() {
+        if !show || !state.player_profiles[player_idx].nps_graph_at_top {
+            continue;
+        }
+
+        let player_profile = &state.player_profiles[player_idx];
+        let (score_text, score_color) = if player_profile.show_ex_score {
+            (
+                cached_score_2dp(gameplay::display_ex_score_percent(state, player_idx).max(0.0)),
+                color::JUDGMENT_RGBA[0],
+            )
+        } else {
+            let score_percent = gameplay::display_itg_score_percent(state, player_idx) * 100.0;
+            (cached_score_2dp(score_percent), [1.0, 1.0, 1.0, 1.0])
+        };
+        let x = center_x + if player_idx == 0 { -7.0 } else { 65.0 };
+        actors.push(act!(text:
+            font(current_machine_font_key(FontRole::Numbers)):
+            settext(score_text):
+            align(1.0, 1.0):
+            horizalign(right):
+            xy(x, screen_center_y() - 150.0):
+            zoom(0.25):
+            diffuse(score_color[0], score_color[1], score_color[2], score_color[3]):
+            z(z_fg)
+        ));
+    }
+
+    if let Some(key) = &state.song_banner_key {
         actors.push(act!(sprite(key):
             align(0.5, 0.5):
             xy(screen_center_x(), screen_center_y() + 70.0):
@@ -793,28 +1140,27 @@ pub fn build_versus_step_stats(state: &State, asset_manager: &AssetManager) -> V
             z(z_fg)
         ));
     }
-
-    actors
 }
 
-pub fn build_double_step_stats(
+pub fn push_double_step_stats(
+    actors: &mut Vec<Actor>,
     state: &State,
     asset_manager: &AssetManager,
     playfield_center_x: f32,
-) -> Vec<Actor> {
+) {
     if !is_wide() {
-        return vec![];
+        return;
     }
     let is_ultrawide = screen_width() / screen_height().max(1.0) > (21.0 / 9.0);
     if is_ultrawide {
-        return vec![];
+        return;
     }
     if state.cols_per_player <= 4 {
-        return vec![];
+        return;
     }
 
     let Some(notefield_width) = notefield_width(state) else {
-        return vec![];
+        return;
     };
 
     // Simply Love: StepStatistics/default.lua
@@ -833,7 +1179,7 @@ pub fn build_double_step_stats(
         1.0
     };
 
-    let mut actors = Vec::with_capacity(256);
+    actors.reserve(256);
 
     // DarkBackground.lua (double): two 200px-wide panels flanking the notefield.
     let nf_half_w = notefield_width * 0.5;
@@ -855,31 +1201,27 @@ pub fn build_double_step_stats(
     ));
 
     // Banner.lua (double): xy(GetNotefieldWidth() - 140, -200)
-    if let Some(banner_path) = &state.song.banner_path {
-        let banner_key = banner_path.to_string_lossy().into_owned();
-        let banner_x = pane_cx + ((notefield_width - 140.0) * banner_data_zoom);
+    let song_banner_x = pane_cx + ((notefield_width - 140.0) * banner_data_zoom);
+    if let Some(banner_key) = &state.song_banner_key {
         let banner_y = pane_cy + (-200.0 * banner_data_zoom);
         actors.push(act!(sprite(banner_key):
-            align(0.5, 0.5): xy(banner_x, banner_y):
-            setsize(418.0, 164.0):
-            zoom(0.4 * banner_data_zoom):
+            align(0.5, 0.5): xy(song_banner_x, banner_y):
+            setsize(STEP_STATS_BANNER_W, STEP_STATS_BANNER_H):
+            zoom(STEP_STATS_SONG_BANNER_ZOOM * banner_data_zoom):
             z(-50)
         ));
     }
 
     // Banner2.lua (zmod pack banner): static (no animation) at the final position.
-    if let Some(pack_banner_path) = state.pack_banner_path.as_ref() {
-        let pack_key = pack_banner_path.to_string_lossy().into_owned();
-        let (final_offset, final_size) = if note_field_is_centered {
-            (-115.0, 0.2)
-        } else {
-            (-160.0, 0.25)
-        };
-        let x = pane_cx + (final_offset * banner_data_zoom);
+    if let Some(pack_key) = state.pack_banner_key.as_ref() {
+        let final_size = if note_field_is_centered { 0.2 } else { 0.25 };
+        let song_w = STEP_STATS_BANNER_W * STEP_STATS_SONG_BANNER_ZOOM * banner_data_zoom;
+        let pack_w = STEP_STATS_BANNER_W * final_size * banner_data_zoom;
+        let x = song_banner_x - song_w * 0.5 + pack_w * 0.5;
         let y = pane_cy + (20.0 * banner_data_zoom);
         actors.push(act!(sprite(pack_key):
             align(0.5, 0.5): xy(x, y):
-            setsize(418.0, 164.0):
+            setsize(STEP_STATS_BANNER_W, STEP_STATS_BANNER_H):
             zoom(final_size * banner_data_zoom):
             z(-49)
         ));
@@ -891,7 +1233,7 @@ pub fn build_double_step_stats(
         let origin_y = pane_cy + (40.0 * banner_data_zoom);
         let base_zoom = 0.8 * banner_data_zoom;
 
-        let total_tapnotes = state.charts[0].stats.total_steps as f32;
+        let total_tapnotes = gameplay::display_totals_for_player(state, 0).total_steps as f32;
         let digits = if total_tapnotes > 0.0 {
             (total_tapnotes.log10().floor() as usize + 1).max(4)
         } else {
@@ -902,13 +1244,14 @@ pub fn build_double_step_stats(
         let show_fa_split = show_fa_plus_window || player_profile.custom_fantastic_window;
         let show_blue_ms_label = player_profile.custom_fantastic_window
             || (show_fa_plus_window && player_profile.fa_plus_10ms_blue_window);
+        let disabled_windows = player_profile.timing_windows.disabled_windows();
         let blue_window_ms = gameplay::player_blue_window_ms(state, 0);
         let blue_window_label = cached_blue_window_label(blue_window_ms.round() as i32);
         let row_height = if show_fa_split { 29.0 } else { 35.0 };
         let y_base = -280.0;
 
         asset_manager.with_fonts(|all_fonts| {
-            asset_manager.with_font("wendy_screenevaluation", |f| {
+            asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |f| {
                 let numbers_zoom = base_zoom * 0.5;
                 let digit_w = glyph_width_scaled(f, all_fonts, '0', numbers_zoom);
                 if digit_w <= 0.0 {
@@ -932,18 +1275,28 @@ pub fn build_double_step_stats(
                     ];
                     let labels: Vec<Arc<str>> = (0..6).map(judgment_label).collect();
                     for row_i in 0..labels.len() {
+                        let disabled = standard_row_disabled(disabled_windows, row_i);
                         let local_y = y_base + (row_i as f32 * row_height);
                         let y_numbers = origin_y + (local_y * base_zoom);
                         let y_label = origin_y + ((local_y + 1.0) * base_zoom);
-                        let bright = color::JUDGMENT_RGBA[row_i];
-                        let dim = color::JUDGMENT_DIM_RGBA[row_i];
+                        let bright = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            color::JUDGMENT_RGBA[row_i]
+                        };
+                        let dim = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            color::JUDGMENT_DIM_RGBA[row_i]
+                        };
                         let count = counts[row_i];
-                        let (dim_text, bright_text) = cached_padded_runs(count, digits);
+                        let (dim_text, bright_text) =
+                            padded_runs_for_window(count, digits, disabled);
                         let dim_len = dim_text.len() as f32;
 
                         if !dim_text.is_empty() {
                             actors.push(act!(text:
-                                font("wendy_screenevaluation"): settext(dim_text):
+                                font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                                 align(0.0, 0.5): xy(numbers_left_x, y_numbers):
                                 zoom(numbers_zoom):
                                 diffuse(dim[0], dim[1], dim[2], dim[3]):
@@ -953,7 +1306,7 @@ pub fn build_double_step_stats(
                         }
                         if !bright_text.is_empty() {
                             actors.push(act!(text:
-                                font("wendy_screenevaluation"): settext(bright_text):
+                                font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                                 align(0.0, 0.5): xy(numbers_left_x + dim_len * digit_w, y_numbers):
                                 zoom(numbers_zoom):
                                 diffuse(bright[0], bright[1], bright[2], bright[3]):
@@ -1018,18 +1371,28 @@ pub fn build_double_step_stats(
                         judgment_label(5),
                     ];
                     for row_i in 0..labels.len() {
+                        let disabled = split_row_disabled(disabled_windows, row_i);
                         let local_y = y_base + (row_i as f32 * row_height);
                         let y_numbers = origin_y + (local_y * base_zoom);
                         let y_label = origin_y + ((local_y + 1.0) * base_zoom);
-                        let bright = bright_colors[row_i];
-                        let dim = dim_colors[row_i];
+                        let bright = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            bright_colors[row_i]
+                        };
+                        let dim = if disabled {
+                            DISABLED_WINDOW_RGBA
+                        } else {
+                            dim_colors[row_i]
+                        };
                         let count = counts[row_i];
-                        let (dim_text, bright_text) = cached_padded_runs(count, digits);
+                        let (dim_text, bright_text) =
+                            padded_runs_for_window(count, digits, disabled);
                         let dim_len = dim_text.len() as f32;
 
                         if !dim_text.is_empty() {
                             actors.push(act!(text:
-                                font("wendy_screenevaluation"): settext(dim_text):
+                                font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                                 align(0.0, 0.5): xy(numbers_left_x, y_numbers):
                                 zoom(numbers_zoom):
                                 diffuse(dim[0], dim[1], dim[2], dim[3]):
@@ -1039,7 +1402,7 @@ pub fn build_double_step_stats(
                         }
                         if !bright_text.is_empty() {
                             actors.push(act!(text:
-                                font("wendy_screenevaluation"): settext(bright_text):
+                                font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                                 align(0.0, 0.5): xy(numbers_left_x + dim_len * digit_w, y_numbers):
                                 zoom(numbers_zoom):
                                 diffuse(bright[0], bright[1], bright[2], bright[3]):
@@ -1086,13 +1449,14 @@ pub fn build_double_step_stats(
         let frame_cy = pane_cy + ((-10.0 + 0.8 * 28.0) * banner_data_zoom);
         let frame_zoom = 0.8 * banner_data_zoom;
 
-        actors.extend(build_holds_mines_rolls_pane_at(
+        push_holds_mines_rolls_pane_at(
+            actors,
             state,
             asset_manager,
             frame_cx,
             frame_cy,
             frame_zoom,
-        ));
+        );
     }
 
     // Scorebox.lua (double): x(GetNotefieldWidth() - 140), y(-115)
@@ -1102,10 +1466,10 @@ pub fn build_double_step_stats(
         let frame_zoom = banner_data_zoom;
         let side = profile::get_session_player_side();
         let snapshot = gameplay::scorebox_snapshot_for_side(state, side);
+        let profile_snapshot = gameplay::scorebox_profile_for_side(state, side);
         actors.extend(gs_scorebox::gameplay_scorebox_actors_from_snapshot(
-            side,
             snapshot,
-            profile::get_for_side(side).display_scorebox,
+            profile_snapshot,
             frame_cx,
             frame_cy,
             frame_zoom,
@@ -1118,35 +1482,13 @@ pub fn build_double_step_stats(
         let base_x = pane_cx + ((-notefield_width + 150.0) * banner_data_zoom);
         let base_y = pane_cy + (75.0 * banner_data_zoom);
 
-        let base_total = state.song.total_length_seconds.max(0) as f32;
-        let rate = if state.music_rate.is_finite() && state.music_rate > 0.0 {
-            state.music_rate
-        } else {
-            1.0
-        };
-        let total_display_seconds = if rate == 0.0 {
-            base_total
-        } else {
-            base_total / rate
-        };
-        let elapsed_display_seconds = if rate == 0.0 {
-            state.current_music_time_display.max(0.0)
-        } else {
-            state.current_music_time_display.max(0.0) / rate
-        };
+        let time_display = step_stats_time_display(state, 0);
+        let total_display_seconds = time_display.total_seconds;
+        let elapsed_display_seconds = time_display.elapsed_seconds;
 
         let total_time_key = game_time_key(total_display_seconds, total_display_seconds);
         let total_time_str = cached_game_time(total_time_key.0, total_time_key.1);
-        let remaining_display_seconds = if let Some(fail_time) = state.players[0].fail_time {
-            let fail_disp = if rate == 0.0 {
-                fail_time.max(0.0)
-            } else {
-                fail_time.max(0.0) / rate
-            };
-            (total_display_seconds - fail_disp).max(0.0)
-        } else {
-            (total_display_seconds - elapsed_display_seconds).max(0.0)
-        };
+        let remaining_display_seconds = (total_display_seconds - elapsed_display_seconds).max(0.0);
         let remaining_time_key = game_time_key(remaining_display_seconds, total_display_seconds);
         let remaining_time_str = cached_game_time(remaining_time_key.0, remaining_time_key.1);
 
@@ -1191,7 +1533,7 @@ pub fn build_double_step_stats(
         ));
         actors.push(act!(text:
             font("miso"):
-            settext(time_song_right_text()):
+            settext(time_total_text(state)):
             align(1.0, 0.5):
             horizalign(right):
             xy(label_x, base_y + (20.0 * number_zoom) + 1.0 * number_zoom):
@@ -1199,7 +1541,25 @@ pub fn build_double_step_stats(
             diffuse(1.0, 1.0, 1.0, 1.0):
             z(71)
         ));
+
+        let timing_label_x = label_x + (104.0 * number_zoom);
+        push_live_timing_stats_at(
+            actors,
+            state,
+            0,
+            profile::PlayerSide::P1,
+            timing_label_x,
+            timing_label_x + (156.0 * number_zoom),
+            base_y,
+            20.0 * number_zoom,
+            label_zoom,
+            71,
+        );
     }
+
+    // DensityGraph.lua (double): graph ActorFrame xy(260, 40), with width
+    // calculated as 95% of the side pane in gameplay init.
+    push_density_graph_at(actors, state, 0, pane_cx + 260.0, pane_cy + 40.0);
 
     // Peak NPS text (DensityGraph.lua drives this in SL).
     {
@@ -1220,8 +1580,6 @@ pub fn build_double_step_stats(
             z(200)
         ));
     }
-
-    actors
 }
 
 // --- Statics for Judgment Counter Display ---
@@ -1246,28 +1604,38 @@ fn build_banner(
     wide: bool,
     player_side: profile::PlayerSide,
 ) {
-    if let Some(banner_path) = &state.song.banner_path {
-        let banner_key = banner_path.to_string_lossy().into_owned();
-        let mut local_banner_x = 70.0;
-        if layout.note_field_is_centered && wide {
-            local_banner_x = 72.0;
-        }
-        if player_side == profile::PlayerSide::P2 {
-            local_banner_x *= -1.0;
-        }
-        if layout.is_ultrawide && state.num_players > 1 {
-            local_banner_x *= -1.0;
-        }
+    if let Some(banner_key) = &state.song_banner_key {
+        let local_banner_x = song_banner_local_x(layout, wide, player_side, state.num_players);
         let local_banner_y = -200.0;
         let banner_x = layout.sidepane_center_x + (local_banner_x * layout.banner_data_zoom);
         let banner_y = layout.sidepane_center_y + (local_banner_y * layout.banner_data_zoom);
-        let final_zoom = 0.4 * layout.banner_data_zoom;
+        let final_zoom = STEP_STATS_SONG_BANNER_ZOOM * layout.banner_data_zoom;
         actors.push(act!(sprite(banner_key):
             align(0.5, 0.5): xy(banner_x, banner_y):
-            setsize(418.0, 164.0): zoom(final_zoom):
+            setsize(STEP_STATS_BANNER_W, STEP_STATS_BANNER_H): zoom(final_zoom):
             z(-50)
         ));
     }
+}
+
+fn song_banner_local_x(
+    layout: StepStatsPaneLayout,
+    wide: bool,
+    player_side: profile::PlayerSide,
+    num_players: usize,
+) -> f32 {
+    let mut x = if layout.note_field_is_centered && wide {
+        72.0
+    } else {
+        70.0
+    };
+    if player_side == profile::PlayerSide::P2 {
+        x *= -1.0;
+    }
+    if layout.is_ultrawide && num_players > 1 {
+        x *= -1.0;
+    }
+    x
 }
 
 fn build_pack_banner(
@@ -1280,28 +1648,33 @@ fn build_pack_banner(
     if !wide {
         return;
     }
-    let Some(pack_banner_path) = state.pack_banner_path.as_ref() else {
+    let Some(pack_key) = state.pack_banner_key.as_ref() else {
         return;
     };
-    let pack_key = pack_banner_path.to_string_lossy().into_owned();
 
-    let x_sign = match player_side {
+    let final_size = if layout.note_field_is_centered {
+        0.2
+    } else {
+        0.25
+    };
+    // Arrow Cloud Banner2.lua parity for non-double Step Statistics. The
+    // doubles-specific renderer handles its separate left-edge alignment.
+    let final_offset = if layout.note_field_is_centered {
+        -115.0
+    } else {
+        -160.0
+    };
+    let side_sign = match player_side {
         profile::PlayerSide::P1 => 1.0,
         profile::PlayerSide::P2 => -1.0,
     };
-
-    let (final_offset, final_size) = if layout.note_field_is_centered {
-        (-115.0, 0.2)
-    } else {
-        (-160.0, 0.25)
-    };
-    let x = layout.sidepane_center_x + (final_offset * x_sign * layout.banner_data_zoom);
+    let x = layout.sidepane_center_x + final_offset * side_sign * layout.banner_data_zoom;
     let y = layout.sidepane_center_y + (20.0 * layout.banner_data_zoom);
 
     actors.push(act!(sprite(pack_key):
         align(0.5, 0.5):
         xy(x, y):
-        setsize(418.0, 164.0):
+        setsize(STEP_STATS_BANNER_W, STEP_STATS_BANNER_H):
         zoom(final_size * layout.banner_data_zoom):
         z(-49)
     ));
@@ -1435,21 +1808,15 @@ fn build_steps_info(
     ));
 }
 
-fn build_holds_mines_rolls_pane_at(
+fn push_holds_mines_rolls_pane_at(
+    actors: &mut Vec<Actor>,
     state: &State,
     asset_manager: &AssetManager,
     frame_cx: f32,
     frame_cy: f32,
     frame_zoom: f32,
-) -> Vec<Actor> {
-    let p = &state.players[0];
-    let mut actors = Vec::with_capacity(1);
-
-    let categories = [
-        (0usize, p.holds_held, state.holds_total[0]),
-        (1usize, p.mines_avoided, state.mines_total[0]),
-        (2usize, p.rolls_held, state.rolls_total[0]),
-    ];
+) {
+    let categories = step_stats_hmr_categories(state, 0);
 
     let largest_count = categories
         .iter()
@@ -1463,10 +1830,10 @@ fn build_holds_mines_rolls_pane_at(
     };
     let digits_to_fmt = digits_needed.clamp(3, 4);
     let row_height = 28.0 * frame_zoom;
-    let mut children = Vec::with_capacity(categories.len() * (digits_to_fmt * 2 + 2));
+    actors.reserve(categories.len() * (digits_to_fmt * 2 + 2));
 
     asset_manager.with_fonts(|all_fonts| {
-        asset_manager.with_font("wendy_screenevaluation", |metrics_font| {
+        asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |metrics_font| {
             let value_zoom = 0.4 * frame_zoom;
             let label_zoom = 0.833 * frame_zoom;
             const GRAY: [f32; 4] = color::rgba_hex("#5A6166");
@@ -1482,8 +1849,8 @@ fn build_holds_mines_rolls_pane_at(
             let fixed_char_width_scaled_for_label = LOGICAL_CHAR_WIDTH_FOR_LABEL * value_zoom;
 
             for (i, (label_index, achieved, total)) in categories.iter().enumerate() {
-                let item_y = (i as f32 - 1.0) * row_height;
-                let right_anchor_x = 0.0;
+                let item_y = frame_cy + (i as f32 - 1.0) * row_height;
+                let right_anchor_x = frame_cx;
                 let mut cursor_x = right_anchor_x;
 
                 let possible_str = cached_padded_num(*total, digits_to_fmt);
@@ -1498,18 +1865,18 @@ fn build_holds_mines_rolls_pane_at(
                     let original_index = possible_bytes.len() - 1 - char_idx;
                     let color = if original_index < possible_split { GRAY } else { white };
                     let x_pos = cursor_x - (char_idx as f32 * digit_width);
-                    children.push(act!(text:
-                        font("wendy_screenevaluation"): settext(digit_text(possible_bytes[original_index])):
+                    actors.push(act!(text:
+                        font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(possible_bytes[original_index])):
                         align(1.0, 0.5): xy(x_pos, item_y):
-                        zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3])
+                        zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3]): z(70)
                     ));
                 }
                 cursor_x -= possible_bytes.len() as f32 * digit_width;
 
-                children.push(act!(text:
-                    font("wendy_screenevaluation"): settext(SLASH_TEXT.clone()):
+                actors.push(act!(text:
+                    font(current_machine_font_key(FontRole::ScreenEval)): settext(SLASH_TEXT.clone()):
                     align(1.0, 0.5): xy(cursor_x, item_y):
-                    zoom(value_zoom): diffuse(GRAY[0], GRAY[1], GRAY[2], GRAY[3])
+                    zoom(value_zoom): diffuse(GRAY[0], GRAY[1], GRAY[2], GRAY[3]): z(70)
                 ));
                 cursor_x -= slash_width;
 
@@ -1517,10 +1884,10 @@ fn build_holds_mines_rolls_pane_at(
                     let original_index = achieved_bytes.len() - 1 - char_idx;
                     let color = if original_index < achieved_split { GRAY } else { white };
                     let x_pos = cursor_x - (char_idx as f32 * digit_width);
-                    children.push(act!(text:
-                        font("wendy_screenevaluation"): settext(digit_text(achieved_bytes[original_index])):
+                    actors.push(act!(text:
+                        font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(achieved_bytes[original_index])):
                         align(1.0, 0.5): xy(x_pos, item_y):
-                        zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3])
+                        zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3]): z(70)
                     ));
                 }
 
@@ -1529,58 +1896,27 @@ fn build_holds_mines_rolls_pane_at(
                     * fixed_char_width_scaled_for_label;
                 let label_x = right_anchor_x - total_value_width_for_label - (10.0 * frame_zoom);
 
-                children.push(act!(text:
+                actors.push(act!(text:
                     font("miso"): settext(holds_mines_rolls_label_text(*label_index)):
                     align(1.0, 0.5): xy(label_x, item_y):
                     zoom(label_zoom):
                     horizalign(right):
-                    diffuse(white[0], white[1], white[2], white[3])
+                    diffuse(white[0], white[1], white[2], white[3]):
+                    z(70)
                 ));
             }
         });
     });
-
-    actors.push(Actor::Frame {
-        align: [0.5, 0.5],
-        offset: [frame_cx, frame_cy],
-        size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
-        children,
-        background: None,
-        z: 70,
-    });
-    actors
 }
 
 fn notefield_width(state: &State) -> Option<f32> {
-    let ns = state.noteskin[0].as_ref()?;
-    let field_zoom = state.field_zoom[0];
-    let cols = state
-        .cols_per_player
-        .min(ns.column_xs.len())
-        .min(ns.receptor_off.len());
-    if cols == 0 {
+    if state.cols_per_player == 0 {
         return None;
     }
-
-    let mut min_x = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    for x in ns.column_xs.iter().take(cols) {
-        let xf = *x as f32;
-        min_x = min_x.min(xf);
-        max_x = max_x.max(xf);
-    }
-
-    let target_arrow_px = 64.0 * field_zoom.max(0.0);
-    let size = ns.receptor_off[0].size();
-    let w = size[0].max(0) as f32;
-    let h = size[1].max(0) as f32;
-    let arrow_w = if h > 0.0 && target_arrow_px > 0.0 {
-        w * (target_arrow_px / h)
-    } else {
-        w * field_zoom.max(0.0)
-    };
-
-    Some(((max_x - min_x) * field_zoom.max(0.0)) + arrow_w)
+    // Simply Love GetNotefieldWidth() parity: dance single/versus are 256
+    // and double is 512. This is independent of Mini, Spacing, and noteskin
+    // render scale, so step-stat panes do not drift with visual modifiers.
+    Some(state.cols_per_player as f32 * 64.0)
 }
 
 fn build_holds_mines_rolls_pane(
@@ -1594,7 +1930,7 @@ fn build_holds_mines_rolls_pane(
     if !wide {
         return;
     }
-    let p = &state.players[0];
+    let player_idx = step_stats_player_idx(state, player_side);
     let banner_data_zoom = layout.banner_data_zoom;
     let local_x = match player_side {
         profile::PlayerSide::P1 => 155.0,
@@ -1605,11 +1941,7 @@ fn build_holds_mines_rolls_pane(
     let frame_cy = layout.sidepane_center_y + (local_y * banner_data_zoom);
     let frame_zoom = banner_data_zoom;
 
-    let categories = [
-        (0usize, p.holds_held, state.holds_total[0]),
-        (1usize, p.mines_avoided, state.mines_total[0]),
-        (2usize, p.rolls_held, state.rolls_total[0]),
-    ];
+    let categories = step_stats_hmr_categories(state, player_idx);
 
     let largest_count = categories
         .iter()
@@ -1623,9 +1955,9 @@ fn build_holds_mines_rolls_pane(
     };
     let digits_to_fmt = digits_needed.clamp(3, 4);
     let row_height = 28.0 * frame_zoom;
-    let mut children = Vec::with_capacity(categories.len() * (digits_to_fmt * 2 + 2));
+    actors.reserve(categories.len() * (digits_to_fmt * 2 + 2));
 
-    asset_manager.with_fonts(|all_fonts| asset_manager.with_font("wendy_screenevaluation", |metrics_font| {
+    asset_manager.with_fonts(|all_fonts| asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |metrics_font| {
         let value_zoom = 0.4 * frame_zoom;
         let label_zoom = 0.833 * frame_zoom;
         let gray = color::rgba_hex("#5A6166");
@@ -1642,10 +1974,10 @@ fn build_holds_mines_rolls_pane(
         let fixed_char_width_scaled_for_label = LOGICAL_CHAR_WIDTH_FOR_LABEL * value_zoom;
 
         for (i, (label_index, achieved, total)) in categories.iter().enumerate() {
-            let item_y = (i as f32 - 1.0) * row_height;
+            let item_y = frame_cy + (i as f32 - 1.0) * row_height;
             let right_anchor_x = match player_side {
-                profile::PlayerSide::P1 => 0.0,
-                profile::PlayerSide::P2 => 100.0 * frame_zoom,
+                profile::PlayerSide::P1 => frame_cx,
+                profile::PlayerSide::P2 => frame_cx + 100.0 * frame_zoom,
             };
             let mut cursor_x = right_anchor_x;
 
@@ -1666,16 +1998,16 @@ fn build_holds_mines_rolls_pane(
                     white
                 };
                 let x_pos = cursor_x - (char_idx as f32 * digit_width);
-                children.push(act!(text:
-                    font("wendy_screenevaluation"): settext(digit_text(possible_bytes[original_index])):
+                actors.push(act!(text:
+                    font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(possible_bytes[original_index])):
                     align(1.0, 0.5): xy(x_pos, item_y):
-                    zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3])
+                    zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3]): z(70)
                 ));
             }
             cursor_x -= possible_bytes.len() as f32 * digit_width;
 
             // 2. Draw slash
-            children.push(act!(text: font("wendy_screenevaluation"): settext(SLASH_TEXT.clone()): align(1.0, 0.5): xy(cursor_x, item_y): zoom(value_zoom): diffuse(gray[0], gray[1], gray[2], gray[3])));
+            actors.push(act!(text: font(current_machine_font_key(FontRole::ScreenEval)): settext(SLASH_TEXT.clone()): align(1.0, 0.5): xy(cursor_x, item_y): zoom(value_zoom): diffuse(gray[0], gray[1], gray[2], gray[3]): z(70)));
             cursor_x -= slash_width;
 
             // 3. Draw "achieved" number
@@ -1687,10 +2019,10 @@ fn build_holds_mines_rolls_pane(
                     white
                 };
                 let x_pos = cursor_x - (char_idx as f32 * digit_width);
-                children.push(act!(text:
-                    font("wendy_screenevaluation"): settext(digit_text(achieved_bytes[original_index])):
+                actors.push(act!(text:
+                    font(current_machine_font_key(FontRole::ScreenEval)): settext(digit_text(achieved_bytes[original_index])):
                     align(1.0, 0.5): xy(x_pos, item_y):
-                    zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3])
+                    zoom(value_zoom): diffuse(color[0], color[1], color[2], color[3]): z(70)
                 ));
             }
 
@@ -1698,21 +2030,12 @@ fn build_holds_mines_rolls_pane(
             let total_value_width_for_label = (achieved_str.len() + 1 + possible_str.len()) as f32 * fixed_char_width_scaled_for_label;
             let label_x = right_anchor_x - total_value_width_for_label - (10.0 * frame_zoom);
 
-            children.push(act!(text:
+            actors.push(act!(text:
                 font("miso"): settext(holds_mines_rolls_label_text(*label_index)): align(1.0, 0.5): xy(label_x, item_y):
-                zoom(label_zoom): horizalign(right): diffuse(white[0], white[1], white[2], white[3])
+                zoom(label_zoom): horizalign(right): diffuse(white[0], white[1], white[2], white[3]): z(70)
             ));
         }
     }));
-
-    actors.push(Actor::Frame {
-        align: [0.5, 0.5],
-        offset: [frame_cx, frame_cy],
-        size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
-        children,
-        background: None,
-        z: 70,
-    });
 }
 
 fn build_scorebox_pane(
@@ -1741,14 +2064,89 @@ fn build_scorebox_pane(
     let frame_cy = layout.sidepane_center_y + (-115.0 * layout.banner_data_zoom);
 
     actors.extend(gs_scorebox::gameplay_scorebox_actors_from_snapshot(
-        player_side,
         gameplay::scorebox_snapshot_for_side(state, player_side),
-        profile::get_for_side(player_side).display_scorebox,
+        gameplay::scorebox_profile_for_side(state, player_side),
         frame_cx,
         frame_cy,
         layout.banner_data_zoom,
         state.current_music_time_display,
     ));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_live_timing_stats_at(
+    actors: &mut Vec<Actor>,
+    state: &State,
+    player_idx: usize,
+    player_side: profile::PlayerSide,
+    label_x: f32,
+    value_x: f32,
+    first_y: f32,
+    row_h: f32,
+    zoom: f32,
+    z: i16,
+) {
+    if player_idx >= state.num_players {
+        return;
+    }
+
+    let profile = &state.player_profiles[player_idx];
+    if !profile.live_timing_stats {
+        return;
+    }
+
+    let mask = profile.live_timing_stats_mask;
+    let enabled_count = live_timing_enabled_count(mask);
+    if enabled_count == 0 {
+        return;
+    }
+
+    let stats = gameplay::display_live_timing_stats(state, player_idx);
+    let compact = enabled_count >= 3;
+    let row_h = if compact { row_h * 0.68 } else { row_h };
+    let zoom = if compact { zoom * 0.82 } else { zoom };
+    let first_y = if compact {
+        first_y - row_h * 0.12
+    } else {
+        first_y
+    };
+    let label_max_w = if compact { 150.0 } else { 170.0 } * zoom;
+    let mut row = 0usize;
+
+    for index in 0..LIVE_TIMING_LABELS.len() {
+        if !mask.contains(live_timing_stat_mask(index)) {
+            continue;
+        }
+
+        let y = first_y + row_h * row as f32;
+        let label = LIVE_TIMING_LABELS[index].clone();
+        let value = live_timing_value(stats, index);
+        row += 1;
+
+        if player_side == profile::PlayerSide::P1 {
+            actors.push(act!(text: font("miso"): settext(label):
+                align(0.0, 0.5): xy(label_x, y):
+                zoom(zoom): maxwidth(label_max_w): horizalign(left):
+                diffuse(1.0, 1.0, 1.0, 1.0): z(z)
+            ));
+            actors.push(act!(text: font("miso"): settext(value):
+                align(0.0, 0.5): xy(value_x, y):
+                zoom(zoom): horizalign(left):
+                diffuse(1.0, 1.0, 1.0, 1.0): z(z)
+            ));
+        } else {
+            actors.push(act!(text: font("miso"): settext(label):
+                align(1.0, 0.5): xy(label_x, y):
+                zoom(zoom): maxwidth(label_max_w): horizalign(right):
+                diffuse(1.0, 1.0, 1.0, 1.0): z(z)
+            ));
+            actors.push(act!(text: font("miso"): settext(value):
+                align(1.0, 0.5): xy(value_x, y):
+                zoom(zoom): horizalign(right):
+                diffuse(1.0, 1.0, 1.0, 1.0): z(z)
+            ));
+        }
+    }
 }
 
 fn build_side_pane(
@@ -1781,7 +2179,7 @@ fn build_side_pane(
     let parent_local_zoom = 0.8;
     let final_text_base_zoom = layout.banner_data_zoom * parent_local_zoom;
 
-    let total_tapnotes = state.charts[player_idx].stats.total_steps as f32;
+    let total_tapnotes = gameplay::display_totals_for_player(state, player_idx).total_steps as f32;
     let digits = if total_tapnotes > 0.0 {
         (total_tapnotes.log10().floor() as usize + 1).max(4)
     } else {
@@ -1797,6 +2195,7 @@ fn build_side_pane(
     let show_fa_split = show_fa_plus_window || player_profile.custom_fantastic_window;
     let show_blue_ms_label = player_profile.custom_fantastic_window
         || (show_fa_plus_window && player_profile.fa_plus_10ms_blue_window);
+    let disabled_windows = player_profile.timing_windows.disabled_windows();
     let blue_window_ms = gameplay::player_blue_window_ms(state, player_idx);
     let blue_window_label = cached_blue_window_label(blue_window_ms.round() as i32);
     actors.reserve(if show_fa_split {
@@ -1807,7 +2206,7 @@ fn build_side_pane(
     let row_height = if show_fa_split { 29.0 } else { 35.0 };
     let y_base = -280.0;
 
-    asset_manager.with_fonts(|all_fonts| asset_manager.with_font("wendy_screenevaluation", |f| {
+    asset_manager.with_fonts(|all_fonts| asset_manager.with_font(current_machine_font_key(FontRole::ScreenEval), |f| {
         let numbers_zoom = final_text_base_zoom * 0.5;
         let max_digit_w = glyph_width_scaled(f, all_fonts, '0', numbers_zoom);
         if max_digit_w <= 0.0 { return; }
@@ -1825,28 +2224,37 @@ fn build_side_pane(
             // Standard ITG-style rows: Fantastic..Miss using aggregate grade counts.
             for (index, grade) in JUDGMENT_ORDER.iter().enumerate() {
                 let info = judgment_info(*grade);
-                let count = gameplay::display_judgment_count(state, 0, *grade);
+                let count = gameplay::display_judgment_count(state, player_idx, *grade);
+                let disabled = standard_row_disabled(disabled_windows, index);
 
                 let local_y = y_base + (index as f32 * row_height);
                 let world_y = final_judgments_center_y + (local_y * final_text_base_zoom);
 
-                let bright = info.color;
-                let dim = color::JUDGMENT_DIM_RGBA[index];
-                let (dim_text, bright_text) = cached_padded_runs(count, digits);
+                let bright = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    info.color
+                };
+                let dim = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    color::JUDGMENT_DIM_RGBA[index]
+                };
+                let (dim_text, bright_text) = padded_runs_for_window(count, digits, disabled);
                 let dim_len = dim_text.len() as f32;
                 let bright_len = bright_text.len() as f32;
 
                 if player_side == profile::PlayerSide::P1 {
                     if !bright_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(bright_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                             align(1.0, 0.5): xy(numbers_cx, world_y): zoom(numbers_zoom):
                             diffuse(bright[0], bright[1], bright[2], bright[3]): z(71)
                         ));
                     }
                     if !dim_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(dim_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                             align(1.0, 0.5): xy(numbers_cx - bright_len * max_digit_w, world_y):
                             zoom(numbers_zoom):
                             diffuse(dim[0], dim[1], dim[2], dim[3]): z(71)
@@ -1855,7 +2263,7 @@ fn build_side_pane(
                 } else {
                     if !dim_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(dim_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                             align(0.0, 0.5): xy(numbers_cx, world_y): zoom(numbers_zoom):
                             diffuse(dim[0], dim[1], dim[2], dim[3]): z(71):
                             horizalign(left)
@@ -1863,7 +2271,7 @@ fn build_side_pane(
                     }
                     if !bright_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(bright_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                             align(0.0, 0.5): xy(numbers_cx + dim_len * max_digit_w, world_y):
                             zoom(numbers_zoom):
                             diffuse(bright[0], bright[1], bright[2], bright[3]): z(71):
@@ -1928,24 +2336,36 @@ fn build_side_pane(
             ];
 
             for (index, (label_index, bright, dim, count)) in rows.iter().enumerate() {
+                let disabled = split_row_disabled(disabled_windows, index);
                 let local_y = y_base + (index as f32 * row_height);
                 let world_y = final_judgments_center_y + (local_y * final_text_base_zoom);
 
-                let (dim_text, bright_text) = cached_padded_runs(*count, digits);
+                let bright = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    *bright
+                };
+                let dim = if disabled {
+                    DISABLED_WINDOW_RGBA
+                } else {
+                    *dim
+                };
+                let (dim_text, bright_text) =
+                    padded_runs_for_window(*count, digits, disabled);
                 let dim_len = dim_text.len() as f32;
                 let bright_len = bright_text.len() as f32;
 
                 if player_side == profile::PlayerSide::P1 {
                     if !bright_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(bright_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                             align(1.0, 0.5): xy(numbers_cx, world_y): zoom(numbers_zoom):
                             diffuse(bright[0], bright[1], bright[2], bright[3]): z(71)
                         ));
                     }
                     if !dim_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(dim_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                             align(1.0, 0.5): xy(numbers_cx - bright_len * max_digit_w, world_y):
                             zoom(numbers_zoom):
                             diffuse(dim[0], dim[1], dim[2], dim[3]): z(71)
@@ -1954,7 +2374,7 @@ fn build_side_pane(
                 } else {
                     if !dim_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(dim_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(dim_text):
                             align(0.0, 0.5): xy(numbers_cx, world_y): zoom(numbers_zoom):
                             diffuse(dim[0], dim[1], dim[2], dim[3]): z(71):
                             horizalign(left)
@@ -1962,7 +2382,7 @@ fn build_side_pane(
                     }
                     if !bright_text.is_empty() {
                         actors.push(act!(text:
-                            font("wendy_screenevaluation"): settext(bright_text):
+                            font(current_machine_font_key(FontRole::ScreenEval)): settext(bright_text):
                             align(0.0, 0.5): xy(numbers_cx + dim_len * max_digit_w, world_y):
                             zoom(numbers_zoom):
                             diffuse(bright[0], bright[1], bright[2], bright[3]): z(71):
@@ -2019,39 +2439,15 @@ fn build_side_pane(
         {
             let local_y = -40.0 * layout.banner_data_zoom;
 
-            // Base chart length in seconds (GetLastSecond semantics).
-            let base_total = state.song.total_length_seconds.max(0) as f32;
-            // Displayed duration should respect music rate (SongLength / MusicRate),
-            // while the on-screen timer still advances in real seconds.
-            let rate = if state.music_rate.is_finite() && state.music_rate > 0.0 {
-                state.music_rate
-            } else {
-                1.0
-            };
-            let total_display_seconds = if rate == 0.0 {
-                base_total
-            } else {
-                base_total / rate
-            };
-            let elapsed_display_seconds = if rate == 0.0 {
-                state.current_music_time_display.max(0.0)
-            } else {
-                state.current_music_time_display.max(0.0) / rate
-            };
+            let time_display = step_stats_time_display(state, player_idx);
+            let total_display_seconds = time_display.total_seconds;
+            let elapsed_display_seconds = time_display.elapsed_seconds;
 
             let total_time_key = game_time_key(total_display_seconds, total_display_seconds);
             let total_time_str = cached_game_time(total_time_key.0, total_time_key.1);
 
-            let remaining_display_seconds = if let Some(fail_time) = state.players[0].fail_time {
-                let fail_disp = if rate == 0.0 {
-                    fail_time.max(0.0)
-                } else {
-                    fail_time.max(0.0) / rate
-                };
-                (total_display_seconds - fail_disp).max(0.0)
-            } else {
-                (total_display_seconds - elapsed_display_seconds).max(0.0)
-            };
+            let remaining_display_seconds =
+                (total_display_seconds - elapsed_display_seconds).max(0.0);
             let remaining_time_key = game_time_key(remaining_display_seconds, total_display_seconds);
             let remaining_time_str =
                 cached_game_time(remaining_time_key.0, remaining_time_key.1);
@@ -2074,7 +2470,11 @@ fn build_side_pane(
 
             let red_color = color::rgba_hex("#ff3030");
             let white_color = [1.0, 1.0, 1.0, 1.0];
-            let remaining_color = if state.players[0].is_failing { red_color } else { white_color };
+            let remaining_color = if state.players[player_idx].is_failing {
+                red_color
+            } else {
+                white_color
+            };
 
             // --- Total Time Row ---
             let y_pos_total = layout.sidepane_center_y + local_y + 13.0;
@@ -2101,7 +2501,7 @@ fn build_side_pane(
                     z(71):
                     diffuse(white_color[0], white_color[1], white_color[2], white_color[3])
                 ));
-                actors.push(act!(text: font(font_name): settext(time_song_left_text()):
+                actors.push(act!(text: font(font_name): settext(time_total_text(state)):
                     align(0.0, 0.5): horizalign(left):
                     xy(time_x + label_dir * label_offset_total, y_pos_total + 1.0):
                     zoom(text_zoom): z(71):
@@ -2114,7 +2514,7 @@ fn build_side_pane(
                     z(71):
                     diffuse(white_color[0], white_color[1], white_color[2], white_color[3])
                 ));
-                actors.push(act!(text: font(font_name): settext(time_song_left_text()):
+                actors.push(act!(text: font(font_name): settext(time_total_text(state)):
                     align(1.0, 0.5): horizalign(right):
                     xy(time_x + label_dir * label_offset_total, y_pos_total + 1.0):
                     zoom(text_zoom): z(71):
@@ -2159,64 +2559,38 @@ fn build_side_pane(
                     diffuse(remaining_color[0], remaining_color[1], remaining_color[2], remaining_color[3])
                 ));
             }
+
+            let timing_gap = 104.0 * layout.banner_data_zoom;
+            let timing_value_gap = 156.0 * layout.banner_data_zoom;
+            let timing_label_anchor = if player_side == profile::PlayerSide::P1 {
+                time_x + label_offset_total.max(label_offset_remaining) + timing_gap
+            } else {
+                time_x - label_offset_total.max(label_offset_remaining) - timing_gap
+            };
+            let timing_value_anchor = timing_label_anchor + timing_value_gap;
+            push_live_timing_stats_at(
+                actors,
+                state,
+                player_idx,
+                player_side,
+                timing_label_anchor,
+                timing_value_anchor,
+                y_pos_remaining,
+                20.0,
+                text_zoom,
+                71,
+            );
         }
     }));
 
     // Density graph (Simply Love StepStatistics/DensityGraph.lua).
     if wide {
-        const BG_RGB: [f32; 3] = [
-            30.0 / 255.0, // 0x1E
-            40.0 / 255.0, // 0x28
-            47.0 / 255.0, // 0x2F
-        ];
-
         let graph_h = state.density_graph_graph_h;
         let graph_w = state.density_graph_graph_w;
         if graph_w > 0.0_f32 && graph_h > 0.0_f32 {
             let x0 = layout.sidepane_center_x - graph_w * 0.5;
             let y0 = layout.sidepane_center_y + 55.0;
-            let bg_alpha = if state.player_profiles[player_idx].transparent_density_graph_bg {
-                0.5
-            } else {
-                1.0
-            };
-
-            actors.push(act!(quad:
-                align(0.0, 0.0): xy(x0, y0):
-                zoomto(graph_w, graph_h):
-                diffuse(BG_RGB[0], BG_RGB[1], BG_RGB[2], bg_alpha):
-                z(59)
-            ));
-
-            if let Some(mesh) = &state.density_graph.mesh[player_idx]
-                && !mesh.is_empty()
-            {
-                actors.push(Actor::Mesh {
-                    align: [0.0, 0.0],
-                    offset: [x0, y0],
-                    size: [SizeSpec::Px(graph_w), SizeSpec::Px(graph_h)],
-                    vertices: mesh.clone(),
-                    mode: MeshMode::Triangles,
-                    visible: true,
-                    blend: BlendMode::Alpha,
-                    z: 60,
-                });
-            }
-
-            if let Some(mesh) = &state.density_graph.life_mesh[player_idx]
-                && !mesh.is_empty()
-            {
-                actors.push(Actor::Mesh {
-                    align: [0.0, 0.0],
-                    offset: [x0, y0],
-                    size: [SizeSpec::Px(graph_w), SizeSpec::Px(graph_h)],
-                    vertices: mesh.clone(),
-                    mode: MeshMode::Triangles,
-                    visible: true,
-                    blend: BlendMode::Alpha,
-                    z: 61,
-                });
-            }
+            push_density_graph_at(actors, state, player_idx, x0, y0);
         }
     }
 

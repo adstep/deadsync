@@ -1,11 +1,13 @@
 use crate::game::judgment::{self, JudgeGrade};
+use crate::game::timing;
 
 use super::{
     FinalizedRowOutcome, RowEntry, SongTimeNs, State, active_hold_is_engaged,
     apply_autosync_for_row_hits, apply_life_change, apply_row_combo_state, autoplay_blocks_scoring,
     capture_failed_ex_score_inputs, current_music_time_s, display_judge_ix, error_bar_register_tap,
     is_player_dead, judge_life_delta, max_step_distance_ns, player_col_range,
-    record_display_window_counts, set_last_judgment, update_itg_grade_totals,
+    record_current_combo_window_count, record_display_window_counts, set_last_judgment,
+    update_itg_grade_totals,
 };
 
 #[inline(always)]
@@ -27,7 +29,7 @@ pub(super) fn finalize_row_judgment(
     let mut row_has_miss = false;
     let mut row_has_wayoff = false;
     let mut player_row_note_count = 0u32;
-    let row_notes = &state.row_entries[row_entry_index].nonmine_note_indices;
+    let row_notes = state.row_entries[row_entry_index].note_indices();
     let Some(final_judgment) =
         judgment::aggregate_row_final_judgment(row_notes.iter().filter_map(|&note_index| {
             let judgment = state.notes[note_index].result.as_ref()?;
@@ -36,7 +38,7 @@ pub(super) fn finalize_row_judgment(
             row_has_wayoff |= judgment.grade == JudgeGrade::WayOff;
             Some(judgment)
         }))
-        .cloned()
+        .copied()
     else {
         return;
     };
@@ -44,15 +46,20 @@ pub(super) fn finalize_row_judgment(
     apply_autosync_for_row_hits(state, row_entry_index);
     let final_grade = final_judgment.grade;
     state.row_entries[row_entry_index].final_outcome = Some(FinalizedRowOutcome { final_grade });
-    record_display_window_counts(state, player, &final_judgment);
+    timing::record_live_timing_stats(
+        &mut state.players[player].live_timing_stats,
+        &final_judgment,
+    );
     let suppress_final_early_bad_visual =
         suppress_final_bad_rescore_visual(skip_life_change, final_grade);
     if scoring_blocked {
         if !suppress_final_early_bad_visual {
             set_last_judgment(state, player, final_judgment);
+            error_bar_register_tap(state, player, &final_judgment, current_music_time_s(state));
         }
         return;
     }
+    record_display_window_counts(state, player, &final_judgment);
     let show_final_visual = !suppress_final_early_bad_visual;
     let current_music_time = current_music_time_s(state);
     {
@@ -67,6 +74,7 @@ pub(super) fn finalize_row_judgment(
         if !skip_life_change {
             apply_life_change(p, current_music_time, life_delta);
         }
+        record_current_combo_window_count(p, &final_judgment);
         apply_row_combo_state(p, final_grade, player_row_note_count, 1);
         if !row_has_miss && !row_has_wayoff {
             let notes_on_row_count = player_row_note_count as usize;
@@ -94,7 +102,7 @@ pub(super) fn finalize_row_judgment(
     if show_final_visual {
         // Arrow Cloud's gameplay HUD uses the row-final JudgmentMessage for
         // offset/error-bar visuals, not individual note hits inside a chord.
-        set_last_judgment(state, player, final_judgment.clone());
+        set_last_judgment(state, player, final_judgment);
         error_bar_register_tap(state, player, &final_judgment, current_music_time_s(state));
     }
     if !skip_life_change {

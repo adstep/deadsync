@@ -1,6 +1,7 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::{tr, tr_fmt};
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::Actor;
 use crate::engine::present::color;
@@ -8,7 +9,7 @@ use crate::engine::space::{screen_center_x, screen_center_y, screen_height, scre
 use crate::game::profile;
 use crate::game::scores;
 use crate::game::stage_stats;
-use crate::screens::components::shared::heart_bg;
+use crate::screens::components::shared::{transitions, visual_style_bg};
 use crate::screens::{Screen, ScreenAction};
 
 /* ---------------------------- transitions ---------------------------- */
@@ -165,7 +166,7 @@ fn build_player_lines(
 
 pub struct State {
     pub active_color_index: i32,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     elapsed: f32,
     total_songs_played: [u32; 2],
 }
@@ -182,7 +183,7 @@ fn init_inner(scan_totals: bool) -> State {
 
     State {
         active_color_index: color::DEFAULT_COLOR_INDEX, // overwritten by app
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         elapsed: 0.0,
         total_songs_played,
     }
@@ -226,7 +227,7 @@ pub fn get_actors(
     let mut actors: Vec<Actor> = Vec::with_capacity(64);
 
     // Background (Simply Love: ScreenWithMenuElements background)
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -251,29 +252,33 @@ pub fn get_actors(
         ));
     }
 
-    // GAME OVER text (Simply Love: Wendy/_wendy white, crop reveal)
+    // GAME OVER text (Arrow Cloud: ThemeFont headline, crop reveal)
     {
         let cx = screen_center_x();
         let cy = screen_center_y();
+        let zoom = match crate::config::get().machine_font {
+            crate::config::MachineFont::Wendy => 1.2,
+            crate::config::MachineFont::Mega => 1.95,
+        };
 
         actors.push(act!(text:
-            font("wendy_white"):
+            font(current_machine_font_key(FontRole::Headline)):
             settext(tr("GameOver", "GameText")):
             align(0.5, 0.5):
             xy(cx, cy - 40.0):
             croptop(1.0): fadetop(1.0):
-            zoom(1.2):
+            zoom(zoom):
             shadowlength(1.0):
             z(20):
             decelerate(0.5): croptop(0.0): fadetop(0.0)
         ));
         actors.push(act!(text:
-            font("wendy_white"):
+            font(current_machine_font_key(FontRole::Headline)):
             settext(tr("GameOver", "OverText")):
             align(0.5, 0.5):
             xy(cx, cy + 40.0):
             croptop(1.0): fadetop(1.0):
-            zoom(1.2):
+            zoom(zoom):
             shadowlength(1.0):
             z(20):
             decelerate(0.5): croptop(0.0): fadetop(0.0)
@@ -368,22 +373,9 @@ pub fn get_actors(
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0): z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0): z(1100):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1100)
 }

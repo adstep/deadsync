@@ -1,4 +1,4 @@
-use crate::engine::gfx::{BlendMode, MeshMode, MeshVertex, TMeshCacheKey, TexturedMeshVertex};
+use crate::engine::gfx::{BlendMode, MeshVertex, TMeshCacheKey, TextureHandle, TexturedMeshVertex};
 use crate::engine::present::anim;
 use glam::Mat4 as Matrix4;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ pub enum Background {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextAlign {
     #[default]
     Left,
@@ -31,6 +31,16 @@ pub enum SizeSpec {
 #[derive(Clone, Debug)]
 pub enum SpriteSource {
     TextureStatic(&'static str),
+    TextureStaticHandle {
+        key: &'static str,
+        handle: TextureHandle,
+        generation: u64,
+    },
+    TextureHandle {
+        key: Arc<str>,
+        handle: TextureHandle,
+        generation: u64,
+    },
     Texture(Arc<str>),
     Solid,
 }
@@ -45,6 +55,8 @@ impl SpriteSource {
     pub fn texture_key(&self) -> Option<&str> {
         match self {
             Self::TextureStatic(key) => Some(key),
+            Self::TextureStaticHandle { key, .. } => Some(key),
+            Self::TextureHandle { key, .. } => Some(key.as_ref()),
             Self::Texture(key) => Some(key.as_ref()),
             Self::Solid => None,
         }
@@ -90,6 +102,8 @@ pub enum Actor {
         animate: bool,
         state_delay: f32,
         scale: [f32; 2],
+        shadow_len: [f32; 2],
+        shadow_color: [f32; 4],
         effect: anim::EffectState,
     },
 
@@ -97,6 +111,7 @@ pub enum Actor {
     Text {
         align: [f32; 2],  // halign/valign pivot inside line box
         offset: [f32; 2], // parent top-left space
+        local_transform: Matrix4,
         color: [f32; 4],
         stroke_color: Option<[f32; 4]>,
         #[allow(dead_code)]
@@ -109,14 +124,20 @@ pub enum Actor {
         scale: [f32; 2],
         fit_width: Option<f32>,
         fit_height: Option<f32>,
+        line_spacing: Option<i32>,
         wrap_width_pixels: Option<i32>,
         max_width: Option<f32>,
         max_height: Option<f32>,
         max_w_pre_zoom: bool,
         max_h_pre_zoom: bool,
+        jitter: bool,
+        distortion: f32,
         /// Clip rect in parent TL space: [x, y, w, h].
         clip: Option<[f32; 4]>,
+        mask_dest: bool,
         blend: BlendMode,
+        shadow_len: [f32; 2],
+        shadow_color: [f32; 4],
         effect: anim::EffectState,
     },
 
@@ -126,7 +147,6 @@ pub enum Actor {
         offset: [f32; 2],
         size: [SizeSpec; 2],
         vertices: Arc<[MeshVertex]>,
-        mode: MeshMode,
         visible: bool,
         blend: BlendMode,
         z: i16,
@@ -141,12 +161,13 @@ pub enum Actor {
         local_transform: Matrix4,
         texture: Arc<str>,
         tint: [f32; 4],
+        glow: [f32; 4],
         vertices: Arc<[TexturedMeshVertex]>,
         geom_cache_key: TMeshCacheKey,
-        mode: MeshMode,
         uv_scale: [f32; 2],
         uv_offset: [f32; 2],
         uv_tex_shift: [f32; 2],
+        depth_test: bool,
         visible: bool,
         blend: BlendMode,
         z: i16,
@@ -162,12 +183,30 @@ pub enum Actor {
         z: i16,
     },
 
+    /// Frame whose children are shared by capture/proxy render paths.
+    SharedFrame {
+        align: [f32; 2],
+        offset: [f32; 2],
+        size: [SizeSpec; 2],
+        children: Arc<[Self]>,
+        background: Option<Background>,
+        z: i16,
+        tint: [f32; 4],
+        blend: Option<BlendMode>,
+    },
+
     /// Camera wrapper: renders all child actors using the provided view-projection matrix.
     /// The matrix is expected to map world coordinates to clip space.
     Camera {
         view_proj: Matrix4,
         children: Vec<Self>,
     },
+
+    /// Begin a flat camera scope for subsequent sibling actors.
+    CameraPush { view_proj: Matrix4 },
+
+    /// End the most recent flat camera scope.
+    CameraPop,
 
     /// Shadow wrapper: draws child's objects once more with an offset and tint,
     /// matching `StepMania`'s `shadowlength*` and `shadowcolor` behavior.
@@ -178,11 +217,91 @@ pub enum Actor {
     },
 }
 
+impl Actor {
+    pub fn mul_alpha(&mut self, alpha: f32) {
+        match self {
+            Self::Sprite {
+                tint,
+                glow,
+                shadow_color,
+                ..
+            } => {
+                tint[3] *= alpha;
+                glow[3] *= alpha;
+                shadow_color[3] *= alpha;
+            }
+            Self::Text {
+                color,
+                shadow_color,
+                ..
+            } => {
+                color[3] *= alpha;
+                shadow_color[3] *= alpha;
+            }
+            Self::Mesh { vertices, .. } => {
+                let mut out = Vec::with_capacity(vertices.len());
+                for vertex in vertices.iter() {
+                    let mut color = vertex.color;
+                    color[3] *= alpha;
+                    out.push(MeshVertex {
+                        pos: vertex.pos,
+                        color,
+                    });
+                }
+                *vertices = Arc::from(out);
+            }
+            Self::TexturedMesh { tint, glow, .. } => {
+                tint[3] *= alpha;
+                glow[3] *= alpha;
+            }
+            Self::Frame {
+                background,
+                children,
+                ..
+            } => {
+                if let Some(Background::Color(color)) = background {
+                    color[3] *= alpha;
+                }
+                for child in children {
+                    child.mul_alpha(alpha);
+                }
+            }
+            Self::SharedFrame {
+                background, tint, ..
+            } => {
+                if let Some(Background::Color(color)) = background {
+                    color[3] *= alpha;
+                }
+                tint[3] *= alpha;
+            }
+            Self::Camera { children, .. } => {
+                for child in children {
+                    child.mul_alpha(alpha);
+                }
+            }
+            Self::CameraPush { .. } | Self::CameraPop => {}
+            Self::Shadow { color, child, .. } => {
+                color[3] *= alpha;
+                child.mul_alpha(alpha);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextAttribute {
     pub start: usize,
     pub length: usize,
     pub color: [f32; 4],
+    pub vertex_colors: Option<[[f32; 4]; 4]>,
+    pub glow: Option<[f32; 4]>,
+}
+
+impl TextAttribute {
+    #[inline(always)]
+    pub fn colors(self) -> [[f32; 4]; 4] {
+        self.vertex_colors.unwrap_or([self.color; 4])
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -240,5 +359,113 @@ impl From<Arc<str>> for TextContent {
 impl From<&Arc<str>> for TextContent {
     fn from(value: &Arc<str>) -> Self {
         Self::Shared(value.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::gfx::BlendMode;
+
+    fn approx_eq(lhs: f32, rhs: f32) {
+        assert!((lhs - rhs).abs() < 1e-6, "expected {rhs}, got {lhs}");
+    }
+
+    fn text(color: [f32; 4]) -> Actor {
+        Actor::Text {
+            align: [0.0, 0.0],
+            offset: [0.0, 0.0],
+            local_transform: Matrix4::IDENTITY,
+            color,
+            stroke_color: None,
+            glow: [0.0, 0.0, 0.0, 0.0],
+            font: "test",
+            content: TextContent::Static("x"),
+            attributes: Vec::new(),
+            align_text: TextAlign::Left,
+            z: 0,
+            scale: [1.0, 1.0],
+            fit_width: None,
+            fit_height: None,
+            line_spacing: None,
+            wrap_width_pixels: None,
+            max_width: None,
+            max_height: None,
+            max_w_pre_zoom: false,
+            max_h_pre_zoom: false,
+            jitter: false,
+            distortion: 0.0,
+            clip: None,
+            mask_dest: false,
+            blend: BlendMode::Alpha,
+            shadow_len: [0.0, 0.0],
+            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            effect: anim::EffectState::default(),
+        }
+    }
+
+    #[test]
+    fn mul_alpha_recurses_through_wrappers() {
+        let mut actor = Actor::Frame {
+            align: [0.0, 0.0],
+            offset: [0.0, 0.0],
+            size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
+            children: vec![Actor::Shadow {
+                len: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 0.8],
+                child: Box::new(text([1.0, 1.0, 1.0, 0.6])),
+            }],
+            background: Some(Background::Color([0.0, 0.0, 0.0, 0.4])),
+            z: 0,
+        };
+
+        actor.mul_alpha(0.5);
+
+        let Actor::Frame {
+            background: Some(Background::Color(bg)),
+            children,
+            ..
+        } = actor
+        else {
+            panic!("expected frame actor");
+        };
+        approx_eq(bg[3], 0.2);
+
+        let Actor::Shadow { color, child, .. } = &children[0] else {
+            panic!("expected shadow child");
+        };
+        approx_eq(color[3], 0.4);
+
+        let Actor::Text { color, .. } = child.as_ref() else {
+            panic!("expected text child");
+        };
+        approx_eq(color[3], 0.3);
+    }
+
+    #[test]
+    fn mul_alpha_rebuilds_mesh_vertices() {
+        let original: Arc<[MeshVertex]> = Arc::from(vec![MeshVertex {
+            pos: [4.0, 8.0],
+            color: [1.0, 1.0, 1.0, 0.8],
+        }]);
+        let mut actor = Actor::Mesh {
+            align: [0.0, 0.0],
+            offset: [0.0, 0.0],
+            size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
+            vertices: Arc::clone(&original),
+            visible: true,
+            blend: BlendMode::Alpha,
+            z: 0,
+        };
+
+        actor.mul_alpha(0.25);
+
+        approx_eq(original[0].color[3], 0.8);
+
+        let Actor::Mesh { vertices, .. } = actor else {
+            panic!("expected mesh actor");
+        };
+        assert!(!Arc::ptr_eq(&vertices, &original));
+        approx_eq(vertices[0].color[3], 0.2);
     }
 }

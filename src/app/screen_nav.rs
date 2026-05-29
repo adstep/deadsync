@@ -3,10 +3,12 @@ use super::{
     evaluation, evaluation_summary, gameover, gameplay, init, initials, input_screen,
     manage_local_profiles, mappings, menu, options, player_options, profile_load, sandbox,
     select_color, select_course, select_mode, select_music, select_profile, select_style,
+    test_lights,
 };
+use crate::assets::visual_styles;
 use crate::config;
 use crate::config::dirs;
-use crate::engine::present::{actors::Actor, color};
+use crate::engine::present::actors::Actor;
 use crate::game::profile;
 use log::{debug, info};
 use winit::event_loop::ActiveEventLoop;
@@ -140,6 +142,7 @@ impl App {
                 | CurrentScreen::ManageLocalProfiles
                 | CurrentScreen::Mappings
                 | CurrentScreen::Input
+                | CurrentScreen::TestLights
         )
     }
 
@@ -147,6 +150,7 @@ impl App {
     pub(super) fn commit_screen_change(&mut self, target: CurrentScreen) {
         let prev = self.state.screens.current_screen;
         self.state.screens.current_screen = target;
+        self.sync_gameplay_input_capture();
         write_current_screen_file(target);
         if prev != target {
             self.ui_text_layout_cache.clear();
@@ -162,6 +166,22 @@ impl App {
         self.commit_screen_change(target_screen);
         if target_screen == CurrentScreen::SelectColor {
             select_color::on_enter(&mut self.state.screens.select_color_state);
+        }
+        if target_screen == CurrentScreen::ArrowCloudLogin {
+            self.state.screens.arrowcloud_login_state.active_color_index =
+                self.state.screens.menu_state.active_color_index;
+            crate::screens::arrowcloud_login::on_enter(
+                &mut self.state.screens.arrowcloud_login_state,
+            );
+        }
+        if target_screen == CurrentScreen::GrooveStatsLogin {
+            self.state
+                .screens
+                .groovestats_login_state
+                .active_color_index = self.state.screens.menu_state.active_color_index;
+            crate::screens::groovestats_login::on_enter(
+                &mut self.state.screens.groovestats_login_state,
+            );
         }
 
         let menu_music_enabled = config::get().menu_music;
@@ -183,7 +203,7 @@ impl App {
         if target_menu_music {
             if !prev_menu_music {
                 crate::engine::audio::play_music(
-                    dirs::app_dirs().resolve_asset_path("assets/music/in_two (loop).ogg"),
+                    visual_styles::menu_music_resolved_path(),
                     crate::engine::audio::Cut::default(),
                     true,
                     1.0,
@@ -228,27 +248,20 @@ impl App {
             let color_index = self.state.screens.options_state.active_color_index;
             self.state.screens.mappings_state = mappings::init();
             self.state.screens.mappings_state.active_color_index = color_index;
+        } else if target_screen == CurrentScreen::TestLights {
+            let color_index = self.state.screens.options_state.active_color_index;
+            self.state.screens.test_lights_state = test_lights::init();
+            self.state.screens.test_lights_state.active_color_index = color_index;
+            test_lights::on_enter(&mut self.state.screens.test_lights_state);
+            self.lights.set_test_auto_cycle();
         }
 
         if prev == CurrentScreen::SelectColor {
             let idx = self.state.screens.select_color_state.active_color_index;
-            self.state.screens.menu_state.active_color_index = idx;
-            self.state.screens.select_profile_state.active_color_index = idx;
-            self.state.screens.select_style_state.active_color_index = idx;
-            self.state.screens.select_play_mode_state.active_color_index = idx;
-            self.state.screens.profile_load_state.active_color_index = idx;
-            self.state.screens.select_music_state.active_color_index = idx;
-            self.state.screens.select_course_state.active_color_index = idx;
-            self.state.screens.credits_state.active_color_index = idx;
-            if let Some(gs) = self.state.screens.gameplay_state.as_mut() {
-                gs.active_color_index = idx;
-                gs.player_color = color::simply_love_rgba(idx);
-            }
-            self.state.screens.options_state.active_color_index = idx;
-            self.state
-                .screens
-                .manage_local_profiles_state
-                .active_color_index = idx;
+            self.sync_screen_color_index(idx);
+        } else if prev == CurrentScreen::Options {
+            let idx = self.state.screens.options_state.active_color_index;
+            self.sync_screen_color_index(idx);
         }
 
         if target_screen == CurrentScreen::Options {
@@ -275,6 +288,7 @@ impl App {
         let from = self.state.screens.current_screen;
         let mut target = target;
         let cfg = config::get();
+        self.lights.clear_button_pressed();
 
         if (from == CurrentScreen::SelectMusic || from == CurrentScreen::SelectCourse)
             && target == CurrentScreen::Menu
@@ -387,6 +401,8 @@ impl App {
             || (from == CurrentScreen::SelectStyle && to == CurrentScreen::SelectColor)
             || (from == CurrentScreen::Options && to == CurrentScreen::Mappings)
             || (from == CurrentScreen::Mappings && to == CurrentScreen::Options)
+            || (from == CurrentScreen::Options && to == CurrentScreen::TestLights)
+            || (from == CurrentScreen::TestLights && to == CurrentScreen::Options)
             || (from == CurrentScreen::Options && to == CurrentScreen::ManageLocalProfiles)
             || (from == CurrentScreen::ManageLocalProfiles && to == CurrentScreen::Options)
     }
@@ -411,10 +427,16 @@ impl App {
             duration,
             target,
         };
+        self.sync_gameplay_input_capture();
     }
 
     fn start_global_fade(&mut self, target: CurrentScreen) {
         debug!("Starting global fade out to screen: {target:?}");
+        if self.state.screens.current_screen == CurrentScreen::Evaluation
+            && target != CurrentScreen::Evaluation
+        {
+            crate::engine::audio::stop_screen_sfx();
+        }
         let (_, out_duration) =
             self.get_out_transition_for_screen(self.state.screens.current_screen);
         self.state.shell.transition = TransitionState::FadingOut {
@@ -422,6 +444,7 @@ impl App {
             duration: out_duration,
             target,
         };
+        self.sync_gameplay_input_capture();
     }
 
     pub(super) fn handle_exit_action(&mut self) -> Vec<Command> {
@@ -459,6 +482,22 @@ impl App {
         if target == CurrentScreen::SelectColor {
             select_color::on_enter(&mut self.state.screens.select_color_state);
         }
+        if target == CurrentScreen::ArrowCloudLogin {
+            self.state.screens.arrowcloud_login_state.active_color_index =
+                self.state.screens.menu_state.active_color_index;
+            crate::screens::arrowcloud_login::on_enter(
+                &mut self.state.screens.arrowcloud_login_state,
+            );
+        }
+        if target == CurrentScreen::GrooveStatsLogin {
+            self.state
+                .screens
+                .groovestats_login_state
+                .active_color_index = self.state.screens.menu_state.active_color_index;
+            crate::screens::groovestats_login::on_enter(
+                &mut self.state.screens.groovestats_login_state,
+            );
+        }
 
         let mut commands: Vec<Command> = Vec::new();
         commands.extend(self.handle_audio_and_profile_on_fade(prev, target));
@@ -483,6 +522,7 @@ impl App {
                 duration: in_duration,
             };
         }
+        self.sync_gameplay_input_capture();
         crate::engine::present::runtime::clear_all();
         let _ = self.run_commands(commands, event_loop);
     }
@@ -493,13 +533,17 @@ impl App {
                 menu::out_transition(self.state.screens.menu_state.active_color_index)
             }
             CurrentScreen::Gameplay => gameplay::out_transition(),
+            CurrentScreen::Practice => gameplay::out_transition(),
             CurrentScreen::Options => options::out_transition(),
             CurrentScreen::Credits => credits::out_transition(),
             CurrentScreen::ManageLocalProfiles => manage_local_profiles::out_transition(),
             CurrentScreen::Mappings => mappings::out_transition(),
+            CurrentScreen::TestLights => test_lights::out_transition(),
             CurrentScreen::PlayerOptions => player_options::out_transition(),
             CurrentScreen::SelectProfile => select_profile::out_transition(),
             CurrentScreen::SelectColor => select_color::out_transition(),
+            CurrentScreen::ArrowCloudLogin => crate::screens::arrowcloud_login::out_transition(),
+            CurrentScreen::GrooveStatsLogin => crate::screens::groovestats_login::out_transition(),
             CurrentScreen::SelectStyle => select_style::out_transition(),
             CurrentScreen::SelectPlayMode => select_mode::out_transition(),
             CurrentScreen::ProfileLoad => profile_load::out_transition(),
@@ -518,16 +562,30 @@ impl App {
     pub(super) fn get_in_transition_for_screen(&self, screen: CurrentScreen) -> (Vec<Actor>, f32) {
         match screen {
             CurrentScreen::Menu => menu::in_transition(),
-            CurrentScreen::Gameplay => {
-                gameplay::in_transition(self.state.screens.gameplay_state.as_ref())
-            }
+            CurrentScreen::Gameplay => gameplay::in_transition(
+                self.state.screens.gameplay_state.as_ref(),
+                &self.asset_manager,
+                self.state.session.gameplay_restart_count > 0,
+            ),
+            CurrentScreen::Practice => gameplay::in_transition(
+                self.state
+                    .screens
+                    .practice_state
+                    .as_ref()
+                    .map(|state| &state.gameplay),
+                &self.asset_manager,
+                false,
+            ),
             CurrentScreen::Options => options::in_transition(),
             CurrentScreen::Credits => credits::in_transition(),
             CurrentScreen::ManageLocalProfiles => manage_local_profiles::in_transition(),
             CurrentScreen::Mappings => mappings::in_transition(),
+            CurrentScreen::TestLights => test_lights::in_transition(),
             CurrentScreen::PlayerOptions => player_options::in_transition(),
             CurrentScreen::SelectProfile => select_profile::in_transition(),
             CurrentScreen::SelectColor => select_color::in_transition(),
+            CurrentScreen::ArrowCloudLogin => crate::screens::arrowcloud_login::in_transition(),
+            CurrentScreen::GrooveStatsLogin => crate::screens::groovestats_login::in_transition(),
             CurrentScreen::SelectStyle => select_style::in_transition(),
             CurrentScreen::SelectPlayMode => select_mode::in_transition(),
             CurrentScreen::ProfileLoad => profile_load::in_transition(),

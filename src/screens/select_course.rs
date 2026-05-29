@@ -1,9 +1,11 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::tr;
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::audio;
 use crate::engine::input::{InputEvent, PadDir, VirtualAction};
 use crate::engine::present::actors::{Actor, SizeSpec};
+use crate::engine::present::cache::{TextCache, cached_text};
 use crate::engine::present::color;
 use crate::engine::space::{
     is_wide, screen_center_x, screen_center_y, screen_height, screen_width,
@@ -16,7 +18,9 @@ use crate::game::song::{SongData, get_song_cache};
 use crate::rgba_const;
 use crate::screens::components::{
     select_music::{music_wheel, screen_bars, select_pane, step_artist_bar},
-    shared::{banner as shared_banner, gs_scorebox, heart_bg, mode_pads, timers},
+    shared::{
+        banner as shared_banner, gs_scorebox, mode_pads, timers, transitions, visual_style_bg,
+    },
 };
 use crate::screens::input as screen_input;
 use crate::screens::{Screen, ScreenAction};
@@ -25,7 +29,6 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::thread::LocalKey;
 use std::time::{Duration, Instant};
 use twox_hash::XxHash64;
 
@@ -82,29 +85,22 @@ rgba_const!(COURSE_WHEEL_SONG_TEXT_COLOR, "#D77272");
 rgba_const!(COURSE_WHEEL_RANDOM_TEXT_COLOR, "#FFFF00");
 const TEXT_CACHE_LIMIT: usize = 4096;
 
-type TextCache<K> = HashMap<K, Arc<str>>;
-
 thread_local! {
     static SCORE_PERCENT_CACHE: RefCell<TextCache<u64>> = RefCell::new(HashMap::with_capacity(1024));
+    static UINT_TEXT_CACHE: RefCell<TextCache<u32>> = RefCell::new(HashMap::with_capacity(1024));
 }
 
 #[inline(always)]
-fn cached_text<K, F>(cache: &'static LocalKey<RefCell<TextCache<K>>>, key: K, build: F) -> Arc<str>
-where
-    K: Copy + Eq + std::hash::Hash,
-    F: FnOnce() -> String,
-{
-    cache.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(text) = cache.get(&key) {
-            return text.clone();
-        }
-        let text: Arc<str> = Arc::<str>::from(build());
-        if cache.len() < TEXT_CACHE_LIMIT {
-            cache.insert(key, text.clone());
-        }
-        text
+fn cached_u32_text(value: u32) -> Arc<str> {
+    cached_text(&UINT_TEXT_CACHE, value, TEXT_CACHE_LIMIT, || {
+        value.to_string()
     })
+}
+
+#[inline(always)]
+fn unknown_text() -> Arc<str> {
+    static UNKNOWN: OnceLock<Arc<str>> = OnceLock::new();
+    UNKNOWN.get_or_init(|| Arc::<str>::from("?")).clone()
 }
 
 #[inline(always)]
@@ -120,9 +116,12 @@ fn cached_score_percent_text(score_percent: f64) -> Arc<str> {
     } else {
         0.0
     };
-    cached_text(&SCORE_PERCENT_CACHE, score.to_bits(), || {
-        format!("{score:.2}%")
-    })
+    cached_text(
+        &SCORE_PERCENT_CACHE,
+        score.to_bits(),
+        TEXT_CACHE_LIMIT,
+        || format!("{score:.2}%"),
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -195,7 +194,6 @@ struct CourseRatingMeta {
 
 struct InitData {
     all_entries: Vec<MusicWheelEntry>,
-    pack_course_counts: HashMap<String, usize>,
     course_meta_by_path: HashMap<PathBuf, Arc<CourseMeta>>,
     course_text_color_overrides: HashMap<usize, [f32; 4]>,
 }
@@ -241,10 +239,9 @@ pub struct State {
     pub session_elapsed: f32,
 
     all_entries: Vec<MusicWheelEntry>,
-    pack_course_counts: HashMap<String, usize>,
     course_meta_by_path: HashMap<PathBuf, Arc<CourseMeta>>,
     course_text_color_overrides: HashMap<usize, [f32; 4]>,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     nav_key_held_direction: Option<NavDirection>,
     nav_key_held_since: Option<Instant>,
     last_requested_banner_path: Option<PathBuf>,
@@ -750,6 +747,8 @@ fn make_course_song(meta: &CourseMeta) -> SongData {
         banner_path: meta.banner_path.clone(),
         background_path: None,
         background_changes: Vec::new(),
+        foreground_changes: Vec::new(),
+        background_lua_changes: Vec::new(),
         foreground_lua_changes: Vec::new(),
         has_lua: false,
         cdtitle_path: None,
@@ -1011,7 +1010,6 @@ fn build_init_data() -> InitData {
 
     InitData {
         all_entries,
-        pack_course_counts: HashMap::new(),
         course_meta_by_path,
         course_text_color_overrides,
     }
@@ -1183,6 +1181,19 @@ fn selected_banner_path(state: &State) -> Option<PathBuf> {
     }
 }
 
+fn restore_last_course(state: &mut State) {
+    let profile_data = profile::get();
+    let last_played = profile_data.last_played_course(profile::get_session_play_style());
+    let Some(path) = last_played.course_path.as_deref() else {
+        return;
+    };
+    restore_selection_for_course(
+        state,
+        Path::new(path),
+        last_played.difficulty_name.as_deref(),
+    );
+}
+
 pub fn init() -> State {
     let init = build_init_data();
     let mut state = State {
@@ -1194,10 +1205,9 @@ pub fn init() -> State {
         current_banner_key: "banner1.png".to_string(),
         session_elapsed: 0.0,
         all_entries: init.all_entries,
-        pack_course_counts: init.pack_course_counts,
         course_meta_by_path: init.course_meta_by_path,
         course_text_color_overrides: init.course_text_color_overrides,
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         nav_key_held_direction: None,
         nav_key_held_since: None,
         last_requested_banner_path: None,
@@ -1216,6 +1226,7 @@ pub fn init() -> State {
         three_key_focus: ThreeKeyFocus::Wheel,
     };
     rebuild_displayed_entries(&mut state);
+    restore_last_course(&mut state);
     state
 }
 
@@ -1822,21 +1833,11 @@ pub fn update(state: &mut State, dt: f32) -> ScreenAction {
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    (
-        vec![
-            act!(quad: align(0.0, 0.0): xy(0.0, 0.0): zoomto(screen_width(), screen_height()): diffuse(0.0, 0.0, 0.0, 1.0): z(1100): linear(TRANSITION_IN_DURATION): alpha(0.0): linear(0.0): visible(false)),
-        ],
-        TRANSITION_IN_DURATION,
-    )
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    (
-        vec![
-            act!(quad: align(0.0, 0.0): xy(0.0, 0.0): zoomto(screen_width(), screen_height()): diffuse(0.0, 0.0, 0.0, 0.0): z(1200): linear(TRANSITION_OUT_DURATION): alpha(1.0)),
-        ],
-        TRANSITION_OUT_DURATION,
-    )
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1200)
 }
 
 #[inline(always)]
@@ -2000,13 +2001,13 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         )
     });
 
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
     }));
     actors.push(sl_select_music_bg_flash());
-    actors.extend(screen_bars::build(&tr("ScreenTitles", "SelectCourse")));
+    screen_bars::push(&mut actors, &tr("ScreenTitles", "SelectCourse"));
     actors.push(timers::build_session(format_session_time(
         state.session_elapsed,
     )));
@@ -2067,45 +2068,44 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         match selected_rating {
             Some(rating) => {
                 let meter = if let Some(course_meter) = rating.course_meter {
-                    course_meter.to_string()
+                    cached_u32_text(course_meter)
                 } else if rating.meter_count > 0 {
-                    format!(
-                        "{}",
-                        (rating.meter_sum as f32 / rating.meter_count as f32).round() as i32
+                    cached_u32_text(
+                        (rating.meter_sum as f32 / rating.meter_count as f32).round() as u32,
                     )
                 } else {
-                    "?".to_string()
+                    unknown_text()
                 };
                 if rating.rated_entry_count > 0 {
                     (
-                        rating.totals.steps.to_string(),
-                        rating.totals.jumps.to_string(),
-                        rating.totals.holds.to_string(),
-                        rating.totals.mines.to_string(),
-                        rating.totals.hands.to_string(),
-                        rating.totals.rolls.to_string(),
+                        cached_u32_text(rating.totals.steps),
+                        cached_u32_text(rating.totals.jumps),
+                        cached_u32_text(rating.totals.holds),
+                        cached_u32_text(rating.totals.mines),
+                        cached_u32_text(rating.totals.hands),
+                        cached_u32_text(rating.totals.rolls),
                         meter,
                     )
                 } else {
                     (
-                        "?".to_string(),
-                        "?".to_string(),
-                        "?".to_string(),
-                        "?".to_string(),
-                        "?".to_string(),
-                        "?".to_string(),
+                        unknown_text(),
+                        unknown_text(),
+                        unknown_text(),
+                        unknown_text(),
+                        unknown_text(),
+                        unknown_text(),
                         meter,
                     )
                 }
             }
             None => (
-                "?".to_string(),
-                "?".to_string(),
-                "?".to_string(),
-                "?".to_string(),
-                "?".to_string(),
-                "?".to_string(),
-                "?".to_string(),
+                unknown_text(),
+                unknown_text(),
+                unknown_text(),
+                unknown_text(),
+                unknown_text(),
+                unknown_text(),
+                unknown_text(),
             ),
         };
 
@@ -2155,19 +2155,22 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         show_rivals: false,
         loading_text: None,
     };
-    actors.extend(select_pane::build_base(select_pane::StatsPaneParams {
-        pane_cx,
-        accent_color: pane_sel_col,
-        values: select_pane::StatsValues {
-            steps: steps_text,
-            mines: mines_text,
-            jumps: jumps_text,
-            hands: hands_text,
-            holds: holds_text,
-            rolls: rolls_text,
+    select_pane::push_base(
+        &mut actors,
+        select_pane::StatsPaneParams {
+            pane_cx,
+            accent_color: pane_sel_col,
+            values: select_pane::StatsValues {
+                steps: steps_text,
+                mines: mines_text,
+                jumps: jumps_text,
+                hands: hands_text,
+                holds: holds_text,
+                rolls: rolls_text,
+            },
+            meter: (!gs_view.show_rivals).then_some(meter_text),
         },
-        meter: (!gs_view.show_rivals).then_some(meter_text),
-    }));
+    );
     let pane_layout = select_pane::layout();
     let lines = [
         (gs_view.machine_name.clone(), gs_view.machine_score.clone()),
@@ -2381,7 +2384,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
                     state.active_color_index,
                 );
                 actors.push(act!(text:
-                    font("wendy"):
+                    font(current_machine_font_key(FontRole::Header)):
                     settext(meter_text):
                     align(0.5, 0.5):
                     xy(rating_box_cx, y):
@@ -2419,10 +2422,13 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         screen_center_x() - 345.5
     };
     let step_artist_y = (screen_center_y() - 9.0) - 0.5 * (screen_height() / 28.0);
-    actors.extend(step_artist_bar::build(
+    step_artist_bar::push(
+        &mut actors,
         step_artist_bar::StepArtistBarParams {
             x0: step_artist_x0,
             center_y: step_artist_y,
+            layout: step_artist_bar::StepArtistBarLayout::Legacy,
+            expanded_line_count: 0,
             accent_color: step_artist_col,
             z_base: 122,
             label_text: step_idx_text.into(),
@@ -2437,7 +2443,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
                 1.0,
             ],
         },
-    ));
+    );
 
     if has_desc {
         actors.push(act!(quad:
@@ -2465,19 +2471,23 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         position_offset_from_selection: state.wheel_offset_from_selection,
         selection_animation_timer: state.selection_animation_timer,
         selection_animation_beat,
-        pack_song_counts: &state.pack_course_counts,
         color_pack_headers: true,
-        preferred_difficulty_index: 0,
-        selected_steps_index: 0,
+        selected_charts: [None, None],
+        preferred_difficulty_index: [0, 0],
         song_box_color: None,
         song_text_color: Some(COURSE_WHEEL_SONG_TEXT_COLOR),
         song_text_color_overrides: Some(&state.course_text_color_overrides),
         song_has_edit_ptrs: None,
         show_music_wheel_grades: true,
         show_music_wheel_lamps: true,
+        itl_rank_mode: crate::config::SelectMusicItlRankMode::None,
         itl_wheel_mode: crate::config::SelectMusicItlWheelMode::Off,
+        song_select_bg_mode: crate::config::SelectMusicSongSelectBgMode::Off,
+        expanded_pack_name: None,
         allow_online_fetch: false,
         new_pack_names: None,
+        pack_sync_prefs: None,
+        default_sync_offset: crate::config::DefaultSyncOffset::Null,
     }));
 
     if !matches!(selected_entry, Some(MusicWheelEntry::Song(_))) {
@@ -2507,7 +2517,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
         match state.out_prompt {
             OutPromptState::PressStartForOptions { .. } => {
                 actors.push(act!(text:
-                    font("wendy"):
+                    font(current_machine_font_key(FontRole::Header)):
                     settext(tr("SelectMusic", "PressStartForOptions")):
                     align(0.5, 0.5):
                     xy(screen_center_x(), screen_center_y()):
@@ -2518,7 +2528,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
             }
             OutPromptState::EnteringOptions { .. } => {
                 actors.push(act!(text:
-                    font("wendy"):
+                    font(current_machine_font_key(FontRole::Header)):
                     settext(tr("SelectMusic", "PressStartForOptions")):
                     align(0.5, 0.5):
                     xy(screen_center_x(), screen_center_y()):
@@ -2528,7 +2538,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
                     linear(ENTERING_OPTIONS_FADE_OUT_SECONDS): alpha(0.0)
                 ));
                 actors.push(act!(text:
-                    font("wendy"):
+                    font(current_machine_font_key(FontRole::Header)):
                     settext(tr("SelectMusic", "EnteringOptions")):
                     align(0.5, 0.5):
                     xy(screen_center_x(), screen_center_y()):
@@ -2674,7 +2684,7 @@ fn push_exit_prompt_choice(
     out.push(act!(text:
         align(0.5, 0.5):
         xy(cx, cy):
-        font("wendy"):
+        font(current_machine_font_key(FontRole::Header)):
         zoom(SL_EXIT_PROMPT_LABEL_ZOOM * choice_zoom):
         settext(label):
         diffuse(rgba[0], rgba[1], rgba[2], rgba[3]):

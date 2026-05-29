@@ -1,4 +1,3 @@
-use crate::game::judgment::JudgeGrade;
 use crate::game::note::{HoldData, HoldResult, NoteType};
 use crate::game::timing::TimingData;
 
@@ -8,7 +7,7 @@ use super::{
     apply_life_change, autoplay_blocks_scoring, break_combo_state, capture_failed_ex_score_inputs,
     clear_full_combo_state, current_music_time_s, is_state_dead, player_for_col,
     song_time_ns_delta_seconds, song_time_ns_from_seconds, song_time_ns_invalid,
-    song_time_ns_to_seconds, sync_active_hold_pressed_state, trigger_tap_explosion,
+    song_time_ns_to_seconds, sync_active_hold_pressed_state, trigger_hold_explosion,
     update_itg_grade_totals,
 };
 
@@ -194,6 +193,7 @@ pub(super) fn start_active_hold(
     end_time_ns: SongTimeNs,
     current_time_ns: SongTimeNs,
 ) {
+    settle_replaced_active_hold(state, column, note_index, start_time_ns);
     if let Some(hold) = state.notes[note_index].hold.as_mut() {
         hold.life = MAX_HOLD_LIFE;
         hold.let_go_started_at = None;
@@ -209,6 +209,25 @@ pub(super) fn start_active_hold(
         life: MAX_HOLD_LIFE,
         last_update_time_ns: current_time_ns,
     });
+}
+
+#[inline(always)]
+fn settle_replaced_active_hold(
+    state: &mut State,
+    column: usize,
+    next_note_index: usize,
+    next_start_time_ns: SongTimeNs,
+) {
+    let Some(active) = state.active_holds[column].as_ref() else {
+        return;
+    };
+    if active.note_index == next_note_index || active.end_time_ns > next_start_time_ns {
+        return;
+    }
+    // A fast same-column hold jack can hit the next head early while the
+    // previous hold is still alive. ITG stores hold state per TapNote; settle
+    // the previous non-overlapping hold before replacing this column slot.
+    integrate_active_hold_to_time(state, column, active.end_time_ns);
 }
 
 #[inline(always)]
@@ -260,12 +279,11 @@ pub(super) fn integrate_active_hold_to_time(
                             body_to_ns.saturating_sub(body_from_ns),
                             music_rate,
                         );
-                        let progress_time_ns = match advance.zero_elapsed_music_ns {
-                            Some(zero_elapsed_music_ns) => {
-                                body_from_ns.saturating_add(zero_elapsed_music_ns)
-                            }
-                            None => body_to_ns,
-                        };
+                        // ITG updates iLastHeldRow before subtracting hold life
+                        // for the frame. If this interval drains life to zero,
+                        // keep the visual last-held row at the frame target
+                        // while still resolving the LetGo at the exact crossing.
+                        let progress_time_ns = body_to_ns;
                         let progress_time = song_time_ns_to_seconds(progress_time_ns);
                         if progress_time_ns > body_from_ns && progress_time.is_finite() {
                             let current_beat = timing.get_beat_for_time(progress_time);
@@ -371,7 +389,7 @@ pub(super) fn handle_hold_success(state: &mut State, column: usize, note_index: 
     if !scoring_blocked {
         apply_hold_success_combo_state(&mut state.players[player]);
     }
-    trigger_tap_explosion(state, column, JudgeGrade::Excellent);
+    trigger_hold_explosion(state, column);
     state.hold_judgments[column] = Some(HoldJudgmentRenderInfo {
         result: HoldResult::Held,
         started_at_screen_s: state.total_elapsed_in_screen,
@@ -388,6 +406,7 @@ pub(super) fn refresh_roll_life_on_step(
     };
     if !matches!(active.note_type, NoteType::Roll)
         || active.let_go
+        || active.life <= 0.0
         || song_time_ns_invalid(event_time_ns)
         || event_time_ns < active.start_time_ns
     {

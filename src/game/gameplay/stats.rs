@@ -36,7 +36,6 @@ pub(crate) struct PlayerTotals {
     pub(crate) holds: u32,
     pub(crate) rolls: u32,
     pub(crate) mines: u32,
-    pub(crate) jumps: u32,
     pub(crate) hands: u32,
 }
 
@@ -102,9 +101,6 @@ pub(crate) fn recompute_player_totals(notes: &[Note], note_range: (usize, usize)
         }
         let notes_on_row = row_mask.count_ones();
         let carried_holds = hold_start_ix.saturating_sub(hold_end_ix) as u32;
-        if notes_on_row >= 2 {
-            totals.jumps = totals.jumps.saturating_add(1);
-        }
         if notes_on_row + carried_holds >= 3 {
             totals.hands = totals.hands.saturating_add(1);
         }
@@ -265,6 +261,19 @@ pub(crate) fn compute_possible_grade_points(
         + (u64::from(holds_total) * judgment::HOLD_SCORE_HELD as u64)
         + (u64::from(rolls_total) * judgment::HOLD_SCORE_HELD as u64);
     pts as i32
+}
+
+#[inline(always)]
+pub(crate) fn max_grade_points(
+    notes: &[Note],
+    note_range: (usize, usize),
+    holds_total: u32,
+    rolls_total: u32,
+    base_points: i32,
+) -> i32 {
+    // ITGmania scores note-changing mods against max(pre, post): inserted notes
+    // count, and removed notes still count as misses.
+    compute_possible_grade_points(notes, note_range, holds_total, rolls_total).max(base_points)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -466,6 +475,7 @@ pub fn course_display_carry_from_state(state: &State) -> [CourseDisplayCarry; MA
             .course_display_carry
             .as_ref()
             .map_or(CourseDisplayCarry::default(), |old| old[player]);
+        let life = p.life.clamp(0.0, 1.0);
         let mut judgment_counts = [0u32; 6];
         let mut scoring_counts = [0u32; 6];
         for grade in DISPLAY_JUDGE_ORDER {
@@ -478,6 +488,16 @@ pub fn course_display_carry_from_state(state: &State) -> [CourseDisplayCarry; MA
         let stage_window_counts = state.live_window_counts[player];
         let stage_window_counts_10ms = state.live_window_counts_10ms_blue[player];
         let stage_window_counts_display_blue = state.live_window_counts_display_blue[player];
+        let first_fc_attempt_broken = previous.first_fc_attempt_broken || p.first_fc_attempt_broken;
+        let full_combo_grade = if first_fc_attempt_broken {
+            None
+        } else {
+            match (previous.full_combo_grade, p.full_combo_grade) {
+                (Some(prev), Some(current)) => Some(prev.max(current)),
+                (Some(prev), None) => Some(prev),
+                (None, current) => current,
+            }
+        };
         let window_counts = crate::game::timing::WindowCounts {
             w0: previous
                 .window_counts
@@ -569,11 +589,23 @@ pub fn course_display_carry_from_state(state: &State) -> [CourseDisplayCarry; MA
                 .saturating_add(stage_window_counts_display_blue.miss),
         };
         carry[player] = CourseDisplayCarry {
+            life,
             judgment_counts,
             scoring_counts,
+            full_combo_grade,
+            current_combo_grade: p.current_combo_grade,
+            current_combo_window_counts: if p.combo > 0 {
+                p.current_combo_window_counts
+            } else {
+                crate::game::timing::WindowCounts::default()
+            },
+            first_fc_attempt_broken,
             window_counts,
             window_counts_10ms_blue,
             window_counts_display_blue,
+            holds_held: previous.holds_held.saturating_add(p.holds_held),
+            rolls_held: previous.rolls_held.saturating_add(p.rolls_held),
+            mines_avoided: previous.mines_avoided.saturating_add(p.mines_avoided),
             holds_held_for_score: previous
                 .holds_held_for_score
                 .saturating_add(p.holds_held_for_score),

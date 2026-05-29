@@ -1,3 +1,4 @@
+pub mod arrowcloud_login;
 pub mod components;
 pub mod credits;
 pub mod evaluation;
@@ -5,6 +6,7 @@ pub mod evaluation_summary;
 pub(crate) mod favorite_code;
 pub mod gameover;
 pub mod gameplay;
+pub mod groovestats_login;
 pub mod init;
 pub mod initials;
 pub mod input;
@@ -14,6 +16,7 @@ pub mod menu;
 pub mod options;
 pub(crate) mod pack_sync;
 pub mod player_options;
+pub mod practice;
 pub mod profile_load;
 pub mod sandbox;
 pub mod select_color;
@@ -22,6 +25,7 @@ pub mod select_mode;
 pub mod select_music;
 pub mod select_profile;
 pub mod select_style;
+pub mod test_lights;
 use std::path::PathBuf;
 
 use crate::config::DisplayMode;
@@ -52,6 +56,8 @@ pub struct SongOffsetSyncChange {
 #[derive(Debug, Clone)]
 pub enum ScreenAction {
     None,
+    /// Consume the current input edge without scheduling app-level work.
+    ConsumeInput,
     Navigate(Screen),
     /// Navigate immediately without running the current screen's out-transition.
     /// This is used for cases where the current screen already rendered its own
@@ -62,9 +68,23 @@ pub enum ScreenAction {
         p1: ActiveProfile,
         p2: ActiveProfile,
     },
+    /// Open the ArrowCloud QR-login screen scoped to a specific profile
+    /// (rather than P1/P2 session sides).  Dispatched from
+    /// Manage Local Profiles → per-profile menu → Link ArrowCloud.
+    LinkArrowCloud {
+        profile_id: String,
+        display_name: String,
+    },
+    /// GrooveStats counterpart of `LinkArrowCloud`.
+    LinkGrooveStats {
+        profile_id: String,
+        display_name: String,
+    },
     RequestScreenshot(Option<PlayerSide>),
     RequestBanner(Option<PathBuf>),
     RequestCdTitle(Option<PathBuf>),
+    RequestPackBanner(Option<PathBuf>),
+    RequestWheelItemBackgrounds(Vec<PathBuf>),
     RequestDensityGraph {
         slot: DensityGraphSlot,
         chart_opt: Option<DensityGraphSource>,
@@ -77,6 +97,7 @@ pub enum ScreenAction {
         changes: Vec<SongOffsetSyncChange>,
     },
     FetchOnlineGrade(String),
+    WriteFsrDump,
     ChangeGraphics {
         renderer: Option<BackendType>,
         display_mode: Option<DisplayMode>,
@@ -85,14 +106,20 @@ pub enum ScreenAction {
         vsync: Option<bool>,
         present_mode_policy: Option<PresentModePolicy>,
         max_fps: Option<u16>,
+        high_dpi: Option<bool>,
     },
     UpdateShowOverlay(u8),
+    UpdateMouseCursorHidden(bool),
+    TestLightsSetAuto,
+    TestLightsStepCabinet(i8),
+    TestLightsStepButton(i8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Menu,
     Gameplay,
+    Practice,
     Options,
     Credits,
     ManageLocalProfiles,
@@ -102,6 +129,8 @@ pub enum Screen {
     Mappings,
     Input,
     SelectProfile,
+    GrooveStatsLogin,
+    ArrowCloudLogin,
     SelectColor,
     SelectStyle,
     SelectPlayMode,
@@ -112,6 +141,7 @@ pub enum Screen {
     Evaluation,
     EvaluationSummary,
     PlayerOptions,
+    TestLights,
 }
 
 impl Screen {
@@ -120,6 +150,7 @@ impl Screen {
         match self {
             Self::Menu => "ScreenTitleMenu",
             Self::Gameplay => "ScreenGameplay",
+            Self::Practice => "ScreenPractice",
             Self::Options => "ScreenOptionsService",
             Self::Credits => "ScreenCredits",
             Self::ManageLocalProfiles => "ScreenOptionsManageProfiles",
@@ -129,6 +160,8 @@ impl Screen {
             Self::Mappings => "ScreenMapControllers",
             Self::Input => "ScreenTestInput",
             Self::SelectProfile => "ScreenSelectProfile",
+            Self::GrooveStatsLogin => "ScreenGrooveStatsLogin",
+            Self::ArrowCloudLogin => "ScreenArrowCloudLogin",
             Self::SelectColor => "ScreenSelectColor",
             Self::SelectStyle => "ScreenSelectStyle",
             Self::SelectPlayMode => "ScreenSelectPlayMode",
@@ -139,6 +172,7 @@ impl Screen {
             Self::Evaluation => "ScreenEvaluationStage",
             Self::EvaluationSummary => "ScreenEvaluationSummary",
             Self::PlayerOptions => "ScreenPlayerOptions",
+            Self::TestLights => "ScreenTestLights",
         }
     }
 }
@@ -153,6 +187,10 @@ mod tests {
         assert_eq!(
             Screen::Options.current_screen_file_name(),
             "ScreenOptionsService"
+        );
+        assert_eq!(
+            Screen::Practice.current_screen_file_name(),
+            "ScreenPractice"
         );
         assert_eq!(
             Screen::ManageLocalProfiles.current_screen_file_name(),
@@ -170,6 +208,10 @@ mod tests {
         assert_eq!(
             Screen::PlayerOptions.current_screen_file_name(),
             "ScreenPlayerOptions"
+        );
+        assert_eq!(
+            Screen::TestLights.current_screen_file_name(),
+            "ScreenTestLights"
         );
     }
 }

@@ -1,16 +1,17 @@
 use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::i18n::tr;
+use crate::assets::{FontRole, current_machine_font_key};
 use crate::engine::audio;
 use crate::engine::input::{InputEvent, VirtualAction};
 use crate::engine::present::actors::{Actor, SizeSpec};
-use crate::engine::present::cache::{TextCache, cached_text};
+use crate::engine::present::cache::{SharedStrCache, cached_shared_str};
 use crate::engine::present::color;
-use crate::engine::space::{screen_center_x, screen_center_y, screen_height, screen_width};
+use crate::engine::space::{screen_center_x, screen_center_y, screen_height};
 use crate::game::profile;
 use crate::game::scores;
 use crate::game::stage_stats;
-use crate::screens::components::shared::heart_bg;
+use crate::screens::components::shared::{transitions, visual_style_bg};
 use crate::screens::{Screen, ScreenAction};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -69,7 +70,7 @@ static POSSIBLE_CHAR_TEXT: LazyLock<[Arc<str>; POSSIBLE_CHARS.len()]> =
     LazyLock::new(|| POSSIBLE_CHARS.map(Arc::<str>::from));
 
 thread_local! {
-    static STR_REF_CACHE: RefCell<TextCache<(usize, usize)>> =
+    static STR_REF_CACHE: RefCell<SharedStrCache> =
         RefCell::new(HashMap::with_capacity(64));
 }
 
@@ -130,7 +131,7 @@ struct StageHighScores {
 
 pub struct State {
     pub active_color_index: i32,
-    bg: heart_bg::State,
+    bg: visual_style_bg::State,
     elapsed: f32,
     finish_hold_elapsed: Option<f32>,
     players: [PlayerEntry; 2],
@@ -316,8 +317,7 @@ fn month_abbr(index: usize) -> std::sync::Arc<str> {
 
 #[inline(always)]
 fn cached_str_ref(text: &str) -> Arc<str> {
-    let key = (text.as_ptr() as usize, text.len());
-    cached_text(&STR_REF_CACHE, key, TEXT_CACHE_LIMIT, || text.to_owned())
+    cached_shared_str(&STR_REF_CACHE, text, TEXT_CACHE_LIMIT)
 }
 
 fn format_highscore_date(date: &str) -> String {
@@ -594,7 +594,7 @@ fn update_hold_scroll(p: &mut PlayerEntry) {
 pub fn init() -> State {
     State {
         active_color_index: color::DEFAULT_COLOR_INDEX, // overwritten by app
-        bg: heart_bg::State::new(),
+        bg: visual_style_bg::State::new(),
         elapsed: 0.0,
         finish_hold_elapsed: None,
         players: [
@@ -941,7 +941,7 @@ fn build_wheel(
         };
 
         let mut actor = act!(text:
-            font("wendy_white"):
+            font(current_machine_font_key(FontRole::Headline)):
             settext(content):
             align(0.5, 0.5):
             xy(x, 0.0):
@@ -1112,7 +1112,7 @@ fn build_player_frame(side: profile::PlayerSide, state: &State) -> Actor {
     if p.can_enter {
         // PlayerName text (stays visible even after finishing input).
         children.push(act!(text:
-            font("wendy_white"):
+            font(current_machine_font_key(FontRole::Headline)):
             settext(p.name.clone()):
             align(0.0, 0.5):
             xy(PLAYERNAME_X, 0.0):
@@ -1175,7 +1175,7 @@ pub fn get_actors(
     let mut actors: Vec<Actor> = Vec::with_capacity(64);
 
     // Background
-    actors.extend(state.bg.build(heart_bg::Params {
+    actors.extend(state.bg.build(visual_style_bg::Params {
         active_color_index: state.active_color_index,
         backdrop_rgba: [0.0, 0.0, 0.0, 1.0],
         alpha_mul: 1.0,
@@ -1204,22 +1204,9 @@ pub fn get_actors(
 }
 
 pub fn in_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 1.0): z(1100):
-        linear(TRANSITION_IN_DURATION): alpha(0.0):
-        linear(0.0): visible(false)
-    );
-    (vec![actor], TRANSITION_IN_DURATION)
+    transitions::fade_in_black(TRANSITION_IN_DURATION, 1100)
 }
 
 pub fn out_transition() -> (Vec<Actor>, f32) {
-    let actor = act!(quad:
-        align(0.0, 0.0): xy(0.0, 0.0):
-        zoomto(screen_width(), screen_height()):
-        diffuse(0.0, 0.0, 0.0, 0.0): z(1100):
-        linear(TRANSITION_OUT_DURATION): alpha(1.0)
-    );
-    (vec![actor], TRANSITION_OUT_DURATION)
+    transitions::fade_out_black(TRANSITION_OUT_DURATION, 1100)
 }

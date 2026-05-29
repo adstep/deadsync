@@ -43,6 +43,11 @@ fn push_saved_options(
         "AutoPopulateGrooveStatsScores",
         cfg.auto_populate_gs_scores,
     );
+    push_bool(
+        content,
+        "UpdaterInstallEnabled",
+        cfg.updater_install_enabled,
+    );
     push_line(content, "BGBrightness", cfg.bg_brightness.clamp(0.0, 1.0));
     push_bool(content, "BannerCache", cfg.banner_cache);
     push_bool(content, "CacheSongs", cfg.cachesongs);
@@ -138,16 +143,23 @@ fn push_saved_options(
         "SubmitArrowCloudFails",
         cfg.submit_arrowcloud_fails,
     );
-    push_bool(
+    push_line(
         content,
-        "SubmitGrooveStatsFails",
-        cfg.submit_groovestats_fails,
+        "ArrowCloudQrLoginWhen",
+        cfg.arrowcloud_qr_login_when.as_str(),
+    );
+    push_line(
+        content,
+        "GrooveStatsQrLoginWhen",
+        cfg.groovestats_qr_login_when.as_str(),
     );
     push_bool(content, "FastLoad", cfg.fastload);
     push_line(content, "FullscreenType", cfg.fullscreen_type.as_str());
     push_line(content, "Game", cfg.game_flag.as_str());
     push_line(content, "GamepadBackend", cfg.windows_gamepad_backend);
     push_bool(content, "GfxDebug", cfg.gfx_debug);
+    push_bool(content, "HighDPI", cfg.high_dpi);
+    push_bool(content, "HideMouseCursor", cfg.hide_mouse_cursor);
     push_line(content, "GlobalOffsetSeconds", cfg.global_offset_seconds);
     push_line(content, "Language", cfg.language_flag.as_str());
     push_line(content, "LogLevel", cfg.log_level.as_str());
@@ -162,6 +174,7 @@ fn push_saved_options(
     push_line(content, "VisualDelaySeconds", cfg.visual_delay_seconds);
     push_line(content, "MasterVolume", cfg.master_volume);
     push_bool(content, "MenuMusic", cfg.menu_music);
+    push_bool(content, "CustomSoundsEnabled", cfg.custom_sounds_enabled);
     push_bool(content, "MineHitSound", cfg.mine_hit_sound);
     push_line(content, "MusicVolume", cfg.music_volume);
     push_line(
@@ -174,6 +187,7 @@ fn push_saved_options(
         "RateModPreservesPitch",
         cfg.rate_mod_preserves_pitch,
     );
+    push_bool(content, "ReplayGain", cfg.enable_replaygain);
     push_line(
         content,
         "SelectMusicBreakdown",
@@ -184,6 +198,12 @@ fn push_saved_options(
         "SelectMusicShowBanners",
         cfg.show_select_music_banners,
     );
+    push_bool(content, "ShowVersionOverlay", cfg.show_version_overlay);
+    push_line(
+        content,
+        "VersionOverlaySide",
+        cfg.version_overlay_side.as_str(),
+    );
     push_bool(
         content,
         "SelectMusicShowVideoBanners",
@@ -193,6 +213,11 @@ fn push_saved_options(
         content,
         "SelectMusicShowBreakdown",
         cfg.show_select_music_breakdown,
+    );
+    push_bool(
+        content,
+        "SelectMusicShowStageDisplay",
+        cfg.show_select_music_stage_display,
     );
     push_bool(
         content,
@@ -207,6 +232,11 @@ fn push_saved_options(
     push_bool(content, "SelectMusicWheelLamps", cfg.show_music_wheel_lamps);
     push_line(
         content,
+        "SelectMusicWheelITLRank",
+        cfg.select_music_itl_rank_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicWheelITL",
         cfg.select_music_itl_wheel_mode.as_str(),
     );
@@ -217,8 +247,18 @@ fn push_saved_options(
     );
     push_line(
         content,
+        "SongSelectBG",
+        cfg.select_music_song_select_bg_mode.as_str(),
+    );
+    push_line(
+        content,
         "SelectMusicNewPackMode",
         cfg.select_music_new_pack_mode.as_str(),
+    );
+    push_bool(
+        content,
+        "SelectMusicFolderStats",
+        cfg.show_select_music_folder_stats,
     );
     push_bool(
         content,
@@ -239,6 +279,11 @@ fn push_saved_options(
         content,
         "SelectMusicPatternInfo",
         cfg.select_music_pattern_info_mode.as_str(),
+    );
+    push_line(
+        content,
+        "SelectMusicStepArtistBox",
+        cfg.select_music_step_artist_box_mode.as_str(),
     );
     push_bool(
         content,
@@ -277,6 +322,11 @@ fn push_saved_options(
     );
     push_bool(
         content,
+        "SelectMusicChartInfoEffectiveBpm",
+        cfg.select_music_chart_info_effective_bpm,
+    );
+    push_bool(
+        content,
         "SelectMusicChartInfoMatrixRating",
         cfg.select_music_chart_info_matrix_rating,
     );
@@ -293,6 +343,11 @@ fn push_saved_options(
     push_bool(content, "ShowStats", cfg.show_stats_mode != 0);
     push_line(content, "ShowStatsMode", cfg.show_stats_mode.min(3));
     push_bool(content, "SmoothHistogram", cfg.smooth_histogram);
+    push_bool(
+        content,
+        "ShadeScatterplotJudgments",
+        cfg.shade_scatterplot_judgments,
+    );
     push_line(
         content,
         "InputDebounceTime",
@@ -303,7 +358,16 @@ fn push_saved_options(
         "ArcadeOptionsNavigation",
         cfg.arcade_options_navigation,
     );
+    push_bool(content, "DelayedBack", cfg.delayed_back);
     push_bool(content, "ThreeKeyNavigation", cfg.three_key_navigation);
+    push_bool(content, "UseFSRs", cfg.use_fsrs);
+    push_line(content, "LightsDriver", cfg.lights_driver.as_str());
+    push_line(
+        content,
+        "GameplayPadLights",
+        cfg.lights_gameplay_pad_lights.as_str(),
+    );
+    push_line(content, "LightsComPort", cfg.lights_com_port.as_str());
     push_bool(
         content,
         "OnlyDedicatedMenuButtons",
@@ -346,7 +410,13 @@ fn push_saved_keymaps(content: &mut String, keymap: &Keymap) {
 fn push_saved_theme(content: &mut String, cfg: &Config) {
     push_section(content, "[Theme]");
     push_bool(content, "KeyboardFeatures", cfg.keyboard_features);
+    push_line(content, "VisualStyle", cfg.visual_style.as_str());
     push_bool(content, "VideoBackgrounds", cfg.show_video_backgrounds);
+    push_line(
+        content,
+        "RandomBackgroundMode",
+        cfg.random_background_mode.as_str(),
+    );
     push_bool(
         content,
         "MachineShowEvalSummary",
@@ -385,6 +455,16 @@ fn push_saved_theme(content: &mut String, cfg: &Config) {
         "MachineAllowPerPlayerGlobalOffsets",
         cfg.machine_allow_per_player_global_offsets,
     );
+    push_bool(
+        content,
+        "MachinePackIniOffsets",
+        cfg.machine_pack_ini_offsets,
+    );
+    push_line(
+        content,
+        "MachineDefaultSyncOffset",
+        cfg.machine_default_sync_offset.as_str(),
+    );
     push_line(
         content,
         "MachinePreferredStyle",
@@ -395,6 +475,8 @@ fn push_saved_theme(content: &mut String, cfg: &Config) {
         "MachinePreferredPlayMode",
         cfg.machine_preferred_play_mode.as_str(),
     );
+    push_line(content, "MachineFont", cfg.machine_font.as_str());
+    push_line(content, "MachineBarColor", cfg.machine_bar_color.as_str());
     push_bool(
         content,
         "ShowSelectMusicGameplayTimer",

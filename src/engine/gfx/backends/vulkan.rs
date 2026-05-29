@@ -1,12 +1,9 @@
 use crate::engine::gfx::{
     BlendMode, ClockDomainTrace, DrawStats, FastU64Map, MeshVertex, PresentModePolicy,
     PresentModeTrace, PresentStats, RenderList, SamplerDesc, SamplerFilter, SamplerWrap,
-    TMeshCacheKey, Texture as RendererTexture, TextureHandleMap,
-    draw_prep::{
-        self, DrawOp, DrawScratch, SpriteInstanceRaw as InstanceData,
-        TexturedMeshInstanceRaw as TexturedMeshInstanceGpu, TexturedMeshSource,
-        TexturedMeshVertexRaw as TexturedMeshVertexGpu,
-    },
+    SpriteInstanceRaw as InstanceData, TMeshCacheKey, Texture as RendererTexture, TextureHandleMap,
+    TexturedMeshInstanceRaw as TexturedMeshInstanceGpu, TexturedMeshVertex,
+    draw_prep::{self, DrawOp, DrawScratch, TexturedMeshSource},
 };
 use crate::engine::space::ortho_for_window;
 use ash::{
@@ -32,6 +29,7 @@ const MAX_FRAMES_IN_FLIGHT: usize = 3;
 const DESCRIPTOR_POOL_SET_CAPACITY: u32 = 1024;
 const VULKAN_IMAGE_WAIT_THRESHOLD_US: u32 = 1_000;
 const VULKAN_BACK_PRESSURE_THRESHOLD_US: u32 = 1_000;
+const VULKAN_PRESENT_DISPLAY_TIMING_TELEMETRY: bool = false;
 const VULKAN_TMESH_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(windows)]
 static QPC_FREQ_HZ: std::sync::LazyLock<Option<u64>> = std::sync::LazyLock::new(qpc_freq_hz);
@@ -209,7 +207,7 @@ pub struct State {
     mesh_capacity_vertices: usize,         // total vertices across ring
     per_frame_stride_vertices: usize,      // vertices reserved per frame
     tmesh_ring: Option<BufferResource>,    // one big VB for all frames (textured mesh)
-    tmesh_ring_ptr: *mut TexturedMeshVertexGpu, // persistently mapped pointer
+    tmesh_ring_ptr: *mut TexturedMeshVertex, // persistently mapped pointer
     tmesh_capacity_vertices: usize,        // total textured mesh vertices across ring
     per_frame_stride_tmesh_vertices: usize, // textured mesh vertices reserved per frame
     tmesh_instance_ring: Option<BufferResource>, // one big instanced VB for textured meshes
@@ -364,7 +362,7 @@ pub fn init(
         tmesh_instance_ring_ptr: std::ptr::null_mut(),
         tmesh_capacity_instances: 0,
         per_frame_stride_tmesh_instances: 0,
-        prep: DrawScratch::with_capacity(256, 1024, 1024, 256, 64),
+        prep: DrawScratch::with_capacity(1024, 1024, 256, 64),
         cached_tmesh: FastU64Map::default(),
         cached_tmesh_bytes: 0,
         pending_tex_upload_cmd: None,
@@ -939,7 +937,7 @@ fn ensure_tmesh_ring_capacity(
     };
 
     let need_total_vertices = stride * MAX_FRAMES_IN_FLIGHT;
-    let bytes_per_vertex = std::mem::size_of::<TexturedMeshVertexGpu>() as vk::DeviceSize;
+    let bytes_per_vertex = std::mem::size_of::<TexturedMeshVertex>() as vk::DeviceSize;
     let need_bytes = (need_total_vertices as u64) * (bytes_per_vertex as u64);
 
     let dev = state.device.as_ref().unwrap();
@@ -974,7 +972,7 @@ fn ensure_tmesh_ring_capacity(
             buffer: buf,
             memory: mem,
         });
-        state.tmesh_ring_ptr = mapped.cast::<TexturedMeshVertexGpu>();
+        state.tmesh_ring_ptr = mapped.cast::<TexturedMeshVertex>();
         state.tmesh_capacity_vertices = need_total_vertices;
         state.per_frame_stride_tmesh_vertices = stride;
     } else if state.per_frame_stride_tmesh_vertices != stride {
@@ -1484,7 +1482,7 @@ pub fn draw(
             );
     }
 
-    let needed_instances = state.prep.sprite_instances.len();
+    let needed_instances = render_list.sprite_instances.len();
     let needed_mesh_vertices = state.prep.mesh_vertices.len();
     let needed_tmesh_vertices = state.prep.tmesh_vertices.len();
     let needed_tmesh_instances = state.prep.tmesh_instances.len();
@@ -1590,7 +1588,7 @@ pub fn draw(
         if needed_instances > 0 {
             debug_assert!(!inst_base_ptr.is_null(), "instance ring missing");
             std::ptr::copy_nonoverlapping(
-                state.prep.sprite_instances.as_ptr(),
+                render_list.sprite_instances.as_ptr(),
                 inst_base_ptr,
                 needed_instances,
             );
@@ -2028,13 +2026,10 @@ pub fn draw(
         if present_suboptimal {
             recreate_swapchain_and_dependents(state)?;
         }
-        if apply_present_back_pressure
-            && screenshot_staging.is_none()
-            && state.swapchain_resources.present_mode != vk::PresentModeKHR::MAILBOX
-        {
-            // MAILBOX already bounds the queue and drops stale frames, so an
-            // extra post-present fence wait mostly adds jitter instead of
-            // helping pacing.
+        if apply_present_back_pressure && screenshot_staging.is_none() {
+            // Match the wgpu Vulkan pacing path: when the app is running
+            // uncapped, wait for this frame's GPU work to retire so the CPU
+            // cannot build a long queue of stale Mailbox presents.
             let wait_started = Instant::now();
             device.wait_for_fences(&[fence], true, u64::MAX)?;
             let wait_us = elapsed_us_since(wait_started);
@@ -2043,7 +2038,7 @@ pub fn draw(
         }
         if let Some((staging, width, height, format)) = screenshot_staging {
             let wait_started = Instant::now();
-            device.queue_wait_idle(state.queue)?;
+            device.wait_for_fences(&[fence], true, u64::MAX)?;
             stats.gpu_wait_us = stats
                 .gpu_wait_us
                 .saturating_add(elapsed_us_since(wait_started));
@@ -2468,7 +2463,7 @@ fn create_texture_descriptor_sets(
 #[inline(always)]
 fn vertex_input_descriptions_textured_instanced() -> (
     [vk::VertexInputBindingDescription; 2],
-    [vk::VertexInputAttributeDescription; 11],
+    [vk::VertexInputAttributeDescription; 12],
 ) {
     // binding 0: unit quad [x,y,u,v]
     let b0 = vk::VertexInputBindingDescription::default()
@@ -2540,6 +2535,11 @@ fn vertex_input_descriptions_textured_instanced() -> (
         .location(10)
         .format(vk::Format::R32G32B32A32_SFLOAT)
         .offset(80);
+    let i_texture_mask = vk::VertexInputAttributeDescription::default()
+        .binding(1)
+        .location(11)
+        .format(vk::Format::R32_SFLOAT)
+        .offset(96);
 
     (
         [b0, b1],
@@ -2555,6 +2555,7 @@ fn vertex_input_descriptions_textured_instanced() -> (
             i_local_offset,
             i_local_offset_rot,
             i_fade,
+            i_texture_mask,
         ],
     )
 }
@@ -2586,11 +2587,11 @@ fn vertex_input_descriptions_mesh() -> (
 #[inline(always)]
 fn vertex_input_descriptions_tmesh() -> (
     [vk::VertexInputBindingDescription; 2],
-    [vk::VertexInputAttributeDescription; 12],
+    [vk::VertexInputAttributeDescription; 13],
 ) {
     let b0 = vk::VertexInputBindingDescription::default()
         .binding(0)
-        .stride(std::mem::size_of::<TexturedMeshVertexGpu>() as u32)
+        .stride(std::mem::size_of::<TexturedMeshVertex>() as u32)
         .input_rate(vk::VertexInputRate::VERTEX);
     let b1 = vk::VertexInputBindingDescription::default()
         .binding(1)
@@ -2657,6 +2658,11 @@ fn vertex_input_descriptions_tmesh() -> (
         .location(11)
         .format(vk::Format::R32G32_SFLOAT)
         .offset(96);
+    let a_texture_mask = vk::VertexInputAttributeDescription::default()
+        .binding(1)
+        .location(12)
+        .format(vk::Format::R32_SFLOAT)
+        .offset(104);
 
     (
         [b0, b1],
@@ -2673,6 +2679,7 @@ fn vertex_input_descriptions_tmesh() -> (
             a_uv_scale,
             a_uv_offset,
             a_uv_tex_shift,
+            a_texture_mask,
         ],
     )
 }
@@ -2863,7 +2870,7 @@ fn ensure_cached_tmesh(
         return Ok(entry.vertex_count == vertices.len() as u32);
     }
 
-    let bytes = vertices.len() * std::mem::size_of::<TexturedMeshVertexGpu>();
+    let bytes = vertices.len() * std::mem::size_of::<TexturedMeshVertex>();
     if bytes > VULKAN_TMESH_CACHE_MAX_BYTES
         || cached_tmesh_bytes.saturating_add(bytes) > VULKAN_TMESH_CACHE_MAX_BYTES
     {
@@ -2884,18 +2891,8 @@ fn ensure_cached_tmesh(
     // mapped range is fully written with initialized vertex data before unmapping.
     unsafe {
         let mapped = device.map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?;
-        let dst = mapped.cast::<TexturedMeshVertexGpu>();
-        for (ix, vertex) in vertices.iter().enumerate() {
-            std::ptr::write(
-                dst.add(ix),
-                TexturedMeshVertexGpu {
-                    pos: vertex.pos,
-                    uv: vertex.uv,
-                    color: vertex.color,
-                    tex_matrix_scale: vertex.tex_matrix_scale,
-                },
-            );
-        }
+        let dst = mapped.cast::<TexturedMeshVertex>();
+        std::ptr::copy_nonoverlapping(vertices.as_ptr(), dst, vertices.len());
         device.unmap_memory(memory);
     }
 
@@ -3308,6 +3305,10 @@ fn init_present_telemetry(
     exts: DeviceExts,
 ) -> PresentTelemetryState {
     let mut telemetry = PresentTelemetryState::default();
+    if !VULKAN_PRESENT_DISPLAY_TIMING_TELEMETRY {
+        info!("Vulkan present telemetry: CPU-only (display timing disabled)");
+        return telemetry;
+    }
     if !exts.display_timing {
         info!("Vulkan present telemetry: CPU-only (VK_GOOGLE_display_timing unavailable)");
         return telemetry;
@@ -3500,9 +3501,11 @@ fn poll_past_presentation_timing(state: &mut State) {
     let host_minus_display_ns = state.present_telemetry.host_minus_display_ns;
     let timings = &mut state.present_telemetry.scratch_timings;
     timings.clear();
-    if timings.capacity() < count as usize {
-        timings.reserve(count as usize - timings.capacity());
+    let count_us = count as usize;
+    if timings.capacity() < count_us {
+        timings.reserve(count_us - timings.len());
     }
+    debug_assert!(timings.capacity() >= count_us);
     // SAFETY: `timings` has capacity for `count` elements and Vulkan writes at most that many
     // initialized records into the buffer before returning.
     let second = unsafe {
@@ -3654,12 +3657,12 @@ fn create_logical_device(
     let queue_create_info = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family_index)
         .queue_priorities(&queue_priorities);
-    let mut device_extensions = Vec::with_capacity(2);
+    let mut device_extensions = Vec::with_capacity(3);
     device_extensions.push(swapchain::NAME.as_ptr());
-    if device_exts.display_timing {
+    if VULKAN_PRESENT_DISPLAY_TIMING_TELEMETRY && device_exts.display_timing {
         device_extensions.push(display_timing::NAME.as_ptr());
     }
-    if device_exts.calibrated_timestamps {
+    if VULKAN_PRESENT_DISPLAY_TIMING_TELEMETRY && device_exts.calibrated_timestamps {
         device_extensions.push(calibrated_timestamps::NAME.as_ptr());
     }
     let features = vk::PhysicalDeviceFeatures::default();

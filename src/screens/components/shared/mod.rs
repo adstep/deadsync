@@ -1,7 +1,6 @@
 pub mod banner;
 pub mod gamepad_overlay;
 pub mod gs_scorebox;
-pub mod heart_bg;
 pub mod loading_bar;
 pub mod lobby_hud;
 pub mod mode_pads;
@@ -11,5 +10,10 @@ pub mod profile_boxes;
 pub mod qr_code;
 pub mod screen_bar;
 pub mod stats_overlay;
+mod technique_bg;
 pub mod test_input;
 pub mod timers;
+pub mod transitions;
+pub mod update_overlay;
+pub mod version_overlay;
+pub mod visual_style_bg;

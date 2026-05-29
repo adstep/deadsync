@@ -9,16 +9,22 @@ pub mod pane_percentage;
 pub mod pane_qr;
 pub mod pane_stats;
 pub mod pane_timing;
+pub mod pane_timing_arrows;
 mod utils;
+
+pub(crate) use utils::pane_origin_x as test_input_pane_origin_x;
 
 pub use event_progress::build_itl_event_overlay;
 pub use event_progress::build_itl_progress_box;
 pub use pane_column::build_column_judgments_pane;
 pub use pane_gs_records::build_arrowcloud_records_pane;
+pub use pane_gs_records::build_gs_ex_records_pane;
 pub use pane_gs_records::build_gs_records_pane;
+pub use pane_gs_records::build_itl_records_pane;
 pub use pane_machine_records::build_machine_records_pane;
 pub use pane_modifiers::build_modifiers_pane;
 pub(crate) use pane_percentage::build_pane_percentage_display;
 pub use pane_qr::build_gs_qr_pane;
 pub(crate) use pane_stats::build_stats_pane;
 pub use pane_timing::build_timing_pane;
+pub use pane_timing_arrows::build_timing_arrows_pane;

@@ -263,7 +263,14 @@ pub struct ScrollSegment {
     pub ratio: f32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy)]
+pub struct TimeSignatureSegment {
+    pub beat: f32,
+    pub numerator: i32,
+    pub denominator: i32,
+}
+
+#[derive(Debug, Clone)]
 pub struct TimingSegments {
     pub beat0_offset_adjust: f32,
     pub bpms: Vec<(f32, f32)>,
@@ -273,6 +280,35 @@ pub struct TimingSegments {
     pub speeds: Vec<SpeedSegment>,
     pub scrolls: Vec<ScrollSegment>,
     pub fakes: Vec<FakeSegment>,
+    pub time_signatures: Vec<TimeSignatureSegment>,
+}
+
+impl Default for TimingSegments {
+    fn default() -> Self {
+        Self {
+            beat0_offset_adjust: 0.0,
+            bpms: Vec::new(),
+            stops: Vec::new(),
+            delays: Vec::new(),
+            warps: Vec::new(),
+            speeds: Vec::new(),
+            scrolls: Vec::new(),
+            fakes: Vec::new(),
+            time_signatures: default_time_signatures(),
+        }
+    }
+}
+
+pub fn default_time_signature() -> TimeSignatureSegment {
+    TimeSignatureSegment {
+        beat: 0.0,
+        numerator: 4,
+        denominator: 4,
+    }
+}
+
+pub fn default_time_signatures() -> Vec<TimeSignatureSegment> {
+    vec![default_time_signature()]
 }
 
 impl From<&rssp_timing::TimingSegments> for TimingSegments {
@@ -335,6 +371,7 @@ impl From<&rssp_timing::TimingSegments> for TimingSegments {
                     length: *length,
                 })
                 .collect(),
+            time_signatures: default_time_signatures(),
         }
     }
 }
@@ -684,6 +721,12 @@ impl TimingData {
         };
 
         Some(idx)
+    }
+
+    #[inline(always)]
+    pub fn cutoff_row_for_note_row(&self, cutoff_note_row: i32) -> usize {
+        self.row_to_beat
+            .partition_point(|beat| beat_to_note_row(*beat) < cutoff_note_row)
     }
 
     pub fn get_beat_info_from_time(&self, target_time_sec: f32) -> BeatInfo {
@@ -1197,6 +1240,149 @@ pub struct TimingStats {
     pub max_abs_ms: f32,
 }
 
+const LIVE_TIMING_RECENT: usize = 64;
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct LiveTimingSnapshot {
+    pub recent: TimingStats,
+    pub all: TimingStats,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct LiveTimingStats {
+    all_sum_abs_ms: f32,
+    all_sum_ms: f32,
+    all_sum_sq_ms: f32,
+    all_max_abs_ms: f32,
+    all_count: u32,
+    recent_errors_ms: [f32; LIVE_TIMING_RECENT],
+    recent_next: usize,
+    recent_len: usize,
+    recent_sum_abs_ms: f32,
+    recent_sum_ms: f32,
+    recent_sum_sq_ms: f32,
+}
+
+impl Default for LiveTimingStats {
+    fn default() -> Self {
+        Self {
+            all_sum_abs_ms: 0.0,
+            all_sum_ms: 0.0,
+            all_sum_sq_ms: 0.0,
+            all_max_abs_ms: 0.0,
+            all_count: 0,
+            recent_errors_ms: [0.0; LIVE_TIMING_RECENT],
+            recent_next: 0,
+            recent_len: 0,
+            recent_sum_abs_ms: 0.0,
+            recent_sum_ms: 0.0,
+            recent_sum_sq_ms: 0.0,
+        }
+    }
+}
+
+#[inline(always)]
+fn stats_from_sums(
+    count: u32,
+    sum_ms: f32,
+    sum_abs_ms: f32,
+    sum_sq_ms: f32,
+    max_abs_ms: f32,
+) -> TimingStats {
+    if count == 0 {
+        return TimingStats::default();
+    }
+    let count_f = count as f32;
+    let mean_ms = sum_ms / count_f;
+    let mean_abs_ms = sum_abs_ms / count_f;
+    let variance = (sum_sq_ms / count_f - mean_ms * mean_ms).max(0.0);
+    TimingStats {
+        mean_abs_ms,
+        mean_ms,
+        stddev_ms: variance.sqrt(),
+        max_abs_ms,
+    }
+}
+
+pub fn timing_stats_from_offsets<I>(offsets_ms: I) -> TimingStats
+where
+    I: IntoIterator<Item = f32>,
+{
+    let mut count = 0u32;
+    let mut sum_ms = 0.0_f32;
+    let mut sum_abs_ms = 0.0_f32;
+    let mut sum_sq_ms = 0.0_f32;
+    let mut max_abs_ms = 0.0_f32;
+
+    for offset_ms in offsets_ms {
+        if !offset_ms.is_finite() {
+            continue;
+        }
+        let abs = offset_ms.abs();
+        count = count.saturating_add(1);
+        sum_ms += offset_ms;
+        sum_abs_ms += abs;
+        sum_sq_ms += offset_ms * offset_ms;
+        max_abs_ms = max_abs_ms.max(abs);
+    }
+
+    stats_from_sums(count, sum_ms, sum_abs_ms, sum_sq_ms, max_abs_ms)
+}
+
+#[inline(always)]
+pub fn record_live_timing_stats(stats: &mut LiveTimingStats, judgment: &Judgment) {
+    if judgment.grade == JudgeGrade::Miss {
+        return;
+    }
+
+    let e = judgment.time_error_ms;
+    let abs = e.abs();
+    let sq = e * e;
+    stats.all_sum_ms += e;
+    stats.all_sum_abs_ms += abs;
+    stats.all_sum_sq_ms += sq;
+    stats.all_max_abs_ms = stats.all_max_abs_ms.max(abs);
+    stats.all_count = stats.all_count.saturating_add(1);
+
+    if stats.recent_len == LIVE_TIMING_RECENT {
+        let old = stats.recent_errors_ms[stats.recent_next];
+        stats.recent_sum_ms -= old;
+        stats.recent_sum_abs_ms -= old.abs();
+        stats.recent_sum_sq_ms -= old * old;
+    } else {
+        stats.recent_len += 1;
+    }
+    stats.recent_errors_ms[stats.recent_next] = e;
+    stats.recent_sum_ms += e;
+    stats.recent_sum_abs_ms += abs;
+    stats.recent_sum_sq_ms += sq;
+    stats.recent_next = (stats.recent_next + 1) % LIVE_TIMING_RECENT;
+}
+
+#[inline(always)]
+pub fn live_timing_stats_snapshot(stats: &LiveTimingStats) -> LiveTimingSnapshot {
+    let mut recent_max_abs = 0.0_f32;
+    for e in stats.recent_errors_ms.iter().take(stats.recent_len) {
+        recent_max_abs = recent_max_abs.max(e.abs());
+    }
+    LiveTimingSnapshot {
+        recent: stats_from_sums(
+            stats.recent_len as u32,
+            stats.recent_sum_ms,
+            stats.recent_sum_abs_ms,
+            stats.recent_sum_sq_ms,
+            recent_max_abs,
+        ),
+        all: stats_from_sums(
+            stats.all_count,
+            stats.all_sum_ms,
+            stats.all_sum_abs_ms,
+            stats.all_sum_sq_ms,
+            stats.all_max_abs_ms,
+        ),
+    }
+}
+
 #[inline(always)]
 fn for_each_row_final_judgment<F>(notes: &[Note], mut f: F)
 where
@@ -1279,6 +1465,166 @@ pub fn compute_note_timing_stats(notes: &[Note]) -> TimingStats {
         mean_ms,
         stddev_ms,
         max_abs_ms: max_abs,
+    }
+}
+
+/// Per-column / per-foot breakdown of timing offsets, used by the
+/// per-arrow timing pane on the evaluation screen.
+///
+/// `per_column` has one entry per column on the player's pad (e.g. 4 for
+/// dance-single). `left_foot` / `right_foot` are computed using the same
+/// alternation heuristic as [`build_scatter_points`]: a step on the
+/// outermost-left column forces the left foot, a step on the
+/// outermost-right column forces the right foot, and anything else flips
+/// the foot from the previous row. Chord notes share the row's
+/// alternated foot.
+#[derive(Clone, Debug, Default)]
+pub struct ArrowTimingStats {
+    pub per_column: Vec<ArrowTimingBucket>,
+    pub left_foot: ArrowTimingBucket,
+    pub right_foot: ArrowTimingBucket,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ArrowTimingBucket {
+    pub count: u32,
+    pub stats: TimingStats,
+}
+
+#[derive(Copy, Clone, Default)]
+struct StatsAccum {
+    count: u32,
+    sum_ms: f32,
+    sum_abs_ms: f32,
+    sum_sq_diff_ms: f32,
+    max_abs_ms: f32,
+    mean_ms: f32, // running mean (Welford) for stable variance accumulation
+}
+
+impl StatsAccum {
+    #[inline(always)]
+    fn add(&mut self, e_ms: f32) {
+        self.count = self.count.saturating_add(1);
+        let n = self.count as f32;
+        self.sum_ms += e_ms;
+        self.sum_abs_ms += e_ms.abs();
+        let abs = e_ms.abs();
+        if abs > self.max_abs_ms {
+            self.max_abs_ms = abs;
+        }
+        // Welford's online variance: maintains numerical stability and lets
+        // us emit per-bucket stats without making a second pass over notes.
+        let delta = e_ms - self.mean_ms;
+        self.mean_ms += delta / n;
+        let delta2 = e_ms - self.mean_ms;
+        self.sum_sq_diff_ms += delta * delta2;
+    }
+
+    #[inline(always)]
+    fn finish(self) -> ArrowTimingBucket {
+        if self.count == 0 {
+            return ArrowTimingBucket::default();
+        }
+        let n = self.count as f32;
+        let mean_ms = self.sum_ms / n;
+        let mean_abs_ms = self.sum_abs_ms / n;
+        let variance = (self.sum_sq_diff_ms / n).max(0.0);
+        ArrowTimingBucket {
+            count: self.count,
+            stats: TimingStats {
+                mean_abs_ms,
+                mean_ms,
+                stddev_ms: variance.sqrt(),
+                max_abs_ms: self.max_abs_ms,
+            },
+        }
+    }
+}
+
+#[inline(always)]
+pub fn compute_arrow_timing_stats(
+    notes: &[Note],
+    col_offset: usize,
+    cols_per_player: usize,
+) -> ArrowTimingStats {
+    let mut per_column: Vec<StatsAccum> = vec![StatsAccum::default(); cols_per_player];
+    let mut left = StatsAccum::default();
+    let mut right = StatsAccum::default();
+
+    let mut foot_left = false;
+    let mut idx = 0usize;
+    let len = notes.len();
+    let mut row_judgments: Vec<&Judgment> = Vec::with_capacity(8);
+
+    while idx < len {
+        let row_index = notes[idx].row_index;
+        let row_start = idx;
+        row_judgments.clear();
+
+        // Direction code mirrors `build_scatter_points`: 1 = leftmost column,
+        // `cols_per_player` = rightmost column, anything else is a chord.
+        let mut direction_code: u32 = 0;
+        while idx < len && notes[idx].row_index == row_index {
+            let note = &notes[idx];
+            if !note.is_fake && note.can_be_judged && !matches!(note.note_type, NoteType::Mine) {
+                if let Some(j) = note.result.as_ref() {
+                    row_judgments.push(j);
+                }
+                if let Some(code) = local_direction_code(note, col_offset, cols_per_player) {
+                    direction_code = direction_code.saturating_add(code as u32);
+                }
+            }
+            idx += 1;
+        }
+
+        // Alternation must mirror `build_scatter_points` exactly, even for
+        // rows whose final judgment is a Miss, so foot assignments stay in
+        // sync with the per-arrow scatter plot.
+        let leftmost = 1u32;
+        let rightmost = cols_per_player as u32;
+        if direction_code == leftmost {
+            foot_left = true;
+        } else if direction_code == rightmost {
+            foot_left = false;
+        } else if direction_code > 0 {
+            foot_left = !foot_left;
+        }
+
+        let Some(j) = judgment::aggregate_row_final_judgment(row_judgments.iter().copied()) else {
+            continue;
+        };
+        if j.grade == JudgeGrade::Miss {
+            continue;
+        }
+
+        let e = j.time_error_ms;
+
+        // Per-column: each judgeable tap note in the row gets attributed
+        // to its own column, but they all share the row's aggregated
+        // offset, so chord arrows count once per arrow.
+        let foot_bucket = if foot_left { &mut left } else { &mut right };
+        for n in &notes[row_start..idx] {
+            if n.is_fake
+                || !n.can_be_judged
+                || matches!(n.note_type, NoteType::Mine)
+                || n.result.is_none()
+            {
+                continue;
+            }
+            if let Some(code) = local_direction_code(n, col_offset, cols_per_player) {
+                let col = (code as usize).saturating_sub(1);
+                if col < cols_per_player {
+                    per_column[col].add(e);
+                    foot_bucket.add(e);
+                }
+            }
+        }
+    }
+
+    ArrowTimingStats {
+        per_column: per_column.into_iter().map(StatsAccum::finish).collect(),
+        left_foot: left.finish(),
+        right_foot: right.finish(),
     }
 }
 
@@ -1559,6 +1905,46 @@ pub fn build_histogram_ms(notes: &[Note]) -> HistogramMs {
     }
 }
 
+pub fn merge_histograms_ms(histograms: &[HistogramMs]) -> HistogramMs {
+    let bin_count = histograms
+        .iter()
+        .flat_map(|hist| hist.bins.iter())
+        .fold(0usize, |sum, (_, count)| {
+            sum.saturating_add(*count as usize)
+        });
+    if bin_count == 0 {
+        return HistogramMs::default();
+    }
+
+    let mut seen_bins = Vec::with_capacity(bin_count);
+    let mut worst_observed_ms = 0.0_f32;
+    let mut worst_window_ms = 0.0_f32;
+    for hist in histograms {
+        worst_observed_ms = worst_observed_ms.max(hist.worst_observed_ms);
+        worst_window_ms = worst_window_ms.max(hist.worst_window_ms);
+        for &(bin, count) in &hist.bins {
+            for _ in 0..count {
+                seen_bins.push(bin);
+            }
+        }
+    }
+
+    let counts = pack_hist_counts(seen_bins);
+    let worst_window_ms = worst_window_ms
+        .max(worst_observed_ms)
+        .max(effective_windows_ms()[1]);
+    let worst_window_bin = (worst_window_ms / HIST_BIN_MS).round().max(1.0) as i32;
+    let smoothed = smooth_hist_counts(&counts, worst_window_bin);
+
+    HistogramMs {
+        bins: counts.bins,
+        smoothed,
+        max_count: counts.max_count,
+        worst_observed_ms,
+        worst_window_ms,
+    }
+}
+
 // ----------------------------- FA+ / Window Counts -----------------------------
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -1690,6 +2076,102 @@ mod tests {
         assert!((stats.mean_abs_ms - 10.0).abs() < 0.0001);
         assert!((stats.max_abs_ms - 10.0).abs() < 0.0001);
         assert!(stats.stddev_ms.abs() < 0.0001);
+    }
+
+    #[test]
+    fn arrow_timing_stats_bucket_per_column_and_skip_misses() {
+        let notes = vec![
+            test_note(10, 0, JudgeGrade::Fantastic, -4.0),
+            test_note(11, 1, JudgeGrade::Excellent, 8.0),
+            test_note(12, 2, JudgeGrade::Great, -2.0),
+            test_note(13, 3, JudgeGrade::Decent, 16.0),
+            // Miss should be excluded from per-column stats even though it
+            // still participates in the foot alternation.
+            test_note(14, 0, JudgeGrade::Miss, 0.0),
+            test_note(15, 0, JudgeGrade::Fantastic, 4.0),
+        ];
+
+        let stats = compute_arrow_timing_stats(&notes, 0, 4);
+        assert_eq!(stats.per_column.len(), 4);
+        assert_eq!(stats.per_column[0].count, 2);
+        assert!((stats.per_column[0].stats.mean_ms - 0.0).abs() < 0.0001);
+        assert!((stats.per_column[0].stats.mean_abs_ms - 4.0).abs() < 0.0001);
+        assert!((stats.per_column[0].stats.max_abs_ms - 4.0).abs() < 0.0001);
+        assert_eq!(stats.per_column[1].count, 1);
+        assert!((stats.per_column[1].stats.mean_ms - 8.0).abs() < 0.0001);
+        assert_eq!(stats.per_column[2].count, 1);
+        assert_eq!(stats.per_column[3].count, 1);
+    }
+
+    #[test]
+    fn arrow_timing_stats_attribute_chord_rows_to_alternated_foot() {
+        // Row 0: left column forces foot = left.
+        // Row 1: chord on up+down -> alternates -> right.
+        // Row 2: right column forces foot = right.
+        // Row 3: chord on down+up -> alternates -> left.
+        let notes = vec![
+            test_note(0, 0, JudgeGrade::Fantastic, 1.0),
+            test_note(1, 1, JudgeGrade::Fantastic, 2.0),
+            test_note(1, 2, JudgeGrade::Fantastic, 2.0),
+            test_note(2, 3, JudgeGrade::Fantastic, 3.0),
+            test_note(3, 1, JudgeGrade::Fantastic, 4.0),
+            test_note(3, 2, JudgeGrade::Fantastic, 4.0),
+        ];
+
+        let stats = compute_arrow_timing_stats(&notes, 0, 4);
+        // Left foot: row 0 (col 0) + chord row 3 contributes both arrows.
+        assert_eq!(stats.left_foot.count, 3);
+        // Right foot: chord row 1 (both arrows) + row 2 (col 3).
+        assert_eq!(stats.right_foot.count, 3);
+        // Total per-column count should equal left + right.
+        let per_col_total: u32 = stats.per_column.iter().map(|b| b.count).sum();
+        assert_eq!(
+            per_col_total,
+            stats.left_foot.count + stats.right_foot.count
+        );
+    }
+
+    #[test]
+    fn arrow_timing_stats_miss_still_flips_foot() {
+        // Miss on col 1 should still alternate the foot (matches scatter plot).
+        let notes = vec![
+            test_note(0, 0, JudgeGrade::Fantastic, 0.0), // forces left
+            test_note(1, 1, JudgeGrade::Miss, 0.0), // alternates -> right (excluded from stats)
+            test_note(2, 2, JudgeGrade::Fantastic, 5.0), // alternates -> left
+        ];
+
+        let stats = compute_arrow_timing_stats(&notes, 0, 4);
+        assert_eq!(stats.left_foot.count, 2);
+        assert_eq!(stats.right_foot.count, 0);
+    }
+
+    #[test]
+    fn live_timing_stats_keep_recent_64_and_all_samples() {
+        let mut stats = LiveTimingStats::default();
+        for i in 0..70 {
+            let note = test_note(i, 0, JudgeGrade::Fantastic, i as f32 - 35.0);
+            record_live_timing_stats(
+                &mut stats,
+                note.result
+                    .as_ref()
+                    .expect("test_note always creates a judgment result"),
+            );
+        }
+        let miss = test_note(71, 0, JudgeGrade::Miss, 180.0);
+        record_live_timing_stats(
+            &mut stats,
+            miss.result
+                .as_ref()
+                .expect("test_note always creates a judgment result"),
+        );
+
+        let snapshot = live_timing_stats_snapshot(&stats);
+        assert!((snapshot.all.mean_ms + 0.5).abs() < 0.0001);
+        assert!((snapshot.all.mean_abs_ms - 17.5).abs() < 0.0001);
+        assert!((snapshot.all.max_abs_ms - 35.0).abs() < 0.0001);
+        assert!((snapshot.recent.mean_ms - 2.5).abs() < 0.0001);
+        assert!((snapshot.recent.mean_abs_ms - 16.09375).abs() < 0.0001);
+        assert!((snapshot.recent.max_abs_ms - 34.0).abs() < 0.0001);
     }
 
     #[test]
