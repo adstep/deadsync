@@ -96,8 +96,8 @@ const SYNC_BEAT_RATE_MIN_ELAPSED_SECS: f32 = 0.5;
 const STEP_ARTIST_CYCLE_SECONDS: f32 = 2.0;
 
 // Marquee scroll tuning for overflowing Legacy step-artist values.
-// Speed is in rendered (post-zoom) px/sec; pause is the dwell at each end of a
-// ping-pong pass before the rotation advances to the next value.
+// Speed is in rendered (post-zoom) px/sec; pause is the dwell at the start and at
+// the revealed end before the rotation advances to the next value.
 const STEP_ARTIST_SCROLL_SPEED_PX_S: f32 = 40.0;
 const STEP_ARTIST_SCROLL_PAUSE_SECONDS: f32 = 0.75;
 // Legacy artist text uses maxwidth 124 at ARTIST_ZOOM; the visible window is the
@@ -10411,9 +10411,10 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
 
     // Marquee scroll orchestration for the Legacy step-artist box.
     // Measures each non-empty value's rendered width and, when one overflows the
-    // visible window, ping-pong scrolls it (pausing the rotation) instead of
-    // squishing it with maxwidth. When everything fits, selection is byte-identical
-    // to the classic floor(elapsed / cycle_seconds) % n rotation.
+    // visible window, scrolls it to reveal the end (pausing the rotation) instead
+    // of squishing it with maxwidth, then advances to the next value. When
+    // everything fits, selection is byte-identical to the classic
+    // floor(elapsed / cycle_seconds) % n rotation.
     let artist_scroll_cfg = scrolling_text::ScrollConfig {
         box_w: 124.0 * step_artist_bar::ARTIST_ZOOM,
         speed_px_s: STEP_ARTIST_SCROLL_SPEED_PX_S,

@@ -1,10 +1,11 @@
-//! Reusable, pure marquee/ping-pong scrolling math for long text fields.
+//! Reusable, pure scrolling math for long text fields that must fit a
+//! fixed-width window.
 //!
-//! UI text fields that must fit a fixed-width window (e.g. the SelectMusic
-//! "step artist box") can scroll overflowing text inside a clipped window
-//! (ping-pong: pause at the start, scroll to reveal the end, pause, scroll
-//! back) while leaving text that already fits untouched. This module provides
-//! the pure math that drives that behavior.
+//! UI text fields constrained to a fixed-width window (e.g. the SelectMusic
+//! "step artist box") can scroll overflowing text inside a clipped window: hold
+//! at the start, scroll left to reveal the end, hold there briefly, then advance
+//! to the next value. Text that already fits is left untouched. This module
+//! provides the pure math that drives that behavior.
 //!
 //! ## Units
 //! All widths are **rendered/screen-space** (already multiplied by the text
@@ -39,15 +40,16 @@ pub fn rendered_width(logical_w: i32, zoom: f32) -> f32 {
     quantize_up_even(logical_w) as f32 * zoom
 }
 
-/// Configuration for a ping-pong scrolling text field. All distances are in
+/// Configuration for a scrolling text field. All distances are in
 /// rendered/screen-space pixels; all durations are in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollConfig {
     /// Rendered width of the visible window (e.g. `maxwidth * zoom`).
     pub box_w: f32,
-    /// Scroll speed in rendered px/sec for the moving portion of a ping-pong.
+    /// Scroll speed in rendered px/sec while revealing the end of the text.
     pub speed_px_s: f32,
-    /// Dwell at each end of a ping-pong pass (start and the revealed end).
+    /// Dwell at the start (before scrolling) and at the revealed end (before
+    /// the rotation advances to the next value).
     pub pause_s: f32,
     /// Dwell for a value that already fits the window (the rotation period).
     pub fit_dwell_s: f32,
@@ -87,14 +89,14 @@ pub fn overflows(rendered_w: f32, cfg: &ScrollConfig) -> bool {
         && rendered_w > cfg.box_w + cfg.overflow_tol
 }
 
-/// Total time the active value is held: `fit_dwell_s` if it fits, else a full
-/// ping-pong (`pause + travel + pause + travel`). Always finite and > 0.
+/// Total time the active value is held: `fit_dwell_s` if it fits, else a single
+/// one-way pass (`pause + travel + pause`). Always finite and > 0.
 #[inline]
 fn value_dwell(rendered_w: f32, cfg: &ScrollConfig) -> f32 {
     if overflows(rendered_w, cfg) {
         let travel = ((rendered_w - cfg.box_w) / cfg.speed_px_s).max(0.0);
         let pause = cfg.pause_s.max(0.0);
-        let dwell = pause + travel + pause + travel;
+        let dwell = pause + travel + pause;
         if dwell.is_finite() && dwell > 0.0 {
             dwell
         } else {
@@ -139,9 +141,9 @@ pub fn select_active(widths: &[f32], cfg: &ScrollConfig, elapsed: f32) -> Option
 /// far into its dwell window we are (`local_phase` from [`select_active`]).
 ///
 /// Fitting values return `{ offset_x: 0.0, clipped: false }` (render unchanged).
-/// Overflowing values ping-pong: hold at the start, scroll left to reveal the
-/// end, hold, then scroll back. `offset_x` always stays within
-/// `[-(rendered_w - box_w), 0]`.
+/// Overflowing values make a single one-way pass: hold at the start, scroll left
+/// to reveal the end, then hold at the end until the rotation advances. `offset_x`
+/// always stays within `[-(rendered_w - box_w), 0]`.
 #[must_use]
 pub fn scroll_state(rendered_w: f32, cfg: &ScrollConfig, local_phase: f32) -> ScrollState {
     if !overflows(rendered_w, cfg) {
@@ -158,21 +160,15 @@ pub fn scroll_state(rendered_w: f32, cfg: &ScrollConfig, local_phase: f32) -> Sc
 
     let t0 = pause; // hold at start
     let t1 = t0 + travel; // scroll out: 0 -> -span
-    let t2 = t1 + pause; // hold at end
-    let t3 = t2 + travel; // scroll back: -span -> 0
 
     let offset = if p <= t0 {
         0.0
     } else if p <= t1 {
         let f = if travel > 0.0 { (p - t0) / travel } else { 1.0 };
         -span * f
-    } else if p <= t2 {
-        -span
-    } else if p <= t3 {
-        let f = if travel > 0.0 { (p - t2) / travel } else { 1.0 };
-        -span * (1.0 - f)
     } else {
-        0.0
+        // Hold at the revealed end until the value's dwell elapses.
+        -span
     };
 
     // Clamp against floating-point drift so we never overscroll the window.
@@ -271,29 +267,27 @@ mod tests {
     }
 
     #[test]
-    fn overflowing_value_pauses_rotation_for_full_pingpong() {
+    fn overflowing_value_pauses_rotation_for_full_pass() {
         let c = cfg();
         // Middle value overflows: span = 200-100 = 100, travel = 100/50 = 2s.
-        // dwell = 0.5 + 2 + 0.5 + 2 = 5s. Fitting neighbors dwell 2s each.
+        // dwell = 0.5 + 2 + 0.5 = 3s. Fitting neighbors dwell 2s each.
         let widths = [50.0, 200.0, 60.0];
-        let d_over = 5.0_f32;
 
-        // Timeline: [0,2) idx0, [2,7) idx1 (the long scroll), [7,9) idx2.
+        // Timeline: [0,2) idx0, [2,5) idx1 (the long scroll), [5,7) idx2.
         assert_eq!(select_active(&widths, &c, 0.5).unwrap().0, 0);
-        for &t in &[2.0_f32, 3.5, 5.0, 6.9] {
+        for &t in &[2.0_f32, 3.5, 4.9] {
             assert_eq!(select_active(&widths, &c, t).unwrap().0, 1, "t={t}");
         }
-        assert_eq!(select_active(&widths, &c, 7.5).unwrap().0, 2);
+        assert_eq!(select_active(&widths, &c, 5.5).unwrap().0, 2);
 
         // Local phase within the overflowing value is t - 2.0.
         let (idx, phase) = select_active(&widths, &c, 4.0).unwrap();
         assert_eq!(idx, 1);
         assert!((phase - 2.0).abs() < 1e-5);
-        let _ = d_over;
     }
 
     #[test]
-    fn scroll_state_pingpong_endpoints_and_midpoints() {
+    fn scroll_state_one_way_endpoints_and_midpoints() {
         let c = cfg();
         let w = 200.0; // span 100, travel 2s, pause 0.5s
         let span = 100.0_f32;
@@ -307,12 +301,8 @@ mod tests {
         assert!((mid.offset_x - (-span * 0.5)).abs() < 1e-4, "{}", mid.offset_x);
         // Fully revealed end (phase 2.5 = pause+travel).
         assert!((scroll_state(w, &c, 2.5).offset_x - (-span)).abs() < 1e-4);
-        // Hold at end.
+        // Hold at end through the trailing pause (phase 3.0 = full dwell).
         assert!((scroll_state(w, &c, 3.0).offset_x - (-span)).abs() < 1e-4);
-        // Mid scroll-back (phase 4.0 => 1.0s into return => halfway back).
-        assert!((scroll_state(w, &c, 4.0).offset_x - (-span * 0.5)).abs() < 1e-4);
-        // Back to start (phase 5.0 = full dwell: pause+travel+pause+travel).
-        assert!((scroll_state(w, &c, 5.0).offset_x - 0.0).abs() < 1e-4);
     }
 
     #[test]
