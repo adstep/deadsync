@@ -29,8 +29,8 @@ use crate::screens::components::{
         sync_analysis,
     },
     shared::{
-        banner as shared_banner, gs_scorebox, lobby_hud, mode_pads, profile_boxes, test_input,
-        timers, transitions, visual_style_bg,
+        banner as shared_banner, gs_scorebox, lobby_hud, mode_pads, profile_boxes, scrolling_text,
+        test_input, timers, transitions, visual_style_bg,
     },
 };
 use crate::screens::{
@@ -94,6 +94,15 @@ const SYNC_BEAT_RATE_MIN_ELAPSED_SECS: f32 = 0.5;
 // Simply Love BGAnimations/ScreenSelectMusic overlay/PerPlayer/StepArtist.lua
 // Cycles through AuthorCredit, Description, ChartName every 2 seconds.
 const STEP_ARTIST_CYCLE_SECONDS: f32 = 2.0;
+
+// Marquee scroll tuning for overflowing Legacy step-artist values.
+// Speed is in rendered (post-zoom) px/sec; pause is the dwell at each end of a
+// ping-pong pass before the rotation advances to the next value.
+const STEP_ARTIST_SCROLL_SPEED_PX_S: f32 = 40.0;
+const STEP_ARTIST_SCROLL_PAUSE_SECONDS: f32 = 0.75;
+// Legacy artist text uses maxwidth 124 at ARTIST_ZOOM; the visible window is the
+// rendered (post-zoom) width. Hysteresis avoids scroll jitter on "just barely fits".
+const STEP_ARTIST_OVERFLOW_TOL_PX: f32 = 1.0;
 
 // ITGmania metric: ScreenSelectMusic ShowOptionsMessageSeconds (fallback: 1.5).
 const SHOW_OPTIONS_MESSAGE_SECONDS: f32 = 1.5;
@@ -10400,6 +10409,57 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
 
     let cycle_elapsed = state.session_elapsed - state.step_artist_cycle_base;
 
+    // Marquee scroll orchestration for the Legacy step-artist box.
+    // Measures each non-empty value's rendered width and, when one overflows the
+    // visible window, ping-pong scrolls it (pausing the rotation) instead of
+    // squishing it with maxwidth. When everything fits, selection is byte-identical
+    // to the classic floor(elapsed / cycle_seconds) % n rotation.
+    let artist_scroll_cfg = scrolling_text::ScrollConfig {
+        box_w: 124.0 * step_artist_bar::ARTIST_ZOOM,
+        speed_px_s: STEP_ARTIST_SCROLL_SPEED_PX_S,
+        pause_s: STEP_ARTIST_SCROLL_PAUSE_SECONDS,
+        fit_dwell_s: STEP_ARTIST_CYCLE_SECONDS,
+        overflow_tol: STEP_ARTIST_OVERFLOW_TOL_PX,
+    };
+    let compute_artist = |chart: &ChartData| -> (Arc<str>, f32, Option<f32>) {
+        let (values, count) = step_artist_values(chart);
+        if count == 0 {
+            return (cached_str_ref(""), 0.0, None);
+        }
+        let widths: Option<Vec<f32>> = asset_manager
+            .with_fonts(|all_fonts| {
+                asset_manager.with_font("miso", |miso_font| {
+                    values[..count]
+                        .iter()
+                        .map(|v| {
+                            let logical =
+                                font::measure_line_width_logical(miso_font, v, all_fonts);
+                            scrolling_text::rendered_width(logical, step_artist_bar::ARTIST_ZOOM)
+                        })
+                        .collect::<Vec<f32>>()
+                })
+            });
+        match widths {
+            Some(widths) => {
+                match scrolling_text::select_active(&widths, &artist_scroll_cfg, cycle_elapsed) {
+                    Some((idx, phase)) => {
+                        let ss =
+                            scrolling_text::scroll_state(widths[idx], &artist_scroll_cfg, phase);
+                        let clip = ss.clipped.then_some(artist_scroll_cfg.box_w);
+                        (cached_str_ref(values[idx]), ss.offset_x, clip)
+                    }
+                    None => (cached_str_ref(""), 0.0, None),
+                }
+            }
+            // Fonts unavailable (e.g. headless): fall back to classic selection.
+            None => (
+                cached_str_ref(step_artist_cycle_text(chart, cycle_elapsed)),
+                0.0,
+                None,
+            ),
+        }
+    };
+
     let step_artist_expanded = cfg
         .select_music_step_artist_box_mode
         .is_expanded(cfg.theme_flag)
@@ -10409,23 +10469,24 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
     } else {
         step_artist_bar::StepArtistBarLayout::Legacy
     };
-    let (step_artist, step_artist_lines) = if step_artist_expanded {
-        immediate_chart_p1
-            .map(step_artist_expanded_text)
-            .unwrap_or_else(|| (cached_str_ref(""), 0))
-    } else {
-        (
-            cached_str_ref(
-                immediate_chart_p1.map_or("", |c| step_artist_cycle_text(c, cycle_elapsed)),
-            ),
-            0,
-        )
-    };
+    let (step_artist, step_artist_lines, step_artist_offset, step_artist_clip) =
+        if step_artist_expanded {
+            let (text, lines) = immediate_chart_p1
+                .map(step_artist_expanded_text)
+                .unwrap_or_else(|| (cached_str_ref(""), 0));
+            (text, lines, 0.0, None)
+        } else {
+            let (text, offset, clip) = immediate_chart_p1
+                .map(&compute_artist)
+                .unwrap_or_else(|| (cached_str_ref(""), 0.0, None));
+            (text, 0, offset, clip)
+        };
     let (steps, jumps, holds, mines, hands, rolls, meter) =
         chart_panel_stats(immediate_chart_p1, entry_opt);
 
-    let step_artist_p2 =
-        cached_str_ref(immediate_chart_p2.map_or("", |c| step_artist_cycle_text(c, cycle_elapsed)));
+    let (step_artist_p2, step_artist_p2_offset, step_artist_p2_clip) = immediate_chart_p2
+        .map(&compute_artist)
+        .unwrap_or_else(|| (cached_str_ref(""), 0.0, None));
 
     let (steps_p2, jumps_p2, holds_p2, mines_p2, hands_p2, rolls_p2, meter_p2) =
         chart_panel_stats(immediate_chart_p2, entry_opt);
@@ -10439,7 +10500,9 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
          sel_col: [f32; 4],
          step_artist: Arc<str>,
          line_count: usize,
-         layout: step_artist_bar::StepArtistBarLayout| {
+         layout: step_artist_bar::StepArtistBarLayout,
+         artist_scroll_offset: f32,
+         artist_clip_width: Option<f32>| {
             step_artist_bar::push(
                 &mut actors,
                 step_artist_bar::StepArtistBarParams {
@@ -10455,6 +10518,8 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
                     artist_x_offset: 75.0,
                     artist_max_width: 124.0,
                     artist_color: [0.0, 0.0, 0.0, 1.0],
+                    artist_scroll_offset,
+                    artist_clip_width,
                 },
             );
         };
@@ -10472,6 +10537,8 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
             step_artist,
             0,
             step_artist_bar::StepArtistBarLayout::Legacy,
+            step_artist_offset,
+            step_artist_clip,
         );
         push_step_artist(
             base_y + 88.0,
@@ -10480,6 +10547,8 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
             step_artist_p2,
             0,
             step_artist_bar::StepArtistBarLayout::Legacy,
+            step_artist_p2_offset,
+            step_artist_p2_clip,
         );
     } else {
         let y_cen = if step_artist_expanded {
@@ -10503,6 +10572,8 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
             step_artist,
             step_artist_lines,
             step_artist_layout,
+            step_artist_offset,
+            step_artist_clip,
         );
     }
 

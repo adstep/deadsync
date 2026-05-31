@@ -2443,6 +2443,8 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
                 UI_BOX_BG_COLOR[2],
                 1.0,
             ],
+            artist_scroll_offset: 0.0,
+            artist_clip_width: None,
         },
     );
 

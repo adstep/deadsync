@@ -822,6 +822,7 @@ pub struct TextBuilder {
     saw_max_h: bool,
     max_w_pre_zoom: bool,
     max_h_pre_zoom: bool,
+    clip: Option<[f32; 4]>,
     blend: BlendMode,
     effect: anim::EffectState,
     shx: f32,
@@ -858,6 +859,7 @@ impl TextBuilder {
             saw_max_h: false,
             max_w_pre_zoom: false,
             max_h_pre_zoom: false,
+            clip: None,
             blend: BlendMode::Alpha,
             effect: anim::EffectState::default(),
             shx: 0.0,
@@ -1039,6 +1041,12 @@ impl TextBuilder {
         self.max_h = Some(h);
         self.saw_max_h = true;
         self.max_h_pre_zoom = false;
+    }
+
+    #[inline(always)]
+    pub fn clip(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        // Clip rect in parent top-left space: [x, y, w, h] (rendered units).
+        self.clip = Some([x, y, w, h]);
     }
 
     #[inline(always)]
@@ -1243,7 +1251,7 @@ impl TextBuilder {
             max_h_pre_zoom: self.max_h_pre_zoom,
             jitter: false,
             distortion: 0.0,
-            clip: None,
+            clip: self.clip,
             mask_dest: false,
             blend: self.blend,
             shadow_len: [self.shx, self.shy],
@@ -1664,6 +1672,9 @@ macro_rules! __dsl_apply_one {
     (maxheight ($h:expr) $mods:ident $tw:ident $cur:ident $site:ident) => {{
         $mods.maxheight(($h) as f32);
     }};
+    (clip ($x:expr,$y:expr,$w:expr,$h:expr) $mods:ident $tw:ident $cur:ident $site:ident) => {{
+        $mods.clip(($x) as f32, ($y) as f32, ($w) as f32, ($h) as f32);
+    }};
 
     // static sprite bits / cropping / uv / blend ---------------------
     (align ($h:expr,$v:expr) $mods:ident $tw:ident $cur:ident $site:ident) => {{
@@ -1824,4 +1835,39 @@ macro_rules! __dsl_apply_one {
     ($other:ident ( $($args:expr),* ) $mods:ident $tw:ident $cur:ident $site:ident) => {
         compile_error!(concat!("act!: unknown or removed command: ", stringify!($other)));
     };
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use crate::engine::present::actors::Actor;
+
+    #[test]
+    fn text_clip_round_trips_through_act_macro() {
+        let actor = act!(text:
+            font("miso"):
+            settext("hello"):
+            xy(10.0, 20.0):
+            clip(10.0, 5.0, 99.0, 30.0):
+            zoom(0.8)
+        );
+        match actor {
+            Actor::Text { clip, .. } => {
+                assert_eq!(clip, Some([10.0, 5.0, 99.0, 30.0]));
+            }
+            other => panic!("expected Actor::Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn text_without_clip_defaults_to_none() {
+        let actor = act!(text:
+            font("miso"):
+            settext("hello"):
+            xy(0.0, 0.0)
+        );
+        match actor {
+            Actor::Text { clip, .. } => assert_eq!(clip, None),
+            other => panic!("expected Actor::Text, got {other:?}"),
+        }
+    }
 }
