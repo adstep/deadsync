@@ -205,6 +205,13 @@ fn compute_target_dir() -> Result<PathBuf, Box<dyn Error>> {
 
 fn copy_assets(target_dir: &Path) -> Result<(), Box<dyn Error>> {
     if fs::metadata("assets").is_ok() {
+        // Mirror, don't merge: remove the prior overlay so files deleted from
+        // source don't linger in the target dir (where they would shadow the
+        // current assets at runtime via resolve_asset_path's exe_dir fallback).
+        let dest = target_dir.join("assets");
+        if dest.exists() {
+            fs::remove_dir_all(&dest)?;
+        }
         let mut options = CopyOptions::new();
         options.overwrite = true;
         // The default behavior (copy_inside=false) is correct.
