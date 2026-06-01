@@ -3,6 +3,7 @@ pub(crate) mod decode;
 pub mod folder;
 pub mod replaygain;
 mod resample;
+mod speed_change;
 
 use crate::config::dirs;
 use crate::engine::host_time::{instant_nanos, now_nanos};
@@ -80,7 +81,7 @@ struct QueuedSfx {
 // Commands to the audio engine
 enum AudioCommand {
     // Path, cut, looping, rate (1.0 = normal)
-    PlayMusic(PathBuf, Cut, bool, f32),
+    PlayMusic(PathBuf, Cut, bool, f32, bool),
     StopMusic,
     // Change rate of currently playing music without restarting
     SetMusicRate(f32),
@@ -1578,9 +1579,10 @@ pub fn play_music(path: PathBuf, cut: Cut, looping: bool, rate: f32) {
     // gain doesn't audibly bleed into the start of this one.
     MUSIC_GAIN_SNAP_GEN.fetch_add(1, Ordering::Release);
 
+    let preserve_pitch = crate::config::get().rate_mod_preserves_pitch;
     let _ = ENGINE
         .command_sender
-        .send(AudioCommand::PlayMusic(path, cut, looping, rate));
+        .send(AudioCommand::PlayMusic(path, cut, looping, rate, preserve_pitch));
 }
 
 /// Applies a ReplayGain result from the background analyzer, but only if it
@@ -2954,7 +2956,7 @@ fn audio_manager_thread(
     // Command loop: manage music decoder thread.
     loop {
         match command_receiver.recv() {
-            Ok(AudioCommand::PlayMusic(path, cut, looping, rate)) => {
+            Ok(AudioCommand::PlayMusic(path, cut, looping, rate, preserve_pitch)) => {
                 if let Some(old) = music_stream.take() {
                     old.stop_signal
                         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2970,6 +2972,7 @@ fn audio_manager_thread(
                     looping,
                     rate_bits,
                     music_ring.clone(),
+                    preserve_pitch,
                 ));
             }
             Ok(AudioCommand::StopMusic) => {

@@ -1,3 +1,4 @@
+use super::speed_change::{SpeedChange, SpeedRead};
 use super::{Cut, ENGINE, MusicMapSeg, MusicStream, QUEUED_MUSIC_MAP_SEGS, internal};
 use crate::engine::audio::decode;
 #[cfg(windows)]
@@ -19,6 +20,7 @@ const SILENCE_CHUNK_FRAMES: usize = 2048;
 const MIN_MUSIC_RATE: f32 = 0.05;
 const MAX_MUSIC_RATE: f32 = 8.0;
 const RESAMPLE_MAX_RELATIVE_RATIO: f64 = 64.0;
+const WSOLA_DRAIN_FRAMES: usize = 4096;
 
 fn push_music_block_with_map(
     sample_ring: &internal::SpscRingI16,
@@ -315,6 +317,7 @@ pub(super) fn spawn_music_decoder_thread(
     looping: bool,
     rate_bits: Arc<AtomicU32>,
     ring: Arc<internal::SpscRingI16>,
+    preserve_pitch: bool,
 ) -> MusicStream {
     let stop_signal = Arc::new(AtomicBool::new(false));
     let stop_signal_clone = stop_signal.clone();
@@ -323,9 +326,15 @@ pub(super) fn spawn_music_decoder_thread(
     let thread = thread::spawn(move || {
         #[cfg(windows)]
         let _thread_policy = boost_current_thread(ThreadRole::AudioDecode);
-        if let Err(e) =
-            music_decoder_thread_loop(path, cut, looping, rate_bits_clone, ring, stop_signal_clone)
-        {
+        if let Err(e) = music_decoder_thread_loop(
+            path,
+            cut,
+            looping,
+            rate_bits_clone,
+            ring,
+            stop_signal_clone,
+            preserve_pitch,
+        ) {
             error!("Music decoder thread failed: {e}");
         }
     });
@@ -469,6 +478,7 @@ fn music_decoder_thread_loop(
     rate_bits: Arc<AtomicU32>,
     ring: Arc<internal::SpscRingI16>,
     stop: Arc<AtomicBool>,
+    preserve_pitch: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let opened = decode::open_file(&path)?;
     let mut reader = opened.reader;
@@ -513,16 +523,32 @@ fn music_decoder_thread_loop(
     let mut in_planar: Option<PlanarAccum> = None;
     let mut out_tmp = Vec::with_capacity(OUT_FRAMES_PER_CALL * out_ch);
     let mut pkt_buf = Vec::new();
+    // In preserve-pitch mode the WSOLA time-stretcher runs at the source rate
+    // ahead of the resampler, turning the rate mod into a tempo change.
+    let mut speed_change: Option<SpeedChange> = if preserve_pitch {
+        Some(SpeedChange::new(in_ch, in_hz))
+    } else {
+        None
+    };
+    let mut wsola_buf: Vec<i16> = Vec::new();
 
     'main_loop: loop {
+        if let Some(sc) = speed_change.as_mut() {
+            sc.clear();
+        }
+        let mut source_eof = false;
         let mut current_rate_f32 = f32::from_bits(rate_bits.load(Ordering::Relaxed));
         if !current_rate_f32.is_finite() || current_rate_f32 <= 0.0 {
             current_rate_f32 = 1.0;
         } else {
             current_rate_f32 = current_rate_f32.clamp(MIN_MUSIC_RATE, MAX_MUSIC_RATE);
         }
-        let direct_audio = in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= f32::EPSILON;
-        let mut ratio = (f64::from(out_hz) / f64::from(in_hz)) / f64::from(current_rate_f32);
+        // The resampler only does sample-rate conversion. In preserve-pitch mode
+        // the tempo change is handled by WSOLA, so the resampler ratio is
+        // rate-independent (always out_hz/in_hz).
+        let mut resample_rate = if preserve_pitch { 1.0 } else { current_rate_f32 };
+        let direct_audio = in_hz == out_hz && (resample_rate - 1.0).abs() <= f32::EPSILON;
+        let mut ratio = (f64::from(out_hz) / f64::from(in_hz)) / f64::from(resample_rate);
         if direct_audio {
             resampler = None;
             resampler_rate = f32::NAN;
@@ -533,7 +559,7 @@ fn music_decoder_thread_loop(
             && resample_in.is_some()
             && resample_out.is_some()
             && in_planar.is_some()
-            && resampler_rate == current_rate_f32
+            && resampler_rate == resample_rate
         {
             let resampler = resampler.as_mut().expect("resampler exists");
             resampler.reset();
@@ -551,7 +577,7 @@ fn music_decoder_thread_loop(
             resample_out = Some(new_resampler.output_buffer_allocate(true));
             in_planar = Some(PlanarAccum::new(in_ch, PLANAR_INPUT_CAP_FRAMES));
             resampler = Some(new_resampler);
-            resampler_rate = current_rate_f32;
+            resampler_rate = resample_rate;
         }
 
         let start_frame_f = (cut.start_sec * f64::from(in_hz)).max(0.0);
@@ -582,8 +608,12 @@ fn music_decoder_thread_loop(
         }
 
         let preroll_in_frames = seek_preroll_in_frames(seek_ok, start_floor, seek_start_frame);
+        // Preroll discard count must reflect the tempo change, so use the
+        // rate-inclusive ratio even in preserve-pitch mode (where the resampler
+        // ratio itself is rate-free; WSOLA applies the rate).
+        let full_ratio = (f64::from(out_hz) / f64::from(in_hz)) / f64::from(current_rate_f32);
         let mut preroll_out_frames: u64 = if preroll_in_frames > 0 {
-            (preroll_in_frames as f64 * ratio).ceil() as u64
+            (preroll_in_frames as f64 * full_ratio).ceil() as u64
         } else {
             0
         };
@@ -644,66 +674,120 @@ fn music_decoder_thread_loop(
             if stop.load(Ordering::Relaxed) {
                 break 'main_loop;
             }
-            if !reader.read_dec_packet_into(&mut pkt_buf)? {
-                break;
+
+            // Read the next source packet, unless the source has ended. On EOF
+            // in preserve-pitch mode WSOLA's tail still needs to be flushed.
+            if !source_eof && !reader.read_dec_packet_into(&mut pkt_buf)? {
+                source_eof = true;
+                if let Some(sc) = speed_change.as_mut() {
+                    sc.set_eof();
+                }
             }
-            if pkt_buf.is_empty() {
-                continue;
-            }
-            let mut slice = &pkt_buf[..];
-            if to_drop_in > 0 {
-                let pkt_frames = (pkt_buf.len() / in_ch) as u64;
-                if to_drop_in >= pkt_frames {
-                    to_drop_in -= pkt_frames;
+
+            let mut raw: &[i16] = &[];
+            if !source_eof {
+                if pkt_buf.is_empty() {
                     continue;
                 }
-                let drop_samples = (to_drop_in as usize) * in_ch;
-                slice = &pkt_buf[drop_samples..];
-                to_drop_in = 0;
-            }
-            let desired_rate = f32::from_bits(rate_bits.load(Ordering::Relaxed));
-            let mut desired_rate = if desired_rate.is_finite() && desired_rate > 0.0 {
-                desired_rate
-            } else {
-                1.0
-            };
-            if (desired_rate - current_rate_f32).abs() > 0.0005 {
-                desired_rate = desired_rate.clamp(MIN_MUSIC_RATE, MAX_MUSIC_RATE);
-                current_rate_f32 = desired_rate;
-                ratio = (f64::from(out_hz) / f64::from(in_hz)) / f64::from(current_rate_f32);
-                if in_hz == out_hz && (current_rate_f32 - 1.0).abs() <= f32::EPSILON {
-                    resampler = None;
-                    resampler_rate = f32::NAN;
-                    resample_in = None;
-                    resample_out = None;
-                    in_planar = None;
+                raw = &pkt_buf[..];
+                if to_drop_in > 0 {
+                    let pkt_frames = (pkt_buf.len() / in_ch) as u64;
+                    if to_drop_in >= pkt_frames {
+                        to_drop_in -= pkt_frames;
+                        continue;
+                    }
+                    let drop_samples = (to_drop_in as usize) * in_ch;
+                    raw = &pkt_buf[drop_samples..];
+                    to_drop_in = 0;
+                }
+                let desired_rate = f32::from_bits(rate_bits.load(Ordering::Relaxed));
+                let mut desired_rate = if desired_rate.is_finite() && desired_rate > 0.0 {
+                    desired_rate
                 } else {
-                    let mut reuse_resampler = false;
-                    if let Some(existing) = &mut resampler {
-                        existing.reset();
-                        reuse_resampler = existing.set_resample_ratio(ratio, false).is_ok();
-                    }
-                    if !reuse_resampler {
-                        let new_resampler = SincFixedOut::<f32>::new(
-                            ratio,
-                            RESAMPLE_MAX_RELATIVE_RATIO,
-                            resampler_params(),
-                            OUT_FRAMES_PER_CALL,
-                            in_ch,
-                        )?;
-                        resample_in = Some(new_resampler.input_buffer_allocate(true));
-                        resample_out = Some(new_resampler.output_buffer_allocate(true));
-                        resampler = Some(new_resampler);
-                    }
-                    resampler_rate = current_rate_f32;
-                    if in_planar.is_none() {
-                        in_planar = Some(PlanarAccum::new(in_ch, PLANAR_INPUT_CAP_FRAMES));
+                    1.0
+                };
+                if (desired_rate - current_rate_f32).abs() > 0.0005 {
+                    desired_rate = desired_rate.clamp(MIN_MUSIC_RATE, MAX_MUSIC_RATE);
+                    current_rate_f32 = desired_rate;
+                    resample_rate = if preserve_pitch { 1.0 } else { current_rate_f32 };
+                    // In preserve-pitch mode resample_rate is always 1.0, so the
+                    // resampler is never rebuilt on a rate change — only WSOLA's
+                    // speed updates (handled in the transform below).
+                    if resampler_rate != resample_rate {
+                        ratio = (f64::from(out_hz) / f64::from(in_hz)) / f64::from(resample_rate);
+                        if in_hz == out_hz && (resample_rate - 1.0).abs() <= f32::EPSILON {
+                            resampler = None;
+                            resampler_rate = f32::NAN;
+                            resample_in = None;
+                            resample_out = None;
+                            in_planar = None;
+                        } else {
+                            let mut reuse_resampler = false;
+                            if let Some(existing) = &mut resampler {
+                                existing.reset();
+                                reuse_resampler = existing.set_resample_ratio(ratio, false).is_ok();
+                            }
+                            if !reuse_resampler {
+                                let new_resampler = SincFixedOut::<f32>::new(
+                                    ratio,
+                                    RESAMPLE_MAX_RELATIVE_RATIO,
+                                    resampler_params(),
+                                    OUT_FRAMES_PER_CALL,
+                                    in_ch,
+                                )?;
+                                resample_in = Some(new_resampler.input_buffer_allocate(true));
+                                resample_out = Some(new_resampler.output_buffer_allocate(true));
+                                resampler = Some(new_resampler);
+                            }
+                            resampler_rate = resample_rate;
+                            if in_planar.is_none() {
+                                in_planar = Some(PlanarAccum::new(in_ch, PLANAR_INPUT_CAP_FRAMES));
+                            }
+                        }
                     }
                 }
             }
+
+            // Stretch the source packet through WSOLA when preserving pitch,
+            // otherwise pass the raw packet straight through to the resampler.
+            let proc_slice: &[i16] = if preserve_pitch {
+                let sc = speed_change.as_mut().expect("preserve mode keeps WSOLA");
+                if !source_eof {
+                    sc.set_speed_ratio(current_rate_f32);
+                    sc.push_input_i16(raw);
+                    // Buffer enough input that a drain only stops at a true
+                    // window boundary (never a partial mid-stream starve).
+                    if sc.wants_input() {
+                        continue;
+                    }
+                }
+                wsola_buf.clear();
+                loop {
+                    match sc.read_i16(&mut wsola_buf, WSOLA_DRAIN_FRAMES) {
+                        SpeedRead::Produced(_) => {}
+                        SpeedRead::NeedInput | SpeedRead::Eof => break,
+                    }
+                }
+                if wsola_buf.is_empty() {
+                    if source_eof {
+                        break;
+                    }
+                    continue;
+                }
+                &wsola_buf[..]
+            } else {
+                if source_eof {
+                    break;
+                }
+                raw
+            };
             if resampler.is_none() {
-                let music_sec_per_frame = 1.0 / f64::from(out_hz.max(1));
-                let mut direct = slice;
+                let music_sec_per_frame = if preserve_pitch {
+                    f64::from(current_rate_f32) / f64::from(out_hz.max(1))
+                } else {
+                    1.0 / f64::from(out_hz.max(1))
+                };
+                let mut direct = proc_slice;
                 if preroll_out_frames > 0 {
                     let frames = direct.len() / in_ch;
                     let drop_frames = (preroll_out_frames as usize).min(frames);
@@ -777,7 +861,7 @@ fn music_decoder_thread_loop(
             let resample_out = resample_out
                 .as_mut()
                 .expect("resampler mode must keep output buffer");
-            in_planar.push_i16_interleaved(slice, in_ch);
+            in_planar.push_i16_interleaved(proc_slice, in_ch);
             loop {
                 let need = resampler.input_frames_next();
                 if in_planar.available_frames() < need {
@@ -800,8 +884,11 @@ fn music_decoder_thread_loop(
                 if produced_frames == 0 {
                     break;
                 }
-                let music_sec_per_frame =
-                    (need as f64 / f64::from(in_hz.max(1))) / produced_frames as f64;
+                let music_sec_per_frame = if preserve_pitch {
+                    f64::from(current_rate_f32) / f64::from(out_hz.max(1))
+                } else {
+                    (need as f64 / f64::from(in_hz.max(1))) / produced_frames as f64
+                };
                 if preroll_out_frames > 0 {
                     let drop_frames = (preroll_out_frames as usize).min(produced_frames);
                     let drop_samples = drop_frames * out_ch;
@@ -835,6 +922,9 @@ fn music_decoder_thread_loop(
             if matches!(frames_left_out, Some(0)) {
                 break;
             }
+            if source_eof {
+                break;
+            }
         }
 
         if let Some(resampler) = &mut resampler {
@@ -866,6 +956,8 @@ fn music_decoder_thread_loop(
                         write_resampler_output(resample_out, produced_frames, out_ch, &mut out_tmp);
                     let music_sec_per_frame = if produced_frames == 0 {
                         0.0
+                    } else if preserve_pitch {
+                        f64::from(current_rate_f32) / f64::from(out_hz.max(1))
                     } else {
                         (remain as f64 / f64::from(in_hz.max(1))) / produced_frames as f64
                     };
