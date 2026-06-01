@@ -1003,6 +1003,8 @@ impl AssetManager {
 
         let mut textures_to_load: Vec<(String, String)> = vec![
             ("logo.png".to_string(), "logo.png".to_string()),
+            ("menu_dead.png".to_string(), "menu_dead.png".to_string()),
+            ("menu_sync.png".to_string(), "menu_sync.png".to_string()),
             ("init_arrow_1.png".to_string(), "init_arrow_1.png".to_string()),
             ("init_arrow_2.png".to_string(), "init_arrow_2.png".to_string()),
             ("init_arrow_3.png".to_string(), "init_arrow_3.png".to_string()),

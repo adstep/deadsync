@@ -348,6 +348,8 @@ fn ensure_textures() {
             ("init_arrow_8.png", 77, 90),
             ("dance.png", 1360, 164),
             ("logo.png", 752, 634),
+            ("menu_dead.png", 827, 280),
+            ("menu_sync.png", 827, 280),
         ] {
             assets::register_texture_dims(key, w, h);
         }
