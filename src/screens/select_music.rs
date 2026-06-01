@@ -9882,17 +9882,16 @@ fn step_artist_cycle_text(chart: &ChartData, cycle_elapsed: f32) -> &str {
     }
 }
 
-fn step_artist_expanded_text(chart: &ChartData) -> (Arc<str>, usize) {
-    let (values, count) = step_artist_values(chart);
-    if count == 0 {
-        return (cached_str_ref(""), 0);
+/// Collapses a value to a single visual line for the Expanded box, which renders
+/// each value as its own one-line actor. Embedded newlines/carriage returns are
+/// replaced with spaces so per-line width measurement and clipping stay correct.
+/// Returns `Cow::Borrowed` when no rewrite is needed.
+fn sanitize_single_line(value: &str) -> std::borrow::Cow<'_, str> {
+    if value.contains(['\n', '\r']) {
+        std::borrow::Cow::Owned(value.replace(['\n', '\r'], " "))
+    } else {
+        std::borrow::Cow::Borrowed(value)
     }
-    let mut text = String::with_capacity(values.iter().take(count).map(|s| s.len() + 1).sum());
-    for value in values.iter().take(count) {
-        text.push_str(value);
-        text.push('\n');
-    }
-    (cached_str_ref(&text), count)
 }
 
 fn sl_select_music_bg_flash() -> Actor {
@@ -10470,17 +10469,85 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
     } else {
         step_artist_bar::StepArtistBarLayout::Legacy
     };
+
+    // Per-line reset-loop scroll for the Expanded box. Each visible value is its
+    // own single-line actor: when one overflows the window it scrolls to reveal
+    // the end, pauses, snaps back and repeats, independently of the other lines
+    // (no rotation here — all values are shown at once).
+    let artist_expanded_scroll_cfg = scrolling_text::ScrollConfig {
+        box_w: step_artist_bar::ARTIST_EXPANDED_MAXWIDTH * step_artist_bar::ARTIST_ZOOM,
+        speed_px_s: STEP_ARTIST_SCROLL_SPEED_PX_S,
+        pause_s: STEP_ARTIST_SCROLL_PAUSE_SECONDS,
+        fit_dwell_s: STEP_ARTIST_CYCLE_SECONDS,
+        overflow_tol: STEP_ARTIST_OVERFLOW_TOL_PX,
+    };
+    let compute_artist_expanded =
+        |chart: &ChartData| -> Vec<step_artist_bar::StepArtistLine> {
+            let (values, count) = step_artist_values(chart);
+            if count == 0 {
+                return Vec::new();
+            }
+            let mut lines: Vec<std::borrow::Cow<'_, str>> = Vec::with_capacity(count);
+            for v in &values[..count] {
+                let line = sanitize_single_line(v);
+                // De-dupe after sanitizing: values that differ only by embedded
+                // newlines collapse to the same visual line here.
+                if !lines.iter().any(|existing| existing == &line) {
+                    lines.push(line);
+                }
+            }
+            let widths: Option<Vec<f32>> = asset_manager.with_fonts(|all_fonts| {
+                asset_manager.with_font("miso", |miso_font| {
+                    lines
+                        .iter()
+                        .map(|v| {
+                            let logical =
+                                font::measure_line_width_logical(miso_font, v, all_fonts);
+                            scrolling_text::rendered_width(logical, step_artist_bar::ARTIST_ZOOM)
+                        })
+                        .collect::<Vec<f32>>()
+                })
+            });
+            lines
+                .iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    let (scroll_offset, clip_width) = match &widths {
+                        Some(widths) => {
+                            let ss = scrolling_text::loop_scroll_state(
+                                widths[i],
+                                &artist_expanded_scroll_cfg,
+                                cycle_elapsed,
+                            );
+                            (
+                                ss.offset_x,
+                                ss.clipped.then_some(artist_expanded_scroll_cfg.box_w),
+                            )
+                        }
+                        // Fonts unavailable (e.g. headless): render full-width with
+                        // the classic maxwidth squish, no scroll.
+                        None => (0.0, None),
+                    };
+                    step_artist_bar::StepArtistLine {
+                        text: cached_str_ref(text).into(),
+                        scroll_offset,
+                        clip_width,
+                    }
+                })
+                .collect()
+        };
+
     let (step_artist, step_artist_lines, step_artist_offset, step_artist_clip) =
         if step_artist_expanded {
-            let (text, lines) = immediate_chart_p1
-                .map(step_artist_expanded_text)
-                .unwrap_or_else(|| (cached_str_ref(""), 0));
-            (text, lines, 0.0, None)
+            let lines = immediate_chart_p1
+                .map(&compute_artist_expanded)
+                .unwrap_or_default();
+            (cached_str_ref(""), lines, 0.0, None)
         } else {
             let (text, offset, clip) = immediate_chart_p1
                 .map(&compute_artist)
                 .unwrap_or_else(|| (cached_str_ref(""), 0.0, None));
-            (text, 0, offset, clip)
+            (text, Vec::new(), offset, clip)
         };
     let (steps, jumps, holds, mines, hands, rolls, meter) =
         chart_panel_stats(immediate_chart_p1, entry_opt);
@@ -10500,7 +10567,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
          x0: f32,
          sel_col: [f32; 4],
          step_artist: Arc<str>,
-         line_count: usize,
+         artist_lines: Vec<step_artist_bar::StepArtistLine>,
          layout: step_artist_bar::StepArtistBarLayout,
          artist_scroll_offset: f32,
          artist_clip_width: Option<f32>| {
@@ -10510,7 +10577,6 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
                     x0,
                     center_y: y_cen,
                     layout,
-                    expanded_line_count: line_count,
                     accent_color: sel_col,
                     z_base: 120,
                     label_text: steps_label.clone().into(),
@@ -10521,6 +10587,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
                     artist_color: [0.0, 0.0, 0.0, 1.0],
                     artist_scroll_offset,
                     artist_clip_width,
+                    artist_lines,
                 },
             );
         };
@@ -10536,7 +10603,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
             x0_p1,
             sel_col_p1,
             step_artist,
-            0,
+            Vec::new(),
             step_artist_bar::StepArtistBarLayout::Legacy,
             step_artist_offset,
             step_artist_clip,
@@ -10546,7 +10613,7 @@ pub fn get_actors(state: &State, asset_manager: &AssetManager, stage_number: usi
             screen_center_x() - 244.0,
             sel_col_p2,
             step_artist_p2,
-            0,
+            Vec::new(),
             step_artist_bar::StepArtistBarLayout::Legacy,
             step_artist_p2_offset,
             step_artist_p2_clip,

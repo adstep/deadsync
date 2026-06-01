@@ -2,10 +2,19 @@
 //! fixed-width window.
 //!
 //! UI text fields constrained to a fixed-width window (e.g. the SelectMusic
-//! "step artist box") can scroll overflowing text inside a clipped window: hold
-//! at the start, scroll left to reveal the end, hold there briefly, then advance
-//! to the next value. Text that already fits is left untouched. This module
-//! provides the pure math that drives that behavior.
+//! "step artist box") can scroll overflowing text inside a clipped window. Text
+//! that already fits is left untouched. This module provides the pure math that
+//! drives that behavior, in two flavors:
+//!
+//! * **Rotation** ([`select_active`] + [`scroll_state`]): one value is shown at a
+//!   time, cycling through a list. An overflowing value holds at the start,
+//!   scrolls left to reveal the end, holds there, then the rotation advances to
+//!   the next value.
+//! * **Reset-loop** ([`loop_scroll_state`]): one value is shown on its own and
+//!   loops forever — hold at the start, scroll to the end, hold there, snap back
+//!   to the start, repeat. Used when several values are displayed at once (e.g.
+//!   the multi-line "Expanded" step-artist box), so each line scrolls
+//!   independently on its own period.
 //!
 //! ## Units
 //! All widths are **rendered/screen-space** (already multiplied by the text
@@ -179,6 +188,32 @@ pub fn scroll_state(rendered_w: f32, cfg: &ScrollConfig, local_phase: f32) -> Sc
     }
 }
 
+/// Reset-loop draw state for a value shown on its own (no rotation): hold at the
+/// start, scroll left to reveal the end, hold there, then snap back to the start
+/// and repeat. `elapsed` is wrapped by the value's own dwell, so when several
+/// values are displayed at once each loops independently on its own period.
+///
+/// Fitting values return `{ offset_x: 0.0, clipped: false }` (render unchanged).
+/// Equivalent to driving [`scroll_state`] with `elapsed % value_dwell`, which is
+/// why the return from `-span` to `0` is an instantaneous snap at the cycle
+/// boundary (it occurs between the end hold and the next start hold).
+#[must_use]
+pub fn loop_scroll_state(rendered_w: f32, cfg: &ScrollConfig, elapsed: f32) -> ScrollState {
+    if !overflows(rendered_w, cfg) {
+        return ScrollState {
+            offset_x: 0.0,
+            clipped: false,
+        };
+    }
+    let dwell = value_dwell(rendered_w, cfg);
+    let phase = if dwell > 0.0 {
+        sanitize_elapsed(elapsed) % dwell
+    } else {
+        0.0
+    };
+    scroll_state(rendered_w, cfg, phase)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,5 +357,47 @@ mod tests {
         let c = cfg();
         let ss = scroll_state(80.0, &c, 1.234);
         assert_eq!(ss, ScrollState { offset_x: 0.0, clipped: false });
+    }
+
+    #[test]
+    fn loop_scroll_state_fitting_value_is_unclipped() {
+        let c = cfg();
+        // Sample across many periods: a fitting value never clips or scrolls.
+        for k in 0..50 {
+            let ss = loop_scroll_state(80.0, &c, k as f32 * 0.37);
+            assert_eq!(ss, ScrollState { offset_x: 0.0, clipped: false });
+        }
+    }
+
+    #[test]
+    fn loop_scroll_state_resets_each_cycle() {
+        let c = cfg();
+        let w = 200.0; // span 100, travel 2s, pause 0.5s => dwell 3.0s
+        let span = 100.0_f32;
+        let dwell = 3.0_f32;
+
+        // Within the first cycle it matches the one-way scroll_state.
+        assert_eq!(loop_scroll_state(w, &c, 0.0).offset_x, 0.0);
+        assert!((loop_scroll_state(w, &c, 1.5).offset_x - (-span * 0.5)).abs() < 1e-4);
+        assert!((loop_scroll_state(w, &c, 2.5).offset_x - (-span)).abs() < 1e-4);
+        // End hold.
+        assert!((loop_scroll_state(w, &c, 2.99).offset_x - (-span)).abs() < 1e-3);
+
+        // The next cycle snaps back to the start and repeats.
+        assert!((loop_scroll_state(w, &c, dwell).offset_x - 0.0).abs() < 1e-4);
+        assert!((loop_scroll_state(w, &c, dwell + 1.5).offset_x - (-span * 0.5)).abs() < 1e-4);
+        assert!((loop_scroll_state(w, &c, dwell + 2.5).offset_x - (-span)).abs() < 1e-4);
+        assert!(loop_scroll_state(w, &c, dwell).clipped);
+    }
+
+    #[test]
+    fn loop_scroll_state_offset_stays_in_bounds() {
+        let c = cfg();
+        let w = 200.0;
+        let span = 100.0_f32;
+        for k in 0..400 {
+            let off = loop_scroll_state(w, &c, k as f32 * 0.05).offset_x;
+            assert!(off <= 1e-6 && off >= -span - 1e-6, "off={off}");
+        }
     }
 }

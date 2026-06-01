@@ -2429,7 +2429,6 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
             x0: step_artist_x0,
             center_y: step_artist_y,
             layout: step_artist_bar::StepArtistBarLayout::Legacy,
-            expanded_line_count: 0,
             accent_color: step_artist_col,
             z_base: 122,
             label_text: step_idx_text.into(),
@@ -2445,6 +2444,7 @@ pub fn get_actors(state: &State, _asset_manager: &AssetManager) -> Vec<Actor> {
             ],
             artist_scroll_offset: 0.0,
             artist_clip_width: None,
+            artist_lines: Vec::new(),
         },
     );
 

@@ -7,6 +7,31 @@ use crate::engine::space::screen_height;
 /// lays out (see `shared::scrolling_text`).
 pub const ARTIST_ZOOM: f32 = 0.8;
 
+/// `maxwidth` of the Expanded artist text (pre-zoom). The rendered clip window is
+/// `ARTIST_EXPANDED_MAXWIDTH * ARTIST_ZOOM`; callers pass that as the scroll
+/// `box_w` so overflow detection matches the on-screen window.
+pub const ARTIST_EXPANDED_MAXWIDTH: f32 = 175.0;
+
+/// Logical line spacing of the `miso` font (see `assets/fonts/miso/_miso light.ini`,
+/// `LineSpacing=24`). Used to stack the Expanded box's per-line actors so they
+/// match the engine's multi-line layout. Coupled to the `font("miso")` +
+/// `ARTIST_ZOOM` used when rendering those lines below.
+const ARTIST_LINE_SPACING_LOGICAL: f32 = 24.0;
+
+/// One displayed line of the Expanded step-artist box, with its independent
+/// reset-loop scroll state.
+#[derive(Clone)]
+pub struct StepArtistLine {
+    pub text: TextContent,
+    /// Horizontal scroll offset (rendered px) applied via `addx`. `0.0` =
+    /// unscrolled. Only used when `clip_width` is `Some`.
+    pub scroll_offset: f32,
+    /// When `Some(w)`, the line is rendered full-width (no `maxwidth`) and clipped
+    /// to a window of rendered width `w`, with `scroll_offset` applied. When
+    /// `None`, the line renders with the classic `maxwidth` squish.
+    pub clip_width: Option<f32>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepArtistBarLayout {
     Legacy,
@@ -17,7 +42,6 @@ pub struct StepArtistBarParams {
     pub x0: f32,
     pub center_y: f32,
     pub layout: StepArtistBarLayout,
-    pub expanded_line_count: usize,
     pub accent_color: [f32; 4],
     pub z_base: i16,
     pub label_text: TextContent,
@@ -34,6 +58,9 @@ pub struct StepArtistBarParams {
     /// anchored at the artist origin, with `artist_scroll_offset` applied. When
     /// `None`, the artist text renders exactly as before (maxwidth + zoom).
     pub artist_clip_width: Option<f32>,
+    /// Per-line text + scroll state for the Expanded layout (one entry per visible
+    /// value). Ignored by the Legacy layout.
+    pub artist_lines: Vec<StepArtistLine>,
 }
 
 pub fn push(out: &mut Vec<Actor>, p: StepArtistBarParams) {
@@ -98,7 +125,8 @@ pub fn push(out: &mut Vec<Actor>, p: StepArtistBarParams) {
         }
         StepArtistBarLayout::Expanded => {
             let comp_h = screen_height() / 8.0;
-            let fade_bottom = match p.expanded_line_count {
+            let line_count = p.artist_lines.len();
+            let fade_bottom = match line_count {
                 1 => 0.8,
                 2 => 0.5,
                 _ => 0.0,
@@ -121,16 +149,40 @@ pub fn push(out: &mut Vec<Actor>, p: StepArtistBarParams) {
                 z(z_text):
                 diffuse(0.0, 0.0, 0.0, 1.0)
             ));
-            out.push(act!(text:
-                font("miso"):
-                settext(p.artist_text):
-                align(0.0, 0.0):
-                xy(p.x0 + 70.0, p.center_y - 6.0):
-                maxwidth(175.0):
-                zoom(0.8):
-                z(z_text):
-                diffuse(0.0, 0.0, 0.0, 1.0)
-            ));
+            // Each value is its own single-line actor so overflowing lines can be
+            // clipped and scrolled independently. They are stacked by the miso
+            // line pitch so the column matches the engine's multi-line layout.
+            let line_advance = ARTIST_LINE_SPACING_LOGICAL * ARTIST_ZOOM;
+            let top_y = p.center_y - 6.0;
+            let line_x = p.x0 + 70.0;
+            for (i, line) in p.artist_lines.iter().enumerate() {
+                let line_y = top_y + i as f32 * line_advance;
+                if let Some(clip_w) = line.clip_width {
+                    let clip_pad = 2.0;
+                    out.push(act!(text:
+                        font("miso"):
+                        settext(line.text.clone()):
+                        align(0.0, 0.0):
+                        xy(line_x, line_y):
+                        addx(line.scroll_offset):
+                        clip(line_x, line_y - clip_pad, clip_w, line_advance + 2.0 * clip_pad):
+                        zoom(0.8):
+                        z(z_text):
+                        diffuse(0.0, 0.0, 0.0, 1.0)
+                    ));
+                } else {
+                    out.push(act!(text:
+                        font("miso"):
+                        settext(line.text.clone()):
+                        align(0.0, 0.0):
+                        xy(line_x, line_y):
+                        maxwidth(ARTIST_EXPANDED_MAXWIDTH):
+                        zoom(0.8):
+                        z(z_text):
+                        diffuse(0.0, 0.0, 0.0, 1.0)
+                    ));
+                }
+            }
         }
     }
 }
@@ -145,7 +197,6 @@ mod tests {
             x0: 0.0,
             center_y: 0.0,
             layout,
-            expanded_line_count: 3,
             accent_color: [1.0, 0.0, 0.0, 1.0],
             z_base: 10,
             label_text: TextContent::Static("STEPS"),
@@ -156,6 +207,7 @@ mod tests {
             artist_color: [0.0, 0.0, 0.0, 1.0],
             artist_scroll_offset: 0.0,
             artist_clip_width: None,
+            artist_lines: Vec::new(),
         }
     }
 
@@ -191,12 +243,60 @@ mod tests {
     #[test]
     fn expanded_step_artist_maxwidth_is_unzoomed_like_arrow_cloud() {
         let mut actors = Vec::new();
-        push(&mut actors, params(StepArtistBarLayout::Expanded));
+        let mut p = params(StepArtistBarLayout::Expanded);
+        // Two fitting (unclipped) lines render with the classic maxwidth squish.
+        p.artist_lines = vec![
+            StepArtistLine {
+                text: TextContent::Static("step artist"),
+                scroll_offset: 0.0,
+                clip_width: None,
+            },
+            StepArtistLine {
+                text: TextContent::Static("description"),
+                scroll_offset: 0.0,
+                clip_width: None,
+            },
+        ];
+        push(&mut actors, p);
 
         assert_eq!(
             text_width_flags(&actors),
-            vec![(Some(40.0), true), (Some(175.0), true)]
+            vec![(Some(40.0), true), (Some(175.0), true), (Some(175.0), true)]
         );
+    }
+
+    #[test]
+    fn expanded_step_artist_clipped_line_drops_maxwidth_and_carries_offset() {
+        let mut actors = Vec::new();
+        let mut p = params(StepArtistBarLayout::Expanded);
+        p.artist_lines = vec![StepArtistLine {
+            text: TextContent::Static("a very long chart description"),
+            scroll_offset: -20.0,
+            clip_width: Some(140.0),
+        }];
+        push(&mut actors, p);
+
+        // The clipped line is the last text actor.
+        let line = actors
+            .iter()
+            .filter_map(|a| match a {
+                Actor::Text {
+                    max_width,
+                    clip,
+                    offset,
+                    ..
+                } => Some((*max_width, *clip, *offset)),
+                _ => None,
+            })
+            .last()
+            .expect("artist line actor");
+
+        let (max_width, clip, offset) = line;
+        assert_eq!(max_width, None, "clip path must not set maxwidth");
+        // x0=0, line_x=70, addx(-20) => offset.x = 50
+        assert_eq!(offset[0], 50.0, "scroll offset must be applied via addx");
+        let clip = clip.expect("clip path must set a clip rect");
+        assert_eq!(clip[2], 140.0, "clip width must match");
     }
 
     #[test]
