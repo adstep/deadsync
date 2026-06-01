@@ -2345,6 +2345,10 @@ pub fn init(gameplay_results: Option<gameplay::State>) -> State {
                 personal_record_highlight_rank,
                 show_machine_personal_split,
             });
+
+            if let Some(si) = score_info_slot.as_ref() {
+                crate::screens::components::evaluation::timing_export::maybe_export(si);
+            }
         }
 
         let play_style = profile::get_session_play_style();

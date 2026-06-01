@@ -10,6 +10,7 @@ pub mod pane_qr;
 pub mod pane_stats;
 pub mod pane_timing;
 pub mod pane_timing_arrows;
+pub mod timing_export;
 mod utils;
 
 pub(crate) use utils::pane_origin_x as test_input_pane_origin_x;
