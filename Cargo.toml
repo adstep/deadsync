@@ -20,6 +20,7 @@ members = [
     "crates/deadsync-rules",
     "crates/deadsync-score",
     "crates/deadsync-simfile",
+    "crates/deadsync-visionbot",
 ]
 resolver = "3"
 
