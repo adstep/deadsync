@@ -42,8 +42,9 @@ const ARROW_PULSE_RAMP_UP: f32 = ARROW_PULSE_PERIOD * 0.10;
 const ARROW_PULSE_RAMP_DOWN: f32 = ARROW_PULSE_PERIOD * 0.20;
 const ARROW_PULSE_HOLD_BASE: f32 = ARROW_PULSE_PERIOD - ARROW_PULSE_RAMP_UP - ARROW_PULSE_RAMP_DOWN;
 /// Fraction of the logo's height used by the arrow row (matches the
-/// reference HTML's ~17% allocation between the DEAD/SYNC strips).
-const ARROW_ROW_H_FRAC: f32 = 0.18;
+/// rendered height of the original `dance.png` strip so the new sprite
+/// row fills the same footprint).
+const ARROW_ROW_H_FRAC: f32 = 0.36;
 /// Fraction of the logo's height for the DEAD / SYNC text strips.
 const TEXT_STRIP_H_FRAC: f32 = 0.40;
 
@@ -77,7 +78,6 @@ pub fn build_logo(params: LogoParams) -> Vec<Actor> {
 
     let center_x = screen_center_x();
     let logo_top_y = params.top_margin;
-    let dance_center_y = 0.5f32.mul_add(logo_h, logo_top_y) - params.banner_y_offset_inside;
 
     // Arrow row geometry.
     let arrow_dims =
@@ -96,7 +96,7 @@ pub fn build_logo(params: LogoParams) -> Vec<Actor> {
     } else {
         0.0
     };
-    let arrow_row_y = logo_top_y + logo_h * (TEXT_STRIP_H_FRAC + ARROW_ROW_H_FRAC * 0.5);
+    let arrow_row_y = 0.5f32.mul_add(logo_h, logo_top_y) - params.banner_y_offset_inside;
     let first_arrow_x = center_x - arrow_span * 0.5;
 
     // DEAD text strip — sits at the top of the logo box.
@@ -104,14 +104,7 @@ pub fn build_logo(params: LogoParams) -> Vec<Actor> {
     // SYNC text strip — sits at the bottom of the logo box.
     let sync_bot_y = logo_top_y + logo_h;
 
-    let mut out: Vec<Actor> = Vec::with_capacity(3 + ARROW_COUNT);
-
-    // Background dance banner (unchanged).
-    out.push(act!(sprite("dance.png"):
-        align(0.5, 0.5):
-        xy(center_x, dance_center_y):
-        zoomtowidth(logo_w)
-    ));
+    let mut out: Vec<Actor> = Vec::with_capacity(2 + ARROW_COUNT);
 
     // DEAD strip.
     out.push(act!(sprite("menu_dead.png"):
