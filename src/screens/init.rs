@@ -26,13 +26,32 @@ use std::time::Instant;
 /* Show ONLY the hearts bg some time before any other animation starts */
 const PRE_ROLL: f32 = 1.25;
 
-/* arrows (matches the simple SM-like splash) */
-const ARROW_COUNT: usize = 7;
-const ARROW_SPACING: f32 = 50.0;
-const ARROW_BASE_DELAY: f32 = 0.20;
-const ARROW_STEP_DELAY: f32 = 0.10;
-const ARROW_FADE_IN: f32 = 0.75;
-const ARROW_FADE_OUT: f32 = 0.75;
+/* arrows — 8 pre-colored sprites that loop a staggered pulse, mirroring
+   the ds-arrow-pulse keyframes in assets/telemetry/versus.html. */
+const ARROW_COUNT: usize = 8;
+/* Spacing chosen so 8 arrows occupy roughly the same row width as the
+   old 7-arrow splash (7 * 50 = 350px ≈ 8 * 44 = 352px). */
+const ARROW_SPACING: f32 = 44.0;
+/* Base zoom applied to the 77x90 source PNGs. 0.55 ≈ 42x49 rendered,
+   close to the previous splash's per-arrow footprint. */
+const ARROW_ZOOM_BASE: f32 = 0.55;
+/* CSS ds-arrow-pulse: 2s cycle, scale to 1.25 with white drop-shadow. */
+const ARROW_PULSE_CYCLE: f32 = 2.0;
+const ARROW_PULSE_STAGGER: f32 = 0.125;
+const ARROW_PULSE_UP_DUR: f32 = 0.20;
+const ARROW_PULSE_DOWN_DUR: f32 = 0.40;
+const ARROW_PULSE_PEAK_SCALE: f32 = 1.25;
+/* Additive glow alpha at peak. CSS uses drop-shadow + brightness(1.6); a
+   white additive glow at ~0.7 reads similarly without blowing out. */
+const ARROW_PULSE_GLOW_ALPHA: f32 = 0.7;
+/* Row-level fade in / hold / fade out so the splash still has a clear
+   beginning and end while the per-arrow pulse loops underneath. */
+const ARROW_FADE_IN: f32 = 0.35;
+const ARROW_FADE_OUT: f32 = 0.45;
+/* Hold long enough for every arrow to complete at least one full pulse
+   cycle after its individual stagger delay. */
+const ARROW_HOLD_TIME: f32 =
+    ARROW_PULSE_CYCLE + ARROW_PULSE_STAGGER * (ARROW_COUNT as f32 - 1.0);
 
 /* black bar behind arrows */
 const BAR_TARGET_H: f32 = 128.0;
@@ -136,19 +155,9 @@ static EMPTY_TEXT: LazyLock<Arc<str>> = LazyLock::new(|| Arc::<str>::from(""));
 /* ----------------------- auto-advance ----------------------- */
 #[inline(always)]
 fn arrows_finished_at() -> f32 {
-    // PRE_ROLL + unsquish end + last arrow fade in/out + tiny pad
+    // PRE_ROLL + unsquish end + row fade-in + hold (one full pulse cycle per arrow) + pad
     let unsquish_end = SQUISH_START_DELAY + SQUISH_IN_DURATION;
-    let last_delay = ARROW_STEP_DELAY.mul_add(ARROW_COUNT as f32, ARROW_BASE_DELAY);
-    PRE_ROLL + unsquish_end + last_delay + ARROW_FADE_IN + ARROW_FADE_OUT + 0.05
-}
-
-#[inline(always)]
-fn maxf(a: f32, b: f32) -> f32 {
-    if a > b { a } else { b }
-}
-#[inline(always)]
-fn remaining(from_time: f32, now: f32) -> f32 {
-    maxf(from_time - now, 0.0)
+    PRE_ROLL + unsquish_end + ARROW_FADE_IN + ARROW_HOLD_TIME + 0.05
 }
 
 /* ---------------------------- state ---------------------------- */
@@ -791,36 +800,84 @@ fn get_actors_with_elapsed_overrides(
         actors.push(build_arrows_backdrop_now());
     }
 
-    /* 3) RAINBOW ARROWS — their sleeps are computed as “remaining time from now” */
+    /* 3) PULSING COLORED ARROWS — pre-coloured PNGs, looping pulse
+       (scale 1.0→1.25→1.0 + additive white glow) staggered by
+       ARROW_PULSE_STAGGER across the 8-arrow row. Mirrors the
+       ds-arrow-pulse keyframes in assets/telemetry/versus.html. */
     let cx = screen_center_x();
     let cy = screen_center_y();
 
-    for i in 1..=ARROW_COUNT {
-        let x = (i as f32 - 4.0) * ARROW_SPACING;
+    let unsquish_end_abs = PRE_ROLL + unsquish_end;
+    let row_t = state.elapsed - unsquish_end_abs;
+    let arrows_done = arrows_finished_at();
+    let row_alpha = if state.phase == InitPhase::FadingOut {
+        let fade_t = (state.elapsed - arrows_done).max(0.0);
+        (1.0 - fade_t / ARROW_FADE_OUT).clamp(0.0, 1.0)
+    } else {
+        (row_t / ARROW_FADE_IN).clamp(0.0, 1.0)
+    };
 
-        // absolute start for arrow i (global time)
-        let arrow_start_time =
-            ARROW_STEP_DELAY.mul_add(i as f32, PRE_ROLL + unsquish_end + ARROW_BASE_DELAY);
-        // convert to remaining time from *current* elapsed so late frames still work perfectly
-        let delay_from_now = remaining(arrow_start_time, state.elapsed);
-
-        let tint = color::decorative_rgba(state.active_color_index - i as i32 - 4);
-
-        actors.push(act!(sprite("init_arrow.png"):
-            tweensalt(i):
-            align(0.5, 0.5):
-            xy(cx + x, cy):
-            z(110.0):
-            zoom(0.1):
-            diffuse(tint[0], tint[1], tint[2], 0.0):
-            sleep(delay_from_now):
-            linear(ARROW_FADE_IN):  alpha(1.0):
-            linear(ARROW_FADE_OUT): alpha(0.0):
-            linear(0.0): visible(false)
-        ));
+    if row_alpha > 0.0 && row_t >= 0.0 {
+        for i in 1..=ARROW_COUNT {
+            let x = (i as f32 - 0.5 * (ARROW_COUNT as f32 + 1.0)) * ARROW_SPACING;
+            let stagger = (i as f32 - 1.0) * ARROW_PULSE_STAGGER;
+            let phase_raw = row_t - stagger;
+            let (scale, glow_a) = if phase_raw < 0.0 {
+                (1.0, 0.0)
+            } else {
+                let t = phase_raw.rem_euclid(ARROW_PULSE_CYCLE);
+                (arrow_pulse_scale(t), arrow_pulse_glow(t))
+            };
+            let tex = ARROW_TEXTURES[i - 1];
+            actors.push(act!(sprite(tex):
+                align(0.5, 0.5):
+                xy(cx + x, cy):
+                z(110.0):
+                zoom(ARROW_ZOOM_BASE * scale):
+                diffuse(1.0, 1.0, 1.0, row_alpha):
+                glow(1.0, 1.0, 1.0, glow_a * row_alpha)
+            ));
+        }
     }
 
     actors
+}
+
+const ARROW_TEXTURES: [&str; ARROW_COUNT] = [
+    "init_arrow_1.png",
+    "init_arrow_2.png",
+    "init_arrow_3.png",
+    "init_arrow_4.png",
+    "init_arrow_5.png",
+    "init_arrow_6.png",
+    "init_arrow_7.png",
+    "init_arrow_8.png",
+];
+
+#[inline]
+fn arrow_pulse_scale(t: f32) -> f32 {
+    if t < ARROW_PULSE_UP_DUR {
+        let p = t / ARROW_PULSE_UP_DUR;
+        1.0 + (ARROW_PULSE_PEAK_SCALE - 1.0) * p
+    } else if t < ARROW_PULSE_UP_DUR + ARROW_PULSE_DOWN_DUR {
+        let p = (t - ARROW_PULSE_UP_DUR) / ARROW_PULSE_DOWN_DUR;
+        ARROW_PULSE_PEAK_SCALE - (ARROW_PULSE_PEAK_SCALE - 1.0) * p
+    } else {
+        1.0
+    }
+}
+
+#[inline]
+fn arrow_pulse_glow(t: f32) -> f32 {
+    // Ramps to peak at PULSE_UP_DUR, fades out by PULSE_UP_DUR + PULSE_DOWN_DUR.
+    if t < ARROW_PULSE_UP_DUR {
+        (t / ARROW_PULSE_UP_DUR) * ARROW_PULSE_GLOW_ALPHA
+    } else if t < ARROW_PULSE_UP_DUR + ARROW_PULSE_DOWN_DUR {
+        let p = (t - ARROW_PULSE_UP_DUR) / ARROW_PULSE_DOWN_DUR;
+        (1.0 - p) * ARROW_PULSE_GLOW_ALPHA
+    } else {
+        0.0
+    }
 }
 
 pub(crate) fn get_actors_at_loading_elapsed(state: &State, loading_elapsed_s: f32) -> Vec<Actor> {
