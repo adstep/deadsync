@@ -15,11 +15,50 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const MAX_ACTIVE_SFX: usize = 32;
 const SFX_QUEUE_CAP: usize = 128;
 const ASSIST_TICK_SFX_PATH: &str = "assets/sounds/assist_tick.ogg";
+
+/// SFX paths whose retrigger rate is capped at the source.
+///
+/// Holding a key or using Tab acceleration scrolls a menu far faster than the
+/// change sound can decay, so every navigation step re-fires the same sample.
+/// The mixer sums all active SFX voices and hard-clips above 1.0, turning the
+/// stacked copies into loud distortion. We mirror ITGMania, which throttles
+/// only its wheel change sound (`MAX_WHEEL_SOUND_SPEED` in WheelBase.cpp) while
+/// the wheel itself keeps moving at full speed. Only paths listed here are
+/// rate-limited; every other SFX (gameplay, assist ticks, SongLua events, mine
+/// hits) is unaffected.
+const RATE_LIMITED_SFX_PATHS: &[&str] = &["assets/sounds/change.ogg"];
+
+/// Minimum interval between retriggers of a rate-limited SFX (~15 Hz), matching
+/// ITGMania's `MAX_WHEEL_SOUND_SPEED = 15`.
+const SFX_MIN_RETRIGGER_INTERVAL: Duration = Duration::from_millis(66);
+
+/// Last accepted play time per rate-limited SFX path. Keyed by the matched
+/// `&'static str` allowlist entry to avoid per-call allocation. Only touched
+/// from game/input threads via the `play_*` API, never the audio callback.
+static SFX_LAST_PLAYED: std::sync::LazyLock<Mutex<HashMap<&'static str, Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Returns `true` when an allowlisted SFX was triggered too recently and should
+/// be suppressed. Non-allowlisted paths are never throttled.
+fn sfx_rate_limited(path: &str) -> bool {
+    let Some(&key) = RATE_LIMITED_SFX_PATHS.iter().find(|&&p| p == path) else {
+        return false;
+    };
+    let now = Instant::now();
+    let mut last_played = SFX_LAST_PLAYED.lock().unwrap();
+    if let Some(&last) = last_played.get(key)
+        && now.duration_since(last) < SFX_MIN_RETRIGGER_INTERVAL
+    {
+        return true;
+    }
+    last_played.insert(key, now);
+    false
+}
 
 /* ============================== Public API ============================== */
 
@@ -1122,6 +1161,10 @@ fn play_cached_sfx_on_lane(path: &str, lane: SfxLane) -> bool {
         return true;
     }
 
+    if sfx_rate_limited(path) {
+        return true;
+    }
+
     let cached = { ENGINE.sfx_cache.lock().unwrap().get(path).cloned() };
     if let Some(sound_data) = cached {
         let _ = ENGINE.sfx_sender.try_send(QueuedSfx {
@@ -1264,7 +1307,8 @@ fn i16_to_f32(sample: i16) -> f32 {
 mod tests {
     use super::{
         CallbackClockWindow, MUSIC_POS_MAP_BACKLOG_FRAMES, MusicMapSeg, PlaybackPosMap,
-        fallback_music_position, music_clock_seed_enabled, stream_position_frames_from_window,
+        SFX_MIN_RETRIGGER_INTERVAL, fallback_music_position, music_clock_seed_enabled,
+        sfx_rate_limited, stream_position_frames_from_window,
     };
 
     #[test]
@@ -1356,6 +1400,34 @@ mod tests {
         );
 
         assert!((frames - 96.0).abs() <= 1e-6, "frames={frames}");
+    }
+
+    #[test]
+    fn rate_limited_sfx_throttles_rapid_retriggers() {
+        // The shared static is keyed by path, so a single test owns the timing
+        // sequence to avoid cross-test contention on the same key.
+        let path = "assets/sounds/change.ogg";
+
+        // First play of a cold key is always allowed.
+        assert!(!sfx_rate_limited(path));
+        // An immediate retrigger within the interval is suppressed.
+        assert!(sfx_rate_limited(path));
+        assert!(sfx_rate_limited(path));
+
+        // After waiting out the interval, the next play is allowed again.
+        std::thread::sleep(SFX_MIN_RETRIGGER_INTERVAL + std::time::Duration::from_millis(5));
+        assert!(!sfx_rate_limited(path));
+        assert!(sfx_rate_limited(path));
+    }
+
+    #[test]
+    fn non_allowlisted_sfx_is_never_throttled() {
+        // Gameplay / one-shot sounds are not in the allowlist and must never be
+        // rate-limited, no matter how fast they are retriggered.
+        let path = "assets/sounds/boom.ogg";
+        for _ in 0..16 {
+            assert!(!sfx_rate_limited(path));
+        }
     }
 }
 
