@@ -23,12 +23,24 @@ impl Default for LogoParams {
 }
 
 /// Animated arrow row config — mirrors the `ds-arrow-pulse` CSS in
-/// `assets/telemetry/versus.html`.
+/// `assets/telemetry/versus.html`:
+///   @keyframes ds-arrow-pulse {
+///     0%, 70%, 100% { transform: scale(1); }
+///     10%           { transform: scale(1.25); }
+///     30%           { transform: scale(1); }
+///   }
+/// → over a 2s period: ramp up in 0.2s (0%→10%), ramp back down in
+/// 0.4s (10%→30%), then hold at baseline for 1.4s (30%→100%).
 const ARROW_COUNT: usize = 8;
 const ARROW_PULSE_PERIOD: f32 = 2.0;
-const ARROW_PULSE_STAGGER: f32 = 0.125;
+const ARROW_PULSE_STAGGER: f32 = ARROW_PULSE_PERIOD / ARROW_COUNT as f32;
 const ARROW_PULSE_MIN: f32 = 1.0;
-const ARROW_PULSE_MAX: f32 = 1.25;
+const ARROW_PULSE_MAX: f32 = 1.35;
+// effecttiming(ramp_to_half, hold_at_half, ramp_to_full, hold_at_zero, hold_at_full).
+// half-percent is peak scale (sin(0.5π)=1); zero/full are baseline (sin(0)=0, sin(π)=0).
+const ARROW_PULSE_RAMP_UP: f32 = ARROW_PULSE_PERIOD * 0.10;
+const ARROW_PULSE_RAMP_DOWN: f32 = ARROW_PULSE_PERIOD * 0.20;
+const ARROW_PULSE_HOLD_BASE: f32 = ARROW_PULSE_PERIOD - ARROW_PULSE_RAMP_UP - ARROW_PULSE_RAMP_DOWN;
 /// Fraction of the logo's height used by the arrow row (matches the
 /// reference HTML's ~17% allocation between the DEAD/SYNC strips).
 const ARROW_ROW_H_FRAC: f32 = 0.18;
@@ -122,6 +134,13 @@ pub fn build_logo(params: LogoParams) -> Vec<Actor> {
             pulse():
             effectperiod(ARROW_PULSE_PERIOD):
             effectoffset(offset):
+            effecttiming(
+                ARROW_PULSE_RAMP_UP,
+                0.0,
+                ARROW_PULSE_RAMP_DOWN,
+                ARROW_PULSE_HOLD_BASE,
+                0.0
+            ):
             effectmagnitude(ARROW_PULSE_MIN, ARROW_PULSE_MAX, 0.0)
         ));
         // Silence dead_code warning on arrow_w (kept for future use /
