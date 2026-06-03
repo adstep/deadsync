@@ -219,18 +219,16 @@ fn pane_mode_text(kind: PaneKind, pane: &score_data::LeaderboardPane) -> &str {
 
 #[inline(always)]
 fn pane_color(kind: PaneKind) -> [f32; 4] {
+    let hard_ex = color::hard_ex_score_rgba();
     match kind {
         PaneKind::Gs | PaneKind::Ex | PaneKind::Other => SCOREBOX_GS_BLUE,
         PaneKind::HardEx => [
             SCOREBOX_GS_BLUE[0]
-                + (color::HARD_EX_SCORE_RGBA[0] - SCOREBOX_GS_BLUE[0])
-                    * SCOREBOX_HARD_EX_BORDER_TINT,
+                + (hard_ex[0] - SCOREBOX_GS_BLUE[0]) * SCOREBOX_HARD_EX_BORDER_TINT,
             SCOREBOX_GS_BLUE[1]
-                + (color::HARD_EX_SCORE_RGBA[1] - SCOREBOX_GS_BLUE[1])
-                    * SCOREBOX_HARD_EX_BORDER_TINT,
+                + (hard_ex[1] - SCOREBOX_GS_BLUE[1]) * SCOREBOX_HARD_EX_BORDER_TINT,
             SCOREBOX_GS_BLUE[2]
-                + (color::HARD_EX_SCORE_RGBA[2] - SCOREBOX_GS_BLUE[2])
-                    * SCOREBOX_HARD_EX_BORDER_TINT,
+                + (hard_ex[2] - SCOREBOX_GS_BLUE[2]) * SCOREBOX_HARD_EX_BORDER_TINT,
             1.0,
         ],
         PaneKind::Rpg => SCOREBOX_RPG_YELLOW,
@@ -604,9 +602,9 @@ fn gameplay_row_from_entry(
     let score_color = if entry.is_fail {
         [1.0, 0.0, 0.0, 1.0]
     } else if matches!(kind, PaneKind::Ex | PaneKind::Itl) {
-        color::JUDGMENT_RGBA[0]
+        color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0)
     } else if matches!(kind, PaneKind::HardEx) {
-        color::HARD_EX_SCORE_RGBA
+        color::hard_ex_score_rgba()
     } else if entry.is_self {
         SCOREBOX_SELF
     } else if entry.is_rival {
@@ -1176,7 +1174,7 @@ fn push_hard_ex_header_overlay(
     push_mode_overlay(
         actors,
         "H.EX",
-        color::HARD_EX_SCORE_RGBA,
+        color::hard_ex_score_rgba(),
         center_x,
         center_y,
         zoom,
@@ -1551,7 +1549,10 @@ mod tests {
         let rows = scorebox_rows_for_kind(entries.as_slice(), PaneKind::Itl);
 
         for row in rows.iter().take(3) {
-            assert_eq!(row.score_color, color::JUDGMENT_RGBA[0]);
+            assert_eq!(
+                row.score_color,
+                color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0)
+            );
         }
     }
 

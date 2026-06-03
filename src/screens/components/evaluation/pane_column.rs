@@ -17,7 +17,7 @@ use twox_hash::XxHash64;
 
 use super::utils::pane_origin_x;
 
-const DISABLED_WINDOW_RGBA: [f32; 4] = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
+const DISABLED_WINDOW_RGBA: [f32; 4] = color::DEFAULT_JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
 
 #[inline(always)]
 fn pane3_solid_arrow_mask_key(texture_key: &str) -> String {
@@ -163,48 +163,57 @@ pub fn build_column_judgments_pane(
     }
 
     let show_fa_plus_rows = score_info.show_fa_plus_window && score_info.show_fa_plus_pane;
+    // Column pane renders the FA+ split (with the white W0 row) or the plain ITG
+    // set; HEX window colors only appear in explicit Hard-EX panes.
+    let mode = if show_fa_plus_rows {
+        color::JudgmentMode::FaPlus
+    } else {
+        color::JudgmentMode::Itg
+    };
+    let jr = color::judgment_rgba(mode);
+    let white_fa = color::judgment_white_fantastic_rgba(mode);
     let rows: Vec<RowInfo> = if show_fa_plus_rows {
         vec![
             RowInfo {
                 kind: RowKind::FanW0,
                 label: "FANTASTIC",
-                color: color::JUDGMENT_RGBA[0],
+                color: jr[0],
                 show_early: false,
             },
             RowInfo {
                 kind: RowKind::FanW1,
                 label: "FANTASTIC",
-                color: color::JUDGMENT_FA_PLUS_WHITE_RGBA,
+                color: white_fa,
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Ex,
                 label: "EXCELLENT",
-                color: color::JUDGMENT_RGBA[1],
+                color: jr[1],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Gr,
                 label: "GREAT",
-                color: color::JUDGMENT_RGBA[2],
+                color: jr[2],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Dec,
                 label: "DECENT",
-                color: color::JUDGMENT_RGBA[3],
+                color: jr[3],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Wo,
                 label: "WAY OFF",
-                color: color::JUDGMENT_RGBA[4],
+                color: jr[4],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Miss,
                 label: "MISS",
-                color: color::JUDGMENT_RGBA[5],
+                color: jr[5],
                 show_early: false,
             },
         ]
@@ -213,37 +222,37 @@ pub fn build_column_judgments_pane(
             RowInfo {
                 kind: RowKind::FanCombined,
                 label: "FANTASTIC",
-                color: color::JUDGMENT_RGBA[0],
+                color: jr[0],
                 show_early: false,
             },
             RowInfo {
                 kind: RowKind::Ex,
                 label: "EXCELLENT",
-                color: color::JUDGMENT_RGBA[1],
+                color: jr[1],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Gr,
                 label: "GREAT",
-                color: color::JUDGMENT_RGBA[2],
+                color: jr[2],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Dec,
                 label: "DECENT",
-                color: color::JUDGMENT_RGBA[3],
+                color: jr[3],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Wo,
                 label: "WAY OFF",
-                color: color::JUDGMENT_RGBA[4],
+                color: jr[4],
                 show_early: true,
             },
             RowInfo {
                 kind: RowKind::Miss,
                 label: "MISS",
-                color: color::JUDGMENT_RGBA[5],
+                color: jr[5],
                 show_early: false,
             },
         ]
@@ -343,7 +352,7 @@ pub fn build_column_judgments_pane(
                 font::measure_line_width_logical(miso_font, "MISS", all_fonts) as f32 * label_zoom;
             let held_label_x = labels_right_x - miss_label_width - 4.0;
             let held_y = base_y + 144.0;
-            let miss_color = color::JUDGMENT_RGBA[5];
+            let miss_color = jr[5];
             actors.push(act!(text: font("miso"): settext("HELD".to_string()):
                 align(1.0, 0.5):
                 xy(held_label_x, held_y):

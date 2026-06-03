@@ -186,10 +186,10 @@ fn col_fail_lamp() -> [f32; 4] {
 fn lamp_judge_count_color(lamp_index: u8) -> [f32; 4] {
     // zmod uses SL.JudgmentColors["FA+"][lamp+1] for the single-digit overlay.
     match lamp_index {
-        1 => color::JUDGMENT_FA_PLUS_WHITE_RGBA,
-        2 => color::JUDGMENT_RGBA[1],
-        3 => color::JUDGMENT_RGBA[2],
-        4 => color::JUDGMENT_RGBA[3],
+        1 => color::DEFAULT_JUDGMENT_FA_PLUS_WHITE_RGBA,
+        2 => color::DEFAULT_JUDGMENT_RGBA[1],
+        3 => color::DEFAULT_JUDGMENT_RGBA[2],
+        4 => color::DEFAULT_JUDGMENT_RGBA[3],
         _ => [1.0; 4],
     }
 }
@@ -351,17 +351,17 @@ fn itl_rank_color(rank: u32, is_double_style: bool) -> [f32; 4] {
         [10, 25, 50, 75, 85]
     };
     if rank <= t1 {
-        color::JUDGMENT_RGBA[0]
+        color::DEFAULT_JUDGMENT_RGBA[0]
     } else if rank <= t2 {
-        color::JUDGMENT_RGBA[1]
+        color::DEFAULT_JUDGMENT_RGBA[1]
     } else if rank <= t3 {
-        color::JUDGMENT_RGBA[2]
+        color::DEFAULT_JUDGMENT_RGBA[2]
     } else if rank <= t4 {
-        color::JUDGMENT_RGBA[3]
+        color::DEFAULT_JUDGMENT_RGBA[3]
     } else if rank <= t5 {
-        color::JUDGMENT_RGBA[4]
+        color::DEFAULT_JUDGMENT_RGBA[4]
     } else {
-        color::JUDGMENT_RGBA[5]
+        color::DEFAULT_JUDGMENT_RGBA[5]
     }
 }
 
@@ -520,7 +520,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
     let grade_x_p2 = widescale(26.0, 47.0);
     let itl_rank_zoom = widescale(0.2, 0.3);
     let itl_ex_x = screen_width() / widescale(2.15, 2.14) - 40.0;
-    let itl_ex_color = color::JUDGMENT_RGBA[0];
+    let itl_ex_color = color::DEFAULT_JUDGMENT_RGBA[0];
     let itl_points_color = [1.0, 1.0, 1.0, 1.0];
     let joined_sides = usize::from(profile::is_session_side_joined(
         profile_data::PlayerSide::P1,
@@ -870,7 +870,7 @@ pub fn build(p: MusicWheelParams) -> Vec<Actor> {
                                         Some(0) => (col_quint_lamp(), true, Some(0u8)),
                                         Some(idx @ 1..=4) => {
                                             let color_index = (idx - 1) as usize;
-                                            let base = color::JUDGMENT_RGBA[color_index.min(5)];
+                                            let base = color::DEFAULT_JUDGMENT_RGBA[color_index.min(5)];
                                             (base, true, Some(idx))
                                         }
                                         Some(_) => (col_clear_lamp(), false, None),
@@ -1400,30 +1400,30 @@ mod tests {
 
     #[test]
     fn itl_rank_color_matches_arrow_cloud_single_thresholds() {
-        assert_eq!(itl_rank_color(10, false), color::JUDGMENT_RGBA[0]);
-        assert_eq!(itl_rank_color(11, false), color::JUDGMENT_RGBA[1]);
-        assert_eq!(itl_rank_color(25, false), color::JUDGMENT_RGBA[1]);
-        assert_eq!(itl_rank_color(26, false), color::JUDGMENT_RGBA[2]);
-        assert_eq!(itl_rank_color(50, false), color::JUDGMENT_RGBA[2]);
-        assert_eq!(itl_rank_color(51, false), color::JUDGMENT_RGBA[3]);
-        assert_eq!(itl_rank_color(75, false), color::JUDGMENT_RGBA[3]);
-        assert_eq!(itl_rank_color(76, false), color::JUDGMENT_RGBA[4]);
-        assert_eq!(itl_rank_color(85, false), color::JUDGMENT_RGBA[4]);
-        assert_eq!(itl_rank_color(86, false), color::JUDGMENT_RGBA[5]);
+        assert_eq!(itl_rank_color(10, false), color::DEFAULT_JUDGMENT_RGBA[0]);
+        assert_eq!(itl_rank_color(11, false), color::DEFAULT_JUDGMENT_RGBA[1]);
+        assert_eq!(itl_rank_color(25, false), color::DEFAULT_JUDGMENT_RGBA[1]);
+        assert_eq!(itl_rank_color(26, false), color::DEFAULT_JUDGMENT_RGBA[2]);
+        assert_eq!(itl_rank_color(50, false), color::DEFAULT_JUDGMENT_RGBA[2]);
+        assert_eq!(itl_rank_color(51, false), color::DEFAULT_JUDGMENT_RGBA[3]);
+        assert_eq!(itl_rank_color(75, false), color::DEFAULT_JUDGMENT_RGBA[3]);
+        assert_eq!(itl_rank_color(76, false), color::DEFAULT_JUDGMENT_RGBA[4]);
+        assert_eq!(itl_rank_color(85, false), color::DEFAULT_JUDGMENT_RGBA[4]);
+        assert_eq!(itl_rank_color(86, false), color::DEFAULT_JUDGMENT_RGBA[5]);
     }
 
     #[test]
     fn itl_rank_color_matches_arrow_cloud_double_thresholds() {
-        assert_eq!(itl_rank_color(5, true), color::JUDGMENT_RGBA[0]);
-        assert_eq!(itl_rank_color(6, true), color::JUDGMENT_RGBA[1]);
-        assert_eq!(itl_rank_color(20, true), color::JUDGMENT_RGBA[1]);
-        assert_eq!(itl_rank_color(21, true), color::JUDGMENT_RGBA[2]);
-        assert_eq!(itl_rank_color(40, true), color::JUDGMENT_RGBA[2]);
-        assert_eq!(itl_rank_color(41, true), color::JUDGMENT_RGBA[3]);
-        assert_eq!(itl_rank_color(50, true), color::JUDGMENT_RGBA[3]);
-        assert_eq!(itl_rank_color(51, true), color::JUDGMENT_RGBA[4]);
-        assert_eq!(itl_rank_color(55, true), color::JUDGMENT_RGBA[4]);
-        assert_eq!(itl_rank_color(56, true), color::JUDGMENT_RGBA[5]);
+        assert_eq!(itl_rank_color(5, true), color::DEFAULT_JUDGMENT_RGBA[0]);
+        assert_eq!(itl_rank_color(6, true), color::DEFAULT_JUDGMENT_RGBA[1]);
+        assert_eq!(itl_rank_color(20, true), color::DEFAULT_JUDGMENT_RGBA[1]);
+        assert_eq!(itl_rank_color(21, true), color::DEFAULT_JUDGMENT_RGBA[2]);
+        assert_eq!(itl_rank_color(40, true), color::DEFAULT_JUDGMENT_RGBA[2]);
+        assert_eq!(itl_rank_color(41, true), color::DEFAULT_JUDGMENT_RGBA[3]);
+        assert_eq!(itl_rank_color(50, true), color::DEFAULT_JUDGMENT_RGBA[3]);
+        assert_eq!(itl_rank_color(51, true), color::DEFAULT_JUDGMENT_RGBA[4]);
+        assert_eq!(itl_rank_color(55, true), color::DEFAULT_JUDGMENT_RGBA[4]);
+        assert_eq!(itl_rank_color(56, true), color::DEFAULT_JUDGMENT_RGBA[5]);
     }
 
     #[test]

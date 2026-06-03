@@ -83,3 +83,30 @@ fn push_line(content: &mut String, key: &str, value: impl std::fmt::Display) {
 fn push_bool(content: &mut String, key: &str, enabled: bool) {
     push_line(content, key, if enabled { 1 } else { 0 });
 }
+
+/// Emit the `[Theme]` INI keys for one judgement palette. `prefix` is the per-mode
+/// key prefix (e.g. `"JudgmentColorItg"`). All seven window slots (`W0`..`W5`,
+/// `Miss`) are written for every mode so the on-disk layout is uniform.
+fn push_judgment_palette(content: &mut String, prefix: &str, palette: &JudgmentPalette) {
+    for window in JudgmentWindow::ALL {
+        push_line(
+            content,
+            &format!("{prefix}{}", window.ini_suffix()),
+            palette.color(window).to_hex(),
+        );
+    }
+}
+
+/// Emit all three judgement palettes (ITG / FA+ / HEX) plus the single global
+/// Hard-EX score accent into the `[Theme]` section.
+fn push_judgment_palettes(content: &mut String, cfg: &Config) {
+    for mode in JudgmentMode::ALL {
+        let prefix = format!("JudgmentColor{}", mode.ini_infix());
+        push_judgment_palette(content, &prefix, &cfg.judgment.palette(mode));
+    }
+    push_line(
+        content,
+        "JudgmentColorHardEx",
+        cfg.judgment.hard_ex_score.to_hex(),
+    );
+}

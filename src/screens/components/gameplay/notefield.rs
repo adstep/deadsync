@@ -2503,20 +2503,26 @@ fn column_flash_alpha(started_at: f32, current_time: f32, grade: JudgeGrade) -> 
 }
 
 #[inline(always)]
-fn column_flash_color(grade: JudgeGrade, blue_fantastic: bool, alpha: f32) -> [f32; 4] {
+fn column_flash_color(
+    grade: JudgeGrade,
+    blue_fantastic: bool,
+    mode: color::JudgmentMode,
+    alpha: f32,
+) -> [f32; 4] {
+    let jr = color::judgment_rgba(mode);
     let mut rgba = match grade {
         JudgeGrade::Fantastic => {
             if blue_fantastic {
-                color::JUDGMENT_RGBA[0]
+                jr[0]
             } else {
-                [1.0, 1.0, 1.0, 1.0]
+                color::judgment_white_fantastic_rgba(mode)
             }
         }
-        JudgeGrade::Excellent => color::JUDGMENT_RGBA[1],
-        JudgeGrade::Great => color::JUDGMENT_RGBA[2],
-        JudgeGrade::Decent => color::JUDGMENT_RGBA[3],
-        JudgeGrade::WayOff => color::JUDGMENT_RGBA[4],
-        JudgeGrade::Miss => color::JUDGMENT_RGBA[5],
+        JudgeGrade::Excellent => jr[1],
+        JudgeGrade::Great => jr[2],
+        JudgeGrade::Decent => jr[3],
+        JudgeGrade::WayOff => jr[4],
+        JudgeGrade::Miss => jr[5],
     };
     rgba[3] = alpha;
     rgba
@@ -2557,19 +2563,21 @@ const fn timing_window_from_num(n: usize) -> TimingWindow {
 
 #[inline(always)]
 fn error_bar_color_for_window(window: TimingWindow, show_fa_plus_window: bool) -> [f32; 4] {
+    let mode = color::gameplay_judgment_mode(show_fa_plus_window);
+    let jr = color::judgment_rgba(mode);
     match window {
-        TimingWindow::W0 => color::JUDGMENT_RGBA[0],
+        TimingWindow::W0 => jr[0],
         TimingWindow::W1 => {
             if show_fa_plus_window {
-                color::JUDGMENT_FA_PLUS_WHITE_RGBA
+                color::judgment_white_fantastic_rgba(mode)
             } else {
-                color::JUDGMENT_RGBA[0]
+                jr[0]
             }
         }
-        TimingWindow::W2 => color::JUDGMENT_RGBA[1],
-        TimingWindow::W3 => color::JUDGMENT_RGBA[2],
-        TimingWindow::W4 => color::JUDGMENT_RGBA[3],
-        TimingWindow::W5 => color::JUDGMENT_RGBA[4],
+        TimingWindow::W2 => jr[1],
+        TimingWindow::W3 => jr[2],
+        TimingWindow::W4 => jr[3],
+        TimingWindow::W5 => jr[4],
     }
 }
 
@@ -3415,16 +3423,17 @@ fn zmod_indicator_mode(profile: &profile_data::Profile) -> profile_data::MiniInd
 
 #[inline(always)]
 fn zmod_indicator_default_color(score_percent: f64) -> [f32; 4] {
+    let jr = color::judgment_rgba(color::JudgmentMode::Itg);
     if score_percent >= 96.0 {
-        color::JUDGMENT_RGBA[0] // Fantastic
+        jr[0] // Fantastic
     } else if score_percent >= 89.0 {
-        color::JUDGMENT_RGBA[1] // Excellent
+        jr[1] // Excellent
     } else if score_percent >= 80.0 {
-        color::JUDGMENT_RGBA[2] // Great
+        jr[2] // Great
     } else if score_percent >= 68.0 {
-        color::JUDGMENT_RGBA[3] // Decent
+        jr[3] // Decent
     } else {
-        color::JUDGMENT_RGBA[5] // Miss
+        jr[5] // Miss
     }
 }
 
@@ -4893,6 +4902,7 @@ pub fn build_bundles(
         if profile.column_flash_on_miss {
             let lane_width = ScrollSpeedSetting::ARROW_SPACING * field_zoom;
             let flash_height = column_cue_height();
+            let flash_mode = color::gameplay_judgment_mode(profile.show_fa_plus_window);
             for (i, flash_opt) in state.column_flashes[col_start..col_end].iter().enumerate() {
                 let Some(flash) = flash_opt else {
                     continue;
@@ -4903,7 +4913,7 @@ pub fn build_bundles(
                     continue;
                 }
                 let x = playfield_center_x + ns.column_xs[i] as f32 * spacing_mult * field_zoom;
-                let color = column_flash_color(flash.grade, flash.blue_fantastic, alpha);
+                let color = column_flash_color(flash.grade, flash.blue_fantastic, flash_mode, alpha);
                 if column_dirs[i] < 0.0 {
                     let reverse_y =
                         column_cue_reverse_top_y(lane_width, flash_height, notefield_offset_y);

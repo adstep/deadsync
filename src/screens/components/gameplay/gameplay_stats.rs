@@ -28,7 +28,7 @@ const TIME_PREWARM_CAP_S: u32 = 600;
 const STEP_STATS_BANNER_W: f32 = 418.0;
 const STEP_STATS_BANNER_H: f32 = 164.0;
 const STEP_STATS_SONG_BANNER_ZOOM: f32 = 0.4;
-const DISABLED_WINDOW_RGBA: [f32; 4] = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
+const DISABLED_WINDOW_RGBA: [f32; 4] = color::DEFAULT_JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
 
 thread_local! {
     static PADDED_NUM_CACHE: RefCell<TextCache<(u32, u8)>> = RefCell::new(HashMap::with_capacity(2048));
@@ -60,31 +60,13 @@ struct LabeledColor {
     color: [f32; 4],
 }
 
-const JUDGMENT_INFO: [LabeledColor; 6] = [
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentFantastic"),
-        color: color::JUDGMENT_RGBA[0],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentExcellent"),
-        color: color::JUDGMENT_RGBA[1],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentGreat"),
-        color: color::JUDGMENT_RGBA[2],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentDecent"),
-        color: color::JUDGMENT_RGBA[3],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentWayOff"),
-        color: color::JUDGMENT_RGBA[4],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentMiss"),
-        color: color::JUDGMENT_RGBA[5],
-    },
+const JUDGMENT_LABELS: [LookupKey; 6] = [
+    lookup_key("Gameplay", "JudgmentFantastic"),
+    lookup_key("Gameplay", "JudgmentExcellent"),
+    lookup_key("Gameplay", "JudgmentGreat"),
+    lookup_key("Gameplay", "JudgmentDecent"),
+    lookup_key("Gameplay", "JudgmentWayOff"),
+    lookup_key("Gameplay", "JudgmentMiss"),
 ];
 
 const STEP_INFO_LABELS: [LookupKey; 4] = [
@@ -115,9 +97,9 @@ fn holds_mines_rolls_label(index: usize) -> Arc<str> {
 }
 
 fn judgment_label(index: usize) -> Arc<str> {
-    JUDGMENT_INFO
+    JUDGMENT_LABELS
         .get(index)
-        .map(|info| info.label.get())
+        .map(|key| key.get())
         .unwrap_or_else(|| Arc::from(""))
 }
 
@@ -1084,24 +1066,11 @@ pub fn push_versus_step_stats(
                             Some(blue_window_ms),
                         );
                         let counts = [wc.w0, wc.w1, wc.w2, wc.w3, wc.w4, wc.w5, wc.miss];
-                        let bright_colors = [
-                            color::JUDGMENT_RGBA[0],
-                            color::JUDGMENT_FA_PLUS_WHITE_RGBA,
-                            color::JUDGMENT_RGBA[1],
-                            color::JUDGMENT_RGBA[2],
-                            color::JUDGMENT_RGBA[3],
-                            color::JUDGMENT_RGBA[4],
-                            color::JUDGMENT_RGBA[5],
-                        ];
-                        let dim_colors = [
-                            color::JUDGMENT_DIM_RGBA[0],
-                            color::JUDGMENT_FA_PLUS_WHITE_GAMEPLAY_DIM_RGBA,
-                            color::JUDGMENT_DIM_RGBA[1],
-                            color::JUDGMENT_DIM_RGBA[2],
-                            color::JUDGMENT_DIM_RGBA[3],
-                            color::JUDGMENT_DIM_RGBA[4],
-                            color::JUDGMENT_DIM_RGBA[5],
-                        ];
+                        let mode = color::JudgmentMode::FaPlus;
+                        let bright_colors = color::JudgmentWindow::ALL
+                            .map(|w| color::judgment_window_rgba(mode, w));
+                        let dim_colors = color::JudgmentWindow::ALL
+                            .map(|w| color::judgment_window_gameplay_dim_rgba(mode, w));
                         for (row_i, count) in counts.iter().copied().enumerate() {
                             let disabled = split_row_disabled(disabled_windows, row_i);
                             let y = group_origin_y
@@ -1159,12 +1128,12 @@ pub fn push_versus_step_stats(
                             let dim_color = if disabled {
                                 DISABLED_WINDOW_RGBA
                             } else {
-                                color::JUDGMENT_DIM_RGBA[row_i]
+                                color::judgment_dim_rgba(color::JudgmentMode::Itg)[row_i]
                             };
                             let bright_color = if disabled {
                                 DISABLED_WINDOW_RGBA
                             } else {
-                                color::JUDGMENT_RGBA[row_i]
+                                color::judgment_rgba(color::JudgmentMode::Itg)[row_i]
                             };
                             push_versus_count_texts(
                                 actors,
@@ -1206,7 +1175,7 @@ pub fn push_versus_step_stats(
                     )
                     .max(0.0),
                 ),
-                color::JUDGMENT_RGBA[0],
+                color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0),
             )
         } else {
             let score_percent = gameplay::display_gameplay_itg_score_percent(
@@ -1234,7 +1203,7 @@ pub fn push_versus_step_stats(
                 player_idx,
                 player_profile.score_display_mode,
             );
-            let hex = color::HARD_EX_SCORE_RGBA;
+            let hex = color::hard_ex_score_rgba();
             if player_idx == 0 {
                 actors.push(act!(text:
                     font(current_machine_font_key(FontRole::Numbers)):
@@ -1421,6 +1390,8 @@ pub fn push_double_step_stats(
                         gameplay::display_judgment_count(state, 0, JudgeGrade::Miss),
                     ];
                     let labels: Vec<Arc<str>> = (0..6).map(judgment_label).collect();
+                    let jr = color::judgment_rgba(color::JudgmentMode::Itg);
+                    let jdr = color::judgment_dim_rgba(color::JudgmentMode::Itg);
                     for row_i in 0..labels.len() {
                         let disabled = standard_row_disabled(disabled_windows, row_i);
                         let local_y = y_base + (row_i as f32 * row_height);
@@ -1429,12 +1400,12 @@ pub fn push_double_step_stats(
                         let bright = if disabled {
                             DISABLED_WINDOW_RGBA
                         } else {
-                            color::JUDGMENT_RGBA[row_i]
+                            jr[row_i]
                         };
                         let dim = if disabled {
                             DISABLED_WINDOW_RGBA
                         } else {
-                            color::JUDGMENT_DIM_RGBA[row_i]
+                            jdr[row_i]
                         };
                         let count = counts[row_i];
                         let (dim_text, bright_text) =
@@ -1488,24 +1459,11 @@ pub fn push_double_step_stats(
                 } else {
                     let wc = gameplay::display_window_counts(state, 0, Some(blue_window_ms));
                     let counts = [wc.w0, wc.w1, wc.w2, wc.w3, wc.w4, wc.w5, wc.miss];
-                    let bright_colors = [
-                        color::JUDGMENT_RGBA[0],
-                        color::JUDGMENT_FA_PLUS_WHITE_RGBA,
-                        color::JUDGMENT_RGBA[1],
-                        color::JUDGMENT_RGBA[2],
-                        color::JUDGMENT_RGBA[3],
-                        color::JUDGMENT_RGBA[4],
-                        color::JUDGMENT_RGBA[5],
-                    ];
-                    let dim_colors = [
-                        color::JUDGMENT_DIM_RGBA[0],
-                        color::JUDGMENT_FA_PLUS_WHITE_GAMEPLAY_DIM_RGBA,
-                        color::JUDGMENT_DIM_RGBA[1],
-                        color::JUDGMENT_DIM_RGBA[2],
-                        color::JUDGMENT_DIM_RGBA[3],
-                        color::JUDGMENT_DIM_RGBA[4],
-                        color::JUDGMENT_DIM_RGBA[5],
-                    ];
+                    let mode = color::JudgmentMode::FaPlus;
+                    let bright_colors =
+                        color::JudgmentWindow::ALL.map(|w| color::judgment_window_rgba(mode, w));
+                    let dim_colors = color::JudgmentWindow::ALL
+                        .map(|w| color::judgment_window_gameplay_dim_rgba(mode, w));
 
                     let fa_label = judgment_label(0);
                     let labels = [
@@ -1743,8 +1701,12 @@ static JUDGMENT_ORDER: [JudgeGrade; 6] = [
     JudgeGrade::Miss,
 ];
 
-fn judgment_info(grade: JudgeGrade) -> &'static LabeledColor {
-    &JUDGMENT_INFO[judgment::judge_grade_ix(grade)]
+fn judgment_info(grade: JudgeGrade, mode: color::JudgmentMode) -> LabeledColor {
+    let ix = judgment::judge_grade_ix(grade);
+    LabeledColor {
+        label: JUDGMENT_LABELS[ix],
+        color: color::judgment_rgba(mode)[ix],
+    }
 }
 
 fn build_banner(
@@ -2391,7 +2353,7 @@ fn build_side_pane(
         if show_judgments && show_standard_judgments {
             // Standard ITG-style rows: Fantastic..Miss using aggregate grade counts.
             for (index, grade) in JUDGMENT_ORDER.iter().enumerate() {
-                let info = judgment_info(*grade);
+                let info = judgment_info(*grade, color::JudgmentMode::Itg);
                 let count = gameplay::display_judgment_count(state, player_idx, *grade);
                 let disabled = standard_row_disabled(disabled_windows, index);
 
@@ -2406,7 +2368,7 @@ fn build_side_pane(
                 let dim = if disabled {
                     DISABLED_WINDOW_RGBA
                 } else {
-                    color::JUDGMENT_DIM_RGBA[index]
+                    color::judgment_dim_rgba(color::JudgmentMode::Itg)[index]
                 };
                 let (dim_text, bright_text) = padded_runs_for_window(count, digits, disabled);
                 let dim_len = dim_text.len() as f32;
@@ -2474,34 +2436,20 @@ fn build_side_pane(
             // FA+ mode: split Fantastic into W0 (blue) and W1 (white) using per-note windows,
             // matching Simply Love's FA+ Step Statistics semantics.
             let wc = gameplay::display_window_counts(state, player_idx, Some(blue_window_ms));
-            let fantastic_color = judgment_info(JudgeGrade::Fantastic).color;
-            let excellent_color = judgment_info(JudgeGrade::Excellent).color;
-            let great_color = judgment_info(JudgeGrade::Great).color;
-            let decent_color = judgment_info(JudgeGrade::Decent).color;
-            let wayoff_color = judgment_info(JudgeGrade::WayOff).color;
-            let miss_color = judgment_info(JudgeGrade::Miss).color;
+            let mode = color::JudgmentMode::FaPlus;
+            // Bright/dim colors in JudgmentWindow::ALL order: W0(blue), W1(white),
+            // W2..W5, Miss. `label_index` collapses the two Fantastic sub-bands
+            // (W0/W1) onto the single "Fantastic" label row.
+            let bright_colors =
+                color::JudgmentWindow::ALL.map(|w| color::judgment_window_rgba(mode, w));
+            let dim_colors = color::JudgmentWindow::ALL
+                .map(|w| color::judgment_window_gameplay_dim_rgba(mode, w));
+            let counts = [wc.w0, wc.w1, wc.w2, wc.w3, wc.w4, wc.w5, wc.miss];
+            let label_indices = [0usize, 0, 1, 2, 3, 4, 5];
 
-            // Dim palette for FA+ side pane: reuse gameplay dim colors for Fantastic..Miss,
-            // and a dedicated dim color for the white FA+ row.
-            let dim_fantastic = color::JUDGMENT_DIM_RGBA[0];
-            let dim_excellent = color::JUDGMENT_DIM_RGBA[1];
-            let dim_great = color::JUDGMENT_DIM_RGBA[2];
-            let dim_decent = color::JUDGMENT_DIM_RGBA[3];
-            let dim_wayoff = color::JUDGMENT_DIM_RGBA[4];
-            let dim_miss = color::JUDGMENT_DIM_RGBA[5];
-            let dim_white_fa = color::JUDGMENT_FA_PLUS_WHITE_GAMEPLAY_DIM_RGBA;
-
-            let white_fa_color = color::JUDGMENT_FA_PLUS_WHITE_RGBA;
-
-            let rows: [(usize, [f32; 4], [f32; 4], u32); 7] = [
-                (0, fantastic_color, dim_fantastic, wc.w0),
-                (0, white_fa_color, dim_white_fa, wc.w1),
-                (1, excellent_color, dim_excellent, wc.w2),
-                (2, great_color, dim_great, wc.w3),
-                (3, decent_color, dim_decent, wc.w4),
-                (4, wayoff_color, dim_wayoff, wc.w5),
-                (5, miss_color, dim_miss, wc.miss),
-            ];
+            let rows: [(usize, [f32; 4], [f32; 4], u32); 7] = core::array::from_fn(|i| {
+                (label_indices[i], bright_colors[i], dim_colors[i], counts[i])
+            });
 
             for (index, (label_index, bright, dim, count)) in rows.iter().enumerate() {
                 let disabled = split_row_disabled(disabled_windows, index);

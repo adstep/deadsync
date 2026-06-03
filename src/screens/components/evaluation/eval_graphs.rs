@@ -21,6 +21,24 @@ pub enum ScatterPlotScale {
 const HIST_BIN_MS: f32 = 1.0;
 
 #[inline(always)]
+fn mode_for_timing_scale(scale: TimingHistogramScale) -> color::JudgmentMode {
+    match scale {
+        TimingHistogramScale::Itg => color::JudgmentMode::Itg,
+        TimingHistogramScale::Ex => color::JudgmentMode::FaPlus,
+        TimingHistogramScale::HardEx => color::JudgmentMode::Hex,
+    }
+}
+
+#[inline(always)]
+fn mode_for_scatter_scale(scale: ScatterPlotScale) -> color::JudgmentMode {
+    match scale {
+        ScatterPlotScale::Ex => color::JudgmentMode::FaPlus,
+        ScatterPlotScale::HardEx => color::JudgmentMode::Hex,
+        _ => color::JudgmentMode::Itg,
+    }
+}
+
+#[inline(always)]
 fn hard_ex_display_window_ms(worst_window_ms: f32) -> f32 {
     worst_window_ms.min(timing::effective_windows_ms()[1])
 }
@@ -40,57 +58,59 @@ fn color_for_abs_ms(
     timing_windows_ms: [f32; 5],
     scale: TimingHistogramScale,
 ) -> [f32; 4] {
+    // The HardEx innermost band is the global H.EX score accent, not a
+    // judgement window, so it can't go through the window lookup below.
+    if matches!(scale, TimingHistogramScale::HardEx) && abs_ms <= timing::FA_PLUS_W010_MS {
+        return color::hard_ex_score_rgba();
+    }
+    let window = window_for_abs_ms(abs_ms, timing_windows_ms, scale);
+    color::judgment_window_rgba(mode_for_timing_scale(scale), window)
+}
+
+/// Classify a timing error (absolute ms) into the judgement *display* window it
+/// is colored with, for a given histogram scale. ITG does not split Fantastic,
+/// so its whole Fantastic band is shown with `W0`; Ex/HardEx split it into the
+/// `W0` (inner) and `W1` (outer white) sub-bands.
+#[inline(always)]
+fn window_for_abs_ms(
+    abs_ms: f32,
+    timing_windows_ms: [f32; 5],
+    scale: TimingHistogramScale,
+) -> color::JudgmentWindow {
+    use color::JudgmentWindow::*;
     let w1 = timing_windows_ms[0];
     let w2 = timing_windows_ms[1];
     let w3 = timing_windows_ms[2];
     let w4 = timing_windows_ms[3];
     let w0 = timing::FA_PLUS_W0_MS;
-    let w010 = timing::FA_PLUS_W010_MS;
 
     match scale {
         TimingHistogramScale::Itg => {
             if abs_ms <= w1 {
-                color::JUDGMENT_RGBA[0]
+                W0
             } else if abs_ms <= w2 {
-                color::JUDGMENT_RGBA[1]
+                W2
             } else if abs_ms <= w3 {
-                color::JUDGMENT_RGBA[2]
+                W3
             } else if abs_ms <= w4 {
-                color::JUDGMENT_RGBA[3]
+                W4
             } else {
-                color::JUDGMENT_RGBA[4]
+                W5
             }
         }
-        TimingHistogramScale::Ex => {
+        TimingHistogramScale::Ex | TimingHistogramScale::HardEx => {
             if abs_ms <= w0 {
-                color::JUDGMENT_RGBA[0]
+                W0
             } else if abs_ms <= w1 {
-                color::JUDGMENT_FA_PLUS_WHITE_RGBA
+                W1
             } else if abs_ms <= w2 {
-                color::JUDGMENT_RGBA[1]
+                W2
             } else if abs_ms <= w3 {
-                color::JUDGMENT_RGBA[2]
+                W3
             } else if abs_ms <= w4 {
-                color::JUDGMENT_RGBA[3]
+                W4
             } else {
-                color::JUDGMENT_RGBA[4]
-            }
-        }
-        TimingHistogramScale::HardEx => {
-            if abs_ms <= w010 {
-                color::HARD_EX_SCORE_RGBA
-            } else if abs_ms <= w0 {
-                color::JUDGMENT_RGBA[0]
-            } else if abs_ms <= w1 {
-                color::JUDGMENT_FA_PLUS_WHITE_RGBA
-            } else if abs_ms <= w2 {
-                color::JUDGMENT_RGBA[1]
-            } else if abs_ms <= w3 {
-                color::JUDGMENT_RGBA[2]
-            } else if abs_ms <= w4 {
-                color::JUDGMENT_RGBA[3]
-            } else {
-                color::JUDGMENT_RGBA[4]
+                W5
             }
         }
     }
@@ -145,7 +165,7 @@ fn color_for_scatter(
 fn miss_color_for_scatter(sp: &ScatterPoint, scale: ScatterPlotScale) -> [f32; 4] {
     match scale {
         ScatterPlotScale::Itg | ScatterPlotScale::Ex | ScatterPlotScale::HardEx => {
-            [1.0, 0.0, 0.0, 1.0]
+            color::judgment_window_rgba(mode_for_scatter_scale(scale), color::JudgmentWindow::Miss)
         }
         ScatterPlotScale::Arrow => color_for_arrow(sp.direction_code),
         ScatterPlotScale::Foot => color_for_foot(sp.is_stream, sp.is_left_foot),
@@ -210,33 +230,37 @@ pub fn build_scatter_background_mesh(
     let timing_windows_ms = timing::effective_windows_ms();
     let w0 = timing::FA_PLUS_W0_MS;
     let w010 = timing::FA_PLUS_W010_MS;
+    let mode = mode_for_scatter_scale(scale);
+    let jr = color::judgment_rgba(mode);
+    let white = color::judgment_white_fantastic_rgba(mode);
+    let pink = color::hard_ex_score_rgba();
 
     // (outer_ms, color) ordered innermost to outermost. The inner edge of
     // each band is the outer edge of the previous band (0 for the first).
     let bands: &[(f32, [f32; 4])] = match scale {
         ScatterPlotScale::Itg => &[
-            (timing_windows_ms[0], color::JUDGMENT_RGBA[0]),
-            (timing_windows_ms[1], color::JUDGMENT_RGBA[1]),
-            (timing_windows_ms[2], color::JUDGMENT_RGBA[2]),
-            (timing_windows_ms[3], color::JUDGMENT_RGBA[3]),
-            (timing_windows_ms[4], color::JUDGMENT_RGBA[4]),
+            (timing_windows_ms[0], jr[0]),
+            (timing_windows_ms[1], jr[1]),
+            (timing_windows_ms[2], jr[2]),
+            (timing_windows_ms[3], jr[3]),
+            (timing_windows_ms[4], jr[4]),
         ],
         ScatterPlotScale::Ex => &[
-            (w0, color::JUDGMENT_RGBA[0]),
-            (timing_windows_ms[0], color::JUDGMENT_FA_PLUS_WHITE_RGBA),
-            (timing_windows_ms[1], color::JUDGMENT_RGBA[1]),
-            (timing_windows_ms[2], color::JUDGMENT_RGBA[2]),
-            (timing_windows_ms[3], color::JUDGMENT_RGBA[3]),
-            (timing_windows_ms[4], color::JUDGMENT_RGBA[4]),
+            (w0, jr[0]),
+            (timing_windows_ms[0], white),
+            (timing_windows_ms[1], jr[1]),
+            (timing_windows_ms[2], jr[2]),
+            (timing_windows_ms[3], jr[3]),
+            (timing_windows_ms[4], jr[4]),
         ],
         ScatterPlotScale::HardEx => &[
-            (w010, color::HARD_EX_SCORE_RGBA),
-            (w0, color::JUDGMENT_RGBA[0]),
-            (timing_windows_ms[0], color::JUDGMENT_FA_PLUS_WHITE_RGBA),
-            (timing_windows_ms[1], color::JUDGMENT_RGBA[1]),
-            (timing_windows_ms[2], color::JUDGMENT_RGBA[2]),
-            (timing_windows_ms[3], color::JUDGMENT_RGBA[3]),
-            (timing_windows_ms[4], color::JUDGMENT_RGBA[4]),
+            (w010, pink),
+            (w0, jr[0]),
+            (timing_windows_ms[0], white),
+            (timing_windows_ms[1], jr[1]),
+            (timing_windows_ms[2], jr[2]),
+            (timing_windows_ms[3], jr[3]),
+            (timing_windows_ms[4], jr[4]),
         ],
         ScatterPlotScale::Arrow | ScatterPlotScale::Foot => return Vec::new(),
     };

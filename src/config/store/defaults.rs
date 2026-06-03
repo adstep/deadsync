@@ -513,5 +513,6 @@ fn push_default_theme(content: &mut String, default: &Config) {
         "NullOrDieFullSpectrogram",
         default.null_or_die_full_spectrogram,
     );
+    push_judgment_palettes(content, default);
     content.push('\n');
 }

@@ -2,7 +2,7 @@ use crate::act;
 use crate::assets::AssetManager;
 use crate::assets::{FontRole, current_machine_font_key_for_text};
 use crate::engine::present::actors::{Actor, SizeSpec, TextAttribute};
-use crate::engine::present::color::{self, JUDGMENT_RGBA};
+use crate::engine::present::color::{self, DEFAULT_JUDGMENT_RGBA};
 use crate::engine::present::font;
 use crate::engine::space::{screen_center_x, screen_center_y, screen_height};
 use crate::screens::components::shared::banner as shared_banner;
@@ -435,9 +435,9 @@ fn build_body_attributes(text: &str) -> Vec<TextAttribute> {
 
     if let Some(start) = text.find("Clear Type: ") {
         for (clear, color) in [
-            ("FC", JUDGMENT_RGBA[2]),
-            ("FEC", JUDGMENT_RGBA[1]),
-            ("FFC", JUDGMENT_RGBA[0]),
+            ("FC", DEFAULT_JUDGMENT_RGBA[2]),
+            ("FEC", DEFAULT_JUDGMENT_RGBA[1]),
+            ("FFC", DEFAULT_JUDGMENT_RGBA[0]),
             ("FBFC", ITL_PINK),
         ] {
             let mut search_from = start;
@@ -450,7 +450,7 @@ fn build_body_attributes(text: &str) -> Vec<TextAttribute> {
     }
 
     if let Some(start) = text.find("New ") {
-        for (grade, color) in [("Quad", JUDGMENT_RGBA[0]), ("Quint", ITL_PINK)] {
+        for (grade, color) in [("Quad", DEFAULT_JUDGMENT_RGBA[0]), ("Quint", ITL_PINK)] {
             let mut search_from = start;
             while let Some(found) = text[search_from..].find(grade) {
                 let byte_start = search_from + found;

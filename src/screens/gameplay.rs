@@ -7920,7 +7920,7 @@ pub fn push_actors(
                     );
                     (
                         cached_score_2dp(ex_percent.max(0.0)),
-                        color::JUDGMENT_RGBA[0],
+                        color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0),
                     )
                 } else {
                     let score_percent = crate::game::gameplay::display_gameplay_itg_score_percent(
@@ -7949,7 +7949,7 @@ pub fn push_actors(
                             player_idx,
                             profile.score_display_mode,
                         );
-                    let hex = color::HARD_EX_SCORE_RGBA;
+                    let hex = color::hard_ex_score_rgba();
                     let (hard_ex_x, hard_ex_y) = if let Some(pos) = step_stats_score_pos {
                         (pos.hard_ex_x, pos.hard_ex_y)
                     } else if single_score_swapped {

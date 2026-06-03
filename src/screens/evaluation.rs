@@ -84,11 +84,11 @@ const SUBMIT_FOOTER_SPRITE_FPS: f32 = 30.0;
 const SUBMIT_FOOTER_TEXT_ZOOM: f32 = 0.8;
 const SUBMIT_FOOTER_SPRITE_PX: f32 = 16.2;
 // Semantic tints for submit footer status icons. Indexes into
-// `color::JUDGMENT_RGBA` so the icons share the gameplay judgment palette.
-const SUBMIT_FOOTER_TINT_OK: [f32; 4] = color::JUDGMENT_RGBA[2]; // Great (green)
-const SUBMIT_FOOTER_TINT_AUTO_RETRY: [f32; 4] = color::JUDGMENT_RGBA[1]; // Excellent (amber)
-const SUBMIT_FOOTER_TINT_MANUAL_RETRY: [f32; 4] = color::JUDGMENT_RGBA[4]; // Way Off (orange-tan)
-const SUBMIT_FOOTER_TINT_ERROR: [f32; 4] = color::JUDGMENT_RGBA[5]; // Miss (red)
+// `color::DEFAULT_JUDGMENT_RGBA` so the icons share the gameplay judgment palette.
+const SUBMIT_FOOTER_TINT_OK: [f32; 4] = color::DEFAULT_JUDGMENT_RGBA[2]; // Great (green)
+const SUBMIT_FOOTER_TINT_AUTO_RETRY: [f32; 4] = color::DEFAULT_JUDGMENT_RGBA[1]; // Excellent (amber)
+const SUBMIT_FOOTER_TINT_MANUAL_RETRY: [f32; 4] = color::DEFAULT_JUDGMENT_RGBA[4]; // Way Off (orange-tan)
+const SUBMIT_FOOTER_TINT_ERROR: [f32; 4] = color::DEFAULT_JUDGMENT_RGBA[5]; // Miss (red)
 const SUBMIT_FOOTER_TINT_NEUTRAL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const MACHINE_RECORD_ROWS: usize = 10;
 const GS_RECORD_ROWS: usize = 10;
@@ -1734,6 +1734,20 @@ const fn eval_pane_default_for(show_fa_plus_pane: bool) -> EvalPane {
         EvalPane::FaPlus
     } else {
         EvalPane::Standard
+    }
+}
+
+/// Select the judgement palette mode for the pane currently being drawn. The
+/// mode follows the *visual context* (which pane is on screen), not raw profile
+/// flags, so the Standard/Timing panes always render ITG even when the profile
+/// has FA+/Hard-EX scoring enabled.
+#[inline]
+pub(crate) fn mode_for_eval_pane(pane: EvalPane) -> color::JudgmentMode {
+    use color::JudgmentMode;
+    match pane {
+        EvalPane::FaPlus | EvalPane::TimingEx => JudgmentMode::FaPlus,
+        EvalPane::HardEx | EvalPane::TimingHardEx => JudgmentMode::Hex,
+        _ => JudgmentMode::Itg,
     }
 }
 

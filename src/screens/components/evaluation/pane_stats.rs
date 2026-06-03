@@ -16,7 +16,7 @@ use super::utils::pane_origin_x;
 
 // Simply Love metrics.ini [RollingNumbersEvaluation]: ApproachSeconds=1
 const ROLLING_NUMBERS_APPROACH_SECONDS: f32 = 1.0;
-const DISABLED_WINDOW_RGBA: [f32; 4] = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
+const DISABLED_WINDOW_RGBA: [f32; 4] = color::DEFAULT_JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
 
 #[inline(always)]
 pub(crate) const fn rolling_numbers_approach_seconds() -> f32 {
@@ -32,37 +32,13 @@ static JUDGMENT_ORDER: [JudgeGrade; 6] = [
     JudgeGrade::Miss,
 ];
 
-#[derive(Clone, Copy)]
-struct LabeledColor {
-    label: LookupKey,
-    color: [f32; 4],
-}
-
-const JUDGMENT_INFO: [LabeledColor; 6] = [
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentFantastic"),
-        color: color::JUDGMENT_RGBA[0],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentExcellent"),
-        color: color::JUDGMENT_RGBA[1],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentGreat"),
-        color: color::JUDGMENT_RGBA[2],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentDecent"),
-        color: color::JUDGMENT_RGBA[3],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentWayOff"),
-        color: color::JUDGMENT_RGBA[4],
-    },
-    LabeledColor {
-        label: lookup_key("Gameplay", "JudgmentMiss"),
-        color: color::JUDGMENT_RGBA[5],
-    },
+const JUDGMENT_LABELS: [LookupKey; 6] = [
+    lookup_key("Gameplay", "JudgmentFantastic"),
+    lookup_key("Gameplay", "JudgmentExcellent"),
+    lookup_key("Gameplay", "JudgmentGreat"),
+    lookup_key("Gameplay", "JudgmentDecent"),
+    lookup_key("Gameplay", "JudgmentWayOff"),
+    lookup_key("Gameplay", "JudgmentMiss"),
 ];
 
 const RADAR_LABELS: [LookupKey; 4] = [
@@ -98,9 +74,9 @@ fn digit_text(digit: u8) -> Arc<str> {
 
 #[inline(always)]
 fn judgment_label_text(index: usize) -> Arc<str> {
-    JUDGMENT_INFO
+    JUDGMENT_LABELS
         .get(index)
-        .map(|info| info.label.get())
+        .map(|label| label.get())
         .unwrap_or_else(|| Arc::from(""))
 }
 
@@ -210,6 +186,12 @@ pub(crate) fn build_stats_pane(
     // only selects which pane is shown first.
     let show_fa_plus_pane = matches!(pane, EvalPane::FaPlus | EvalPane::HardEx);
     let show_10ms_blue = matches!(pane, EvalPane::HardEx);
+    // Resolve the judgement palette once for this pane's visual context.
+    let mode = crate::screens::evaluation::mode_for_eval_pane(pane);
+    let jr = color::judgment_rgba(mode);
+    let jde = color::judgment_dim_eval_rgba(mode);
+    let white_fa = color::judgment_white_fantastic_rgba(mode);
+    let dim_white_fa = color::judgment_white_fantastic_eval_dim_rgba(mode);
     let wc = if show_10ms_blue {
         score_info.window_counts_10ms
     } else {
@@ -264,19 +246,19 @@ pub(crate) fn build_stats_pane(
         let mut digits = [0u8; 10];
 
         if show_standard_judgments {
-            for (i, info) in JUDGMENT_INFO.iter().enumerate() {
+            for i in 0..JUDGMENT_LABELS.len() {
                 let target_count = judgment_counts[i];
                 let count = rolling_number_value(target_count, elapsed_s);
                 let disabled = standard_row_disabled(score_info.disabled_timing_windows, i);
                 let bright_color = if disabled {
                     DISABLED_WINDOW_RGBA
                 } else {
-                    info.color
+                    jr[i]
                 };
                 let dim_color = if disabled {
                     DISABLED_WINDOW_RGBA
                 } else {
-                    color::JUDGMENT_DIM_EVAL_RGBA[i]
+                    jde[i]
                 };
 
                 // Label
@@ -308,18 +290,16 @@ pub(crate) fn build_stats_pane(
         } else {
             // Dim colors: reuse the standard evaluation dim palette for blue Fantastic
             // through Miss, and use a dedicated dim color for the white FA+ row.
-            // White Fantastic (FA+ outer window) bright/dim colors.
-            let white_fa_color = color::JUDGMENT_FA_PLUS_WHITE_RGBA;
-            let dim_white_fa = color::JUDGMENT_FA_PLUS_WHITE_EVAL_DIM_RGBA;
-
+            // White Fantastic (FA+ outer window) bright/dim colors come from the
+            // pane's resolved palette (`white_fa` / `dim_white_fa`).
             let rows: [(usize, [f32; 4], [f32; 4], u32); 7] = [
-                (0, JUDGMENT_INFO[0].color, color::JUDGMENT_DIM_EVAL_RGBA[0], wc.w0),
-                (0, white_fa_color, dim_white_fa, wc.w1),
-                (1, JUDGMENT_INFO[1].color, color::JUDGMENT_DIM_EVAL_RGBA[1], wc.w2),
-                (2, JUDGMENT_INFO[2].color, color::JUDGMENT_DIM_EVAL_RGBA[2], wc.w3),
-                (3, JUDGMENT_INFO[3].color, color::JUDGMENT_DIM_EVAL_RGBA[3], wc.w4),
-                (4, JUDGMENT_INFO[4].color, color::JUDGMENT_DIM_EVAL_RGBA[4], wc.w5),
-                (5, JUDGMENT_INFO[5].color, color::JUDGMENT_DIM_EVAL_RGBA[5], wc.miss),
+                (0, jr[0], jde[0], wc.w0),
+                (0, white_fa, dim_white_fa, wc.w1),
+                (1, jr[1], jde[1], wc.w2),
+                (2, jr[2], jde[2], wc.w3),
+                (3, jr[3], jde[3], wc.w4),
+                (4, jr[4], jde[4], wc.w5),
+                (5, jr[5], jde[5], wc.miss),
             ];
 
             for (i, (label_idx, bright_color, dim_color, count)) in rows.iter().enumerate() {

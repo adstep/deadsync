@@ -39,11 +39,12 @@ const fn band(label: &'static str, start_ms: f32, end_ms: f32, color: [f32; 4]) 
 
 #[inline(always)]
 fn timing_bands_itg(timing_windows: [f32; 5]) -> ([TimingBand; 7], usize) {
-    let blue = color::JUDGMENT_RGBA[0];
-    let excellent = color::JUDGMENT_RGBA[1];
-    let great = color::JUDGMENT_RGBA[2];
-    let decent = color::JUDGMENT_RGBA[3];
-    let wayoff = color::JUDGMENT_RGBA[4];
+    let jr = color::judgment_rgba(color::JudgmentMode::Itg);
+    let blue = jr[0];
+    let excellent = jr[1];
+    let great = jr[2];
+    let decent = jr[3];
+    let wayoff = jr[4];
     let w1 = timing_windows[0];
     let w2 = timing_windows[1];
     let w3 = timing_windows[2];
@@ -66,12 +67,13 @@ fn timing_bands_itg(timing_windows: [f32; 5]) -> ([TimingBand; 7], usize) {
 
 #[inline(always)]
 fn timing_bands_ex(timing_windows: [f32; 5]) -> ([TimingBand; 7], usize) {
-    let blue = color::JUDGMENT_RGBA[0];
-    let excellent = color::JUDGMENT_RGBA[1];
-    let great = color::JUDGMENT_RGBA[2];
-    let decent = color::JUDGMENT_RGBA[3];
-    let wayoff = color::JUDGMENT_RGBA[4];
-    let white = color::JUDGMENT_FA_PLUS_WHITE_RGBA;
+    let jr = color::judgment_rgba(color::JudgmentMode::FaPlus);
+    let blue = jr[0];
+    let excellent = jr[1];
+    let great = jr[2];
+    let decent = jr[3];
+    let wayoff = jr[4];
+    let white = color::judgment_white_fantastic_rgba(color::JudgmentMode::FaPlus);
     let w0 = timing::FA_PLUS_W0_MS;
     let w1 = timing_windows[0];
     let w2 = timing_windows[1];
@@ -95,13 +97,14 @@ fn timing_bands_ex(timing_windows: [f32; 5]) -> ([TimingBand; 7], usize) {
 
 #[inline(always)]
 fn timing_bands_hard_ex(timing_windows: [f32; 5]) -> ([TimingBand; 7], usize) {
-    let pink = color::HARD_EX_SCORE_RGBA;
-    let blue = color::JUDGMENT_RGBA[0];
-    let excellent = color::JUDGMENT_RGBA[1];
-    let great = color::JUDGMENT_RGBA[2];
-    let decent = color::JUDGMENT_RGBA[3];
-    let wayoff = color::JUDGMENT_RGBA[4];
-    let white = color::JUDGMENT_FA_PLUS_WHITE_RGBA;
+    let pink = color::hard_ex_score_rgba();
+    let jr = color::judgment_rgba(color::JudgmentMode::Hex);
+    let blue = jr[0];
+    let excellent = jr[1];
+    let great = jr[2];
+    let decent = jr[3];
+    let wayoff = jr[4];
+    let white = color::judgment_white_fantastic_rgba(color::JudgmentMode::Hex);
     let w010 = timing::FA_PLUS_W010_MS;
     let w0 = timing::FA_PLUS_W0_MS;
     let w1 = timing_windows[0];

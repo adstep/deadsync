@@ -106,7 +106,8 @@ pub(crate) fn build_pane_percentage_display(
             ));
         }
         EvalPane::FaPlus => {
-            let ex_color = color::JUDGMENT_RGBA[0];
+            let ex_color =
+                color::judgment_window_rgba(color::JudgmentMode::FaPlus, color::JudgmentWindow::W0);
             let white = [1.0, 1.0, 1.0, 1.0];
             let (main_text, main_color, bottom_label, bottom_text, bottom_color) =
                 if score_info.show_ex_score {
@@ -178,8 +179,9 @@ pub(crate) fn build_pane_percentage_display(
                 diffuse(score_bg_color[0], score_bg_color[1], score_bg_color[2], 1.0)
             ));
 
-            let ex_color = color::JUDGMENT_RGBA[0];
-            let hex_color = color::HARD_EX_SCORE_RGBA;
+            let ex_color =
+                color::judgment_window_rgba(color::JudgmentMode::Hex, color::JudgmentWindow::W0);
+            let hex_color = color::hard_ex_score_rgba();
             children.push(act!(text:
                 font(current_machine_font_key(FontRole::Headline)):
                 settext(ex_percent_text):

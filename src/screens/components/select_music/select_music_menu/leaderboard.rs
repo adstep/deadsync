@@ -590,9 +590,9 @@ pub fn build_leaderboard_overlay(state: &LeaderboardOverlayState) -> Option<Vec<
             let mut rank_col = [1.0, 1.0, 1.0, 1.0];
             let mut name_col = [1.0, 1.0, 1.0, 1.0];
             let mut score_col = if show_ex {
-                color::JUDGMENT_RGBA[0]
+                color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0)
             } else if show_hard_ex {
-                color::HARD_EX_SCORE_RGBA
+                color::hard_ex_score_rgba()
             } else {
                 [1.0, 1.0, 1.0, 1.0]
             };

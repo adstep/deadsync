@@ -323,7 +323,8 @@ fn build_player_stats(
 
     // EX score (only if W0 is enabled)
     if show_w0 {
-        let ex_color = color::JUDGMENT_RGBA[0];
+        let ex_color =
+            color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0);
         let ex_text = format!("{:.2}", p.ex_score_percent.max(0.0));
         let (ex_zoom, ex_y) = if showex { (0.48, -32.0) } else { (0.38, -12.0) };
         let mut ex_actor = act!(text:
@@ -421,6 +422,12 @@ fn build_player_stats(
         counts[1] = counts[0].saturating_add(counts[1]); // W1 includes W0 when FA+/EX is disabled
     }
     let y_base = if show_w0 { -58.0 } else { -63.0 };
+    let mode = if show_w0 {
+        color::JudgmentMode::FaPlus
+    } else {
+        color::JudgmentMode::Itg
+    };
+    let jr = color::judgment_rgba(mode);
 
     for (i, count) in counts.iter().copied().enumerate() {
         if i == 0 && !show_w0 {
@@ -428,19 +435,19 @@ fn build_player_stats(
         }
         let y = ((i as f32) + 1.0).mul_add(13.0, y_base);
         let rgba = match i {
-            0 => color::JUDGMENT_RGBA[0], // W0
+            0 => jr[0], // W0
             1 => {
                 if show_w0 {
-                    color::JUDGMENT_FA_PLUS_WHITE_RGBA
+                    color::judgment_white_fantastic_rgba(mode)
                 } else {
-                    color::JUDGMENT_RGBA[0]
+                    jr[0]
                 }
             }
-            2 => color::JUDGMENT_RGBA[1],
-            3 => color::JUDGMENT_RGBA[2],
-            4 => color::JUDGMENT_RGBA[3],
-            5 => color::JUDGMENT_RGBA[4],
-            _ => color::JUDGMENT_RGBA[5],
+            2 => jr[1],
+            3 => jr[2],
+            4 => jr[3],
+            5 => jr[4],
+            _ => jr[5],
         };
 
         let mut a = act!(text:

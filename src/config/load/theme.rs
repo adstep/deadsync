@@ -39,6 +39,36 @@ fn load_theme_presentation(conf: &SimpleIni, default: Config, cfg: &mut Config) 
         .get("Theme", "ShowBpmDecimal")
         .and_then(|v| parse_loose_bool_str(&v))
         .unwrap_or(default.show_bpm_decimal);
+    *cfg.judgment.palette_mut(JudgmentMode::Itg) =
+        load_judgment_palette(conf, "JudgmentColorItg", default.judgment.palette(JudgmentMode::Itg));
+    *cfg.judgment.palette_mut(JudgmentMode::FaPlus) = load_judgment_palette(
+        conf,
+        "JudgmentColorFaPlus",
+        default.judgment.palette(JudgmentMode::FaPlus),
+    );
+    *cfg.judgment.palette_mut(JudgmentMode::Hex) = load_judgment_palette(
+        conf,
+        "JudgmentColorHex",
+        default.judgment.palette(JudgmentMode::Hex),
+    );
+    cfg.judgment.hard_ex_score = conf
+        .get("Theme", "JudgmentColorHardEx")
+        .and_then(|v| Color::from_hex(&v))
+        .unwrap_or(default.judgment.hard_ex_score);
+}
+
+/// Parse one judgement palette from the `[Theme]` section. Every window slot
+/// (`W0`..`W5`, `Miss`) is read, each falling back to the corresponding default
+/// color when missing or malformed.
+fn load_judgment_palette(conf: &SimpleIni, prefix: &str, default: JudgmentPalette) -> JudgmentPalette {
+    let mut palette = default;
+    for window in JudgmentWindow::ALL {
+        let key = format!("{prefix}{}", window.ini_suffix());
+        if let Some(color) = conf.get("Theme", &key).and_then(|v| Color::from_hex(&v)) {
+            palette.set_color(window, color);
+        }
+    }
+    palette
 }
 
 fn load_machine_flow(conf: &SimpleIni, default: Config, cfg: &mut Config) {

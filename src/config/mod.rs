@@ -1,4 +1,5 @@
 mod audio;
+mod color;
 pub mod dirs;
 mod ini;
 mod keybinds;
@@ -13,6 +14,9 @@ mod theme;
 mod update;
 
 pub use self::audio::{AudioMixLevels, AudioOutputMode, LinuxAudioBackend};
+pub use self::color::{
+    Color, JudgmentMode, JudgmentPalette, JudgmentPalettes, JudgmentWindow, JUDGMENT_WINDOW_COUNT,
+};
 pub use self::ini::SimpleIni;
 pub use self::keybinds::{
     clear_keymap_binding, update_keymap_binding_unique_gamepad,
@@ -331,6 +335,10 @@ pub struct Config {
     /// When true, gameplay arrow buttons (p*_up/down/left/right) are excluded from
     /// menu navigation. Only explicitly-bound menu buttons (p*_menu_*) work in menus.
     pub only_dedicated_menu_buttons: bool,
+    /// User-defined judgement window colors for all scoring modes (ITG / FA+ /
+    /// HEX), plus the global Hard-EX score accent. Each per-mode palette is
+    /// independently overridable and defaults to the same canonical colors.
+    pub judgment: JudgmentPalettes,
 }
 
 impl Default for Config {
@@ -478,8 +486,42 @@ impl Default for Config {
             lights_simplify_bass: false,
             lights_com_port: SerialPortName::default(),
             only_dedicated_menu_buttons: false,
+            judgment: default_judgment_palettes(),
         }
     }
+}
+
+/// The shared default per-mode judgement palette, sourced from the engine's
+/// canonical `DEFAULT_*` color constants so there is a single source of truth.
+/// `W0` is the blue (tightest) Fantastic band and `W1` is the white outer
+/// sub-band, matching the `WindowCounts`/ITL numbering.
+fn default_judgment_palette() -> JudgmentPalette {
+    use crate::engine::present::color as ecolor;
+    let w = ecolor::DEFAULT_JUDGMENT_RGBA;
+    JudgmentPalette::from_windows([
+        Color::from_rgba(w[0]),                                       // W0 — blue Fantastic
+        Color::from_rgba(ecolor::DEFAULT_JUDGMENT_FA_PLUS_WHITE_RGBA), // W1 — white Fantastic
+        Color::from_rgba(w[1]),                                       // W2 — Excellent
+        Color::from_rgba(w[2]),                                       // W3 — Great
+        Color::from_rgba(w[3]),                                       // W4 — Decent
+        Color::from_rgba(w[4]),                                       // W5 — Way Off
+        Color::from_rgba(w[5]),                                       // Miss
+    ])
+}
+
+/// The default [`JudgmentPalettes`]: all three per-mode palettes start equal to
+/// [`default_judgment_palette`] and the Hard-EX accent comes from the engine
+/// default. Each is independently overridable via config.
+fn default_judgment_palettes() -> JudgmentPalettes {
+    use crate::engine::present::color as ecolor;
+    JudgmentPalettes::from_parts(
+        [
+            default_judgment_palette(),
+            default_judgment_palette(),
+            default_judgment_palette(),
+        ],
+        Color::from_rgba(ecolor::DEFAULT_HARD_EX_SCORE_RGBA),
+    )
 }
 
 impl Config {

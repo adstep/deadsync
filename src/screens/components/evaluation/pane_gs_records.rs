@@ -239,9 +239,9 @@ fn build_records_pane(
                             [1.0, 1.0, 1.0, 1.0]
                         };
                         let mut score_col = if pane.is_ex {
-                            color::JUDGMENT_RGBA[0]
+                            color::judgment_window_rgba(color::JudgmentMode::Itg, color::JudgmentWindow::W0)
                         } else if pane.is_hard_ex() {
-                            color::HARD_EX_SCORE_RGBA
+                            color::hard_ex_score_rgba()
                         } else {
                             base_col
                         };
