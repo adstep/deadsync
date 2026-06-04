@@ -298,12 +298,6 @@ pub fn build_scatter_mesh(
     let mut out: Vec<MeshVertex> = Vec::with_capacity(scatter.len().saturating_mul(6));
 
     for sp in scatter {
-        if let Some(off_ms) = sp.offset_ms
-            && off_ms.abs() > worst
-        {
-            continue;
-        }
-
         let x_time = match sp.offset_ms {
             Some(off_ms) => sp.time_sec - (off_ms / 1000.0),
             None => sp.time_sec - (worst / 1000.0),
@@ -311,6 +305,28 @@ pub fn build_scatter_mesh(
         let x = ((x_time - first_second) / denom).clamp(0.0, 1.0) * w;
 
         match sp.offset_ms {
+            // Judgment hit but offset lands outside the forced scatter zoom:
+            // draw a colored line (like misses) at the half where the clamped
+            // point would have landed instead of dropping it entirely.
+            Some(off_ms) if off_ms.abs() > worst => {
+                let x = x.clamp(0.0, (w - MISS_W).max(0.0));
+                let base = color_for_scatter(sp, off_ms.abs(), timing_windows_ms, scale);
+                let alpha = if matches!(
+                    scale,
+                    ScatterPlotScale::Itg | ScatterPlotScale::Ex | ScatterPlotScale::HardEx
+                ) {
+                    0.3
+                } else {
+                    0.333
+                };
+                let c = [base[0], base[1], base[2], alpha];
+                let (h1, h2) = if off_ms >= 0.0 {
+                    (0.0, h * 0.5)
+                } else {
+                    (h * 0.5, h)
+                };
+                push_quad(&mut out, x, h1, MISS_W, (h2 - h1).max(0.0), c);
+            }
             Some(off_ms) => {
                 let t = ((worst - off_ms) / (2.0 * worst)).clamp(0.0, 1.0);
                 let x = x.clamp(0.0, (w - POINT_W).max(0.0));
