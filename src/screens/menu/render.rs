@@ -2,9 +2,11 @@
 //!
 //! Every value this code needs is **pre-resolved host-side** and handed in
 //! through `HostContext` (see `super::build_host_context`). This module performs
-//! **no** engine-global read of its own, keeps no persistent state, and never
-//! clones or drops a host `Arc` — it reads the context strings as `&str` and
-//! builds its own owned actors from them.
+//! **no** engine-global read of its own and keeps no persistent state. Because
+//! the hot boundary runs under one shared allocator (`-C prefer-dynamic`), the
+//! render path freely **clones** the host's `Arc<str>` text into the actors it
+//! emits — the resulting `Vec<Actor>` is allocated here and dropped host-side,
+//! which is sound only under that shared allocator.
 //!
 //! KNOWN IMPURITY (intentionally deferred): the component builders called below
 //! (`visual_style_bg`, `logo`, `menu_list`, `screen_bar`) and the `act!` text
@@ -28,7 +30,7 @@ use std::sync::Arc;
 const NORMAL_COLOR_HEX: &str = "#888888";
 
 const MENU_BELOW_LOGO: f32 = 29.0;
-const MENU_ROW_SPACING: f32 = 28.0;
+const MENU_ROW_SPACING: f32 = 40.0;
 
 const INFO_PX: f32 = 15.0;
 const INFO_GAP: f32 = 5.0;
@@ -39,19 +41,9 @@ const STATUS_ZOOM: f32 = 0.8;
 const STATUS_LINE_HEIGHT: f32 = 18.0;
 const STATUS_BLOCK_GAP: f32 = 6.0;
 
-/// Build a fresh render-unit-owned `Arc<str>` from a borrowed string.
-///
-/// The render unit must never clone or drop a host-owned `Arc` (that would be a
-/// cross-allocator free once the shared allocator is dropped). Every string the
-/// actors carry is re-owned here from the borrowed `HostContext` text.
-#[inline(always)]
-fn own(s: &str) -> Arc<str> {
-    Arc::from(s)
-}
-
 #[inline(always)]
 fn status_text_actor(
-    text: &str,
+    text: Arc<str>,
     align_x: f32,
     x: f32,
     y: f32,
@@ -63,7 +55,7 @@ fn status_text_actor(
     // lib-owned font-key value on `HostContext` before old cdylibs are unloaded.
     let mut actor = act!(text:
         font("miso"):
-        settext(own(text)):
+        settext(text):
         align(align_x, 0.0):
         xy(x, y):
         zoom(zoom):
@@ -122,7 +114,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
 
     actors.push(act!(text:
         align(0.5, 0.0): xy(ctx.screen_center_x, info1_y_tl): zoom(0.8):
-        font("miso"): settext(own(ctx.info_text.as_ref())): horizalign(center):
+        font("miso"): settext(ctx.info_text.clone()): horizalign(center):
         diffuse(info_color[0], info_color[1], info_color[2], info_color[3])
     ));
 
@@ -133,15 +125,8 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     selected[3] *= alpha_multiplier;
     normal[3] *= alpha_multiplier;
 
-    // Re-own the labels as render-unit `Arc`s (never clone the host's).
-    let menu_labels: [Arc<str>; 3] = [
-        own(ctx.menu_labels[0].as_ref()),
-        own(ctx.menu_labels[1].as_ref()),
-        own(ctx.menu_labels[2].as_ref()),
-    ];
-
     let params = menu_list::MenuParams {
-        options: &menu_labels,
+        options: &ctx.menu_labels,
         selected_index: state.selected_index,
         start_center_y: base_y,
         row_spacing: MENU_ROW_SPACING,
@@ -171,7 +156,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     // --- GrooveStats Info Pane (top-left) ---
     let gs_text = &ctx.gs;
     actors.push(status_text_actor(
-        gs_text.main.as_ref(),
+        gs_text.main.clone(),
         0.0,
         STATUS_BASE_X,
         STATUS_BASE_Y,
@@ -182,7 +167,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     for line_idx in 0..gs_text.line_count {
         if let Some(text) = gs_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
-                text.as_ref(),
+                text.clone(),
                 0.0,
                 STATUS_BASE_X,
                 (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, STATUS_BASE_Y),
@@ -198,7 +183,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
         .mul_add(STATUS_ZOOM, STATUS_BASE_Y + STATUS_BLOCK_GAP);
     let ac_text = &ctx.ac;
     actors.push(status_text_actor(
-        ac_text.main.as_ref(),
+        ac_text.main.clone(),
         0.0,
         STATUS_BASE_X,
         ac_base_y,
@@ -209,7 +194,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     for line_idx in 0..ac_text.line_count {
         if let Some(text) = ac_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
-                text.as_ref(),
+                text.clone(),
                 0.0,
                 STATUS_BASE_X,
                 (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, ac_base_y),

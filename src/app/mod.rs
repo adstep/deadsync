@@ -4932,6 +4932,22 @@ impl App {
     /// until it appears.
     #[cfg(feature = "hot")]
     fn build_hot_reloader() -> Option<deadsync_hot::Reloader> {
+        // Soundness gate (boundary invariant #2): the hot boundary returns a
+        // `Vec<Actor>` allocated in the cdylib and dropped here, so host and
+        // cdylib MUST share one allocator (`-C prefer-dynamic`). The BUILD_HASH
+        // handshake rejects an asymmetric pairing, but two accidentally-static
+        // builds would share a matching hash while owning *separate* allocators.
+        // Close that hole here: if this host is not itself shared-allocator, do
+        // not load any cdylib — render every hot screen via the in-lib path.
+        if !crate::hot::SHARED_ALLOC {
+            log::error!(
+                "hot(screens): disabled — host built without `-C prefer-dynamic`; \
+                 set RUSTFLAGS=\"-C prefer-dynamic\" for both the host and the \
+                 deadsync-screens cdylib to enable hot reload safely"
+            );
+            return None;
+        }
+
         let lib_name = format!(
             "{}deadsync_screens{}",
             std::env::consts::DLL_PREFIX,

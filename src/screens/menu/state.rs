@@ -7,12 +7,13 @@
 //!
 //! NOTE: `HostContext` is an in-process facade resolved by the host. Every
 //! string it carries is **already resolved and cached host-side** before the
-//! boundary is crossed — the render path only reads them as `&str` and builds
-//! its own owned actors. It uses ergonomic Rust types (`Arc<str>`,
+//! boundary is crossed. It uses ergonomic Rust types (`Arc<str>`,
 //! `&'static str`) and crosses the cdylib boundary over `extern "Rust"`
 //! alongside the rest of the render payload, so both artifacts must be built by
 //! the same toolchain with identical type layouts (enforced by the
-//! `LAYOUT_HASH`/`BUILD_HASH` handshake).
+//! `LAYOUT_HASH`/`BUILD_HASH` handshake) and link one shared allocator
+//! (`-C prefer-dynamic`) so the render path may clone these `Arc`s into the
+//! actors it returns.
 
 use deadsync::screens::components::shared::visual_style_bg;
 use deadsync::screens::input as screen_input;
@@ -81,11 +82,10 @@ pub struct State {
 /// read, **fully pre-resolved host-side** (see `super::build_host_context`).
 ///
 /// Every string here is resolved and cached on the host before the boundary is
-/// crossed; the render path only ever *reads* them as `&str` and builds its own
-/// owned actors. Nothing here transfers ownership of host heap into the render
-/// unit, and the render unit must never clone or drop one of these `Arc`s — it
-/// reads `.as_ref()` and re-owns. That ownership purity is what lets the
-/// boundary eventually run without a shared allocator.
+/// crossed. Under the shared `-C prefer-dynamic` allocator the render path may
+/// clone these `Arc`s straight into the actors it emits; the resulting `Vec`
+/// is allocated in the cdylib and dropped host-side, which is sound because both
+/// artifacts share one allocator.
 pub struct HostContext {
     /// Pre-resolved menu info line (version + optional update tag + the
     /// song/pack/course summary), cached on `State`.

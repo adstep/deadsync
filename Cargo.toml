@@ -272,62 +272,47 @@ panic = "abort"
 inherits = "release"
 lto = "thin"
 
-# Release-grade build that can still hot-reload the menu. Inherits `release`
-# (opt-level 3, lto = true) but overrides `panic = "unwind"` because the hot
-# boundary relies on `catch_unwind` inside the cdylib to contain a bad edit.
-# `lto` is legal here only because the menu boundary no longer needs
-# `-C prefer-dynamic` (Option A: nothing heap-owned crosses it) — prefer-dynamic
-# and lto are mutually exclusive, so this profile is the payoff of that work.
-# Build both the host (`--features hot`) and `deadsync-screens` with
-# `--profile release-hot` and NO `RUSTFLAGS=-C prefer-dynamic`.
+# Hot-reload dev profile. The menu hot boundary moves a real `Vec<Actor>`
+# (carrying host `Arc<str>`s) across the cdylib boundary, so the host
+# (`--features hot`) and `deadsync-screens` MUST share one allocator — both built
+# `-C prefer-dynamic` against one dynamic `std`. `prefer-dynamic` is mutually
+# exclusive with `lto`, so this profile keeps `lto = false`; it also trades
+# runtime perf for rebuild speed (low opt-level, many codegen units, incremental
+# on). `panic = "unwind"` is required because the cdylib's `catch_unwind`
+# contains a bad edit. The non-hot shipping build (`release`) has NO boundary and
+# keeps `lto = true` + `panic = "abort"` — it is untouched by any of this.
 #
-# HOT-RELOAD DEV LOOP (Windows): the hot loop's build flags are kept OUT of
-# `.cargo/config.toml` on purpose, so they never apply to release or CI builds.
-# Set them per-terminal via RUSTFLAGS only in the two hot-loop shells (host +
-# `deadsync-screens`):
-#   * Daily fast loop (dev profile): `-C prefer-dynamic` (shared std/allocator)
-#     plus, optionally, `-C linker=rust-lld` — the bundled LLVM linker links the
-#     whole engine into `deadsync_screens.dll` several times faster than the
-#     default MSVC `link.exe`, which is the dominant cost of a warm relink.
-#       $env:RUSTFLAGS = "-C prefer-dynamic -C linker=rust-lld"
-#   * `release-hot` loop: drop `prefer-dynamic` (incompatible with `lto`); the
-#     `-C linker=rust-lld` speed-up still applies if you want it.
-# Using `rust-lld` is opt-in and developer-local; release artifacts keep the
-# default linker.
-[profile.release-hot]
+# HOT-RELOAD DEV LOOP (Windows):
+#   1. In BOTH the host shell and the cdylib/watch shell, set:
+#        $env:RUSTFLAGS = "-C prefer-dynamic"          # required: shared std
+#        # optionally also "-C linker=rust-lld" — the bundled LLVM linker links
+#        # the whole engine into deadsync_screens.dll several times faster than
+#        # the default MSVC link.exe (the dominant warm-relink cost).
+#   2. Build + run the host:
+#        cargo build --features hot --profile hot
+#        # The `-C prefer-dynamic` exe needs the dynamic `std-*.dll` at runtime.
+#        # Either copy it next to the exe, or put the sysroot bin on PATH:
+#        #   $env:PATH = "$(rustc --print sysroot)\bin;$env:PATH"
+#        .\target\hot\deadsync.exe
+#   3. Watch + rebuild only the cdylib on a render edit:
+#        cargo watch -w src/screens/menu/render.rs \
+#          -x "build -p deadsync-screens --profile hot"
+#
+# The RUSTFLAGS live per-terminal (NOT in `.cargo/config.toml`) so they never
+# leak into release or CI builds. A static-allocator cdylib (built without
+# `-C prefer-dynamic`) is REJECTED at load: `build.rs` folds the shared-alloc tag
+# into `BUILD_HASH` (see `src/hot`), so the header handshake fails before any
+# cdylib heap could be freed host-side.
+#
+# Caveat: `BUILD_HASH` only tracks committed source via `git HEAD`, so it does
+# NOT detect uncommitted edits to the SHARED boundary (`src/hot`, host
+# `State`/`Context` layouts). Pure `render.rs` edits are fine; if you change
+# shared-contract code, rebuild the host too.
+[profile.hot]
 inherits = "release"
-panic = "unwind"
-
-# Fastest cdylib iteration loop. Inherits `release-hot` (so it keeps
-# `panic = "unwind"` for the cdylib's `catch_unwind`) but trades runtime
-# perf for rebuild speed: no LTO, `opt-level = 1`, many codegen units, and
-# incremental on. On a one-line `render.rs` edit a warm relink of
-# `deadsync-screens` drops from ~8s (`release-hot`) to ~1.6s when combined
-# with the `rust-lld` linker (the linker is the dominant warm-relink cost;
-# dropping fat LTO is the secondary win).
-#
-#   cargo watch -w src/screens/menu/render.rs \
-#     -x "build -p deadsync-screens --profile fast-hot"
-#   # in that watch shell only:  $env:RUSTFLAGS = "-C linker=rust-lld"
-#
-# Profile MIXING is safe and intended: build the cdylib with `fast-hot` while
-# the HOST stays on `release-hot`. The load-time handshake still matches because
-# its inputs are profile-independent — BUILD_HASH folds the rustc version + git
-# HEAD + pkg version, and LAYOUT_HASH folds `#[repr(C)]` offsets/size/align;
-# neither `opt-level`, `lto`, `codegen-units`, nor `incremental` affect the
-# `extern "C"` ABI or `repr(C)` layout. Bonus: a distinct profile name means a
-# distinct `target/fast-hot/` dir, so this watch never fights a sibling
-# worktree's `release-hot` artifacts for the package-cache lock.
-#
-# Caveat (same as the existing same-profile loop): the BUILD_HASH only tracks
-# committed source via `git HEAD`, so it does NOT detect uncommitted edits to
-# the SHARED boundary (`src/hot`, the wire codec, host `State`/`Context`
-# layouts). Pure `render.rs` edits are fine; if you change shared-contract code,
-# rebuild the host too.
-[profile.fast-hot]
-inherits = "release-hot"
 opt-level = 1
 lto = false
+panic = "unwind"
 codegen-units = 256
 incremental = true
 

@@ -266,6 +266,32 @@ fn emit_build_info() {
         .map(|s| s.replace(['\n', '\r'], "|"))
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=DEADSYNC_RUSTC_VERSION={rustc_version}");
+
+    // Shared-allocator tag for the hot-reload boundary. When the build is
+    // compiled with `-C prefer-dynamic`, the host exe and the `deadsync-screens`
+    // cdylib link one shared `std`/global allocator, which is what makes it
+    // sound for a `Vec<Actor>` (and the `Arc<str>`s it carries) allocated in the
+    // cdylib to be dropped host-side. We sniff the rustflags here and fold the
+    // result into `BUILD_HASH` (see `src/hot`), so a cdylib built with a static
+    // `std` (its own allocator) disagrees on `build_hash` and is rejected at
+    // load before any heap crosses the boundary.
+    //
+    // `CARGO_ENCODED_RUSTFLAGS` (NUL-separated) is the authoritative source cargo
+    // passes to rustc; fall back to the space-separated `RUSTFLAGS` env var.
+    let rustflags = std::env::var("CARGO_ENCODED_RUSTFLAGS")
+        .map(|s| s.replace('\u{1f}', " "))
+        .or_else(|_| std::env::var("RUSTFLAGS"))
+        .unwrap_or_default();
+    let shared_alloc = if rustflags.contains("prefer-dynamic") {
+        "1"
+    } else {
+        "0"
+    };
+    println!("cargo:rustc-env=DEADSYNC_SHARED_ALLOC={shared_alloc}");
+    // The tag depends on the rustflags, so the build script (and the dependent
+    // crate it feeds env into) must re-run when they change.
+    println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
+    println!("cargo:rerun-if-env-changed=RUSTFLAGS");
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {

@@ -352,10 +352,10 @@ pub struct Reloader {
     quarantined: bool,
     /// Shadow path of the most recently loaded library (for `Loaded` events).
     last_shadow: Option<PathBuf>,
-    /// The thread `poll` was first called on. The returned vtable dispatches a
-    /// cdylib entry whose render output (`ActorBlob`) borrows a **thread-local**
-    /// scratch buffer in the cdylib, so every `poll` + dispatch must happen on
-    /// this one thread. Recorded on first poll and `debug_assert`-checked after.
+    /// The thread `poll` was first called on. The reloader owns raw library
+    /// handles and hands out a raw vtable pointer that is only valid until the
+    /// next `poll` swap, so every `poll` + dispatch must happen on this one
+    /// thread. Recorded on first poll and `debug_assert`-checked after.
     dispatch_thread: Option<std::thread::ThreadId>,
 }
 
@@ -406,16 +406,17 @@ impl Reloader {
     /// after any swap). Errors during a reload are reported through the event
     /// sink and are **non-fatal**: the last good vtable (or `None`) is retained.
     pub fn poll(&mut self) -> Option<NonNull<()>> {
-        // The returned vtable's render entry borrows a thread-local scratch in the
-        // cdylib (see `ActorBlob`), so poll + dispatch must stay on one thread.
-        // Record it on first poll and assert it never changes (debug builds).
+        // The reloader hands out a raw vtable pointer valid only until the next
+        // swap and owns the loaded library handles, so poll + dispatch must stay
+        // on one thread. Record it on first poll and assert it never changes
+        // (debug builds).
         let tid = std::thread::current().id();
         match self.dispatch_thread {
             Some(t) => debug_assert_eq!(
                 t, tid,
-                "Reloader::poll must always run on the same thread: the cdylib's \
-                 thread-local render scratch and the returned ActorBlob borrow are \
-                 not valid across threads"
+                "Reloader::poll must always run on the same thread: the returned \
+                 vtable pointer and the loaded library handles are not valid \
+                 across threads"
             ),
             None => self.dispatch_thread = Some(tid),
         }

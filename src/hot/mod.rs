@@ -8,40 +8,34 @@
 //!
 //! # Boundary invariants (must hold for soundness)
 //!
-//! 1. **Same toolchain / same engine rlib layout.** The render *output* now
-//!    crosses as an opaque **byte blob** ([`ActorBlob`] → `actor_wire` bytes), not
-//!    a `Vec<Actor>`, so the payload no longer depends on `Actor`'s in-memory
-//!    layout. But the host still hands the cdylib `&menu::State` and
-//!    `&menu::HostContext` **by reference**, read by field layout, so those two
-//!    types (and anything reachable by value through them) must still have
-//!    **identical layout** in both artifacts. [`BUILD_HASH`] + [`LAYOUT_HASH`] +
+//! 1. **Same toolchain / same engine rlib layout.** The host hands the cdylib
+//!    `&menu::State` and `&menu::HostContext` **by reference** (read by field
+//!    layout) and the cdylib returns a real `Vec<Actor>` **by value** over the
+//!    Rust ABI, so `menu::State`, `menu::HostContext`, `Actor`, and everything
+//!    reachable by value through them must have **identical layout** in both
+//!    artifacts. `extern "Rust"` is also not stable across rustc versions, so
+//!    this requires the *same rustc*. [`BUILD_HASH`] + [`LAYOUT_HASH`] +
 //!    [`HotHeader::panic_strategy`] encode that contract and a stale cdylib is
 //!    rejected at load.
 //!
-//! 2. **No shared allocator required (the Option-A payoff).** Nothing that owns
-//!    heap crosses the boundary in either direction: the cdylib allocates and
-//!    frees *its own* render `Arc`s and *its own* scratch byte buffer; the host
-//!    allocates and frees *its own* decoded `Vec<Actor>`. Only POD (`ptr`/`len`/
-//!    `u32` status) and read-only `&State`/`&HostContext` borrows cross, and the
-//!    cdylib only ever *reads* the host's `Arc<str>` bytes (a pointer deref — no
-//!    allocator op). Because of this the menu boundary no longer needs
-//!    `-C prefer-dynamic`/one shared `std`, which is what re-enables `lto` and a
-//!    release-mode hot loop. (The two artifacts must still be the same rustc; see
-//!    invariant 1.)
-//!
-//! 3. **Nothing cdylib-owned may escape, and the cdylib must never drop/clone a
-//!    host `Arc`.** Render output is copied out as bytes (keys, not handles), so
-//!    no reference into cdylib memory survives. The inbound `&HostContext`
-//!    exposes real `Arc<str>`, but the render path only reads them via `.as_ref()`
-//!    and re-owns every string it emits with a cdylib-side `Arc::from(&str)` — it
-//!    must never clone or drop a host `Arc` (that would free host heap with the
-//!    cdylib allocator once the shared allocator is gone). Font/texture keys are
-//!    likewise sourced host-side via `HostContext`; see [`font_keys`].
+//! 2. **One shared allocator (both built `-C prefer-dynamic`).** A `Vec<Actor>`
+//!    (and every `Arc<str>` it carries) is allocated in the cdylib and dropped
+//!    in the host, so both artifacts must link **one shared `std`/global
+//!    allocator** — otherwise the host frees cdylib heap with a different
+//!    allocator (UB). The shared-allocator build is folded into [`BUILD_HASH`]
+//!    (via the `DEADSYNC_SHARED_ALLOC` build flag), so an *asymmetric* pairing
+//!    (one side dynamic, the other static) disagrees on `build_hash` and is
+//!    rejected at load. The remaining *both-static* case (matching hash, but two
+//!    separate allocators) is closed by [`SHARED_ALLOC`]: the host refuses to
+//!    enable hot loading unless it was itself built `-C prefer-dynamic`, so a
+//!    static host never loads a cdylib and no heap crosses. This is why the hot
+//!    dev build cannot use `lto` (incompatible with `prefer-dynamic`); the
+//!    non-hot shipping build has no boundary and keeps it.
 //!
 //! Only [`HotHeader`] is read "blind" through a raw exported symbol, so it is
-//! the one type that strictly requires `#[repr(C)]`. [`ScreenVTable`] and
-//! [`ActorBlob`] are also `#[repr(C)]`: the vtable to freeze its array layout,
-//! the blob because it crosses an `extern "C"` return by value.
+//! the one type that strictly requires `#[repr(C)]`. [`ScreenVTable`] is also
+//! `#[repr(C)]` to freeze its array layout. The render output itself crosses as
+//! a non-`repr(C)` `Vec<Actor>`, sound only under invariants 1 and 2.
 //!
 //! # Adding a hot surface
 //!
@@ -52,7 +46,7 @@
 //! 1. Give its screen a host-owned `State` and a per-frame `Context`, plus a
 //!    `build_context(&State) -> Context` and a pure `get_actors(&State,
 //!    &Context, f32) -> Vec<Actor>` (the in-lib fallback). Keep `Context` to
-//!    **read-only** views of host data — see boundary invariant #3.
+//!    read-only views of host data (the render path only reads `Context`).
 //! 2. Add one line to [`hot_surface_registry!`] with the next free slot number;
 //!    this generates the `FooSurface` marker + [`HotSurface`] impl, slot-checks
 //!    it (uniqueness + `< MAX_SURFACES`), and folds it into [`LAYOUT_HASH`].
@@ -101,6 +95,20 @@ pub const ABI_VERSION: u32 = 3;
 /// dev profile (unwind) on both sides.
 pub const PANIC_STRATEGY: u8 = if cfg!(panic = "abort") { 1 } else { 0 };
 
+/// Whether this build links a **shared** `std`/global allocator (`true` when
+/// built `-C prefer-dynamic`). Emitted by `build.rs` as `DEADSYNC_SHARED_ALLOC`.
+///
+/// The boundary moves a real `Vec<Actor>` (and its `Arc<str>`s) allocated in the
+/// cdylib and dropped in the host, so it is sound **only** when both artifacts
+/// share one allocator (boundary invariant #2). This flag is also folded into
+/// [`BUILD_HASH`], which rejects every *asymmetric* pairing (one side dynamic,
+/// the other static) at load. The remaining *both-static* footgun — where the
+/// hashes still match — is closed host-side: the host refuses to enable hot
+/// loading at all unless `SHARED_ALLOC` is `true` (see
+/// `App::build_hot_reloader`), so a static host never loads any cdylib and no
+/// heap ever crosses a mismatched allocator.
+pub const SHARED_ALLOC: bool = env!("DEADSYNC_SHARED_ALLOC").as_bytes()[0] == b'1';
+
 // --- FNV-1a (const) ---------------------------------------------------------
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -133,7 +141,7 @@ const fn mix_off(hash: u64, offset: usize) -> u64 {
 /// Compile-time hash over the layout of every type that crosses the boundary.
 ///
 /// Three layers of coverage:
-///   1. `size`/`align` of every boundary type — the header, vtable, `ActorBlob`,
+///   1. `size`/`align` of every boundary type — the header, vtable,
 ///      the per-screen `State`/`HostContext`, the `Actor` payload tree, and the
 ///      nested-by-value types `State`/`HostContext` carry (`visual_style_bg::State`,
 ///      the status-cache instantiations, and the Copy status-key enums).
@@ -156,7 +164,6 @@ pub const LAYOUT_HASH: u64 = {
     let mut h = FNV_OFFSET;
     h = mix_layout::<HotHeader>(h);
     h = mix_layout::<ScreenVTable>(h);
-    h = mix_layout::<ActorBlob>(h);
     h = mix_layout::<menu::State>(h);
     h = mix_layout::<menu::HostContext>(h);
     h = mix_layout::<Actor>(h);
@@ -211,6 +218,12 @@ pub const LAYOUT_HASH: u64 = {
 /// must invalidate a previously-built cdylib even if every layout is unchanged.
 /// Both `DEADSYNC_RUSTC_VERSION` and `DEADSYNC_BUILD_HASH` are emitted by
 /// `build.rs`.
+///
+/// `DEADSYNC_SHARED_ALLOC` (`"1"`/`"0"`, also emitted by `build.rs` by sniffing
+/// `-C prefer-dynamic` in the rustflags) is folded in so a cdylib built with a
+/// **static** `std` (its own allocator) disagrees on `build_hash` and is rejected
+/// at load — before any cdylib-allocated `Vec<Actor>` could be freed host-side
+/// (boundary invariant #2).
 pub const BUILD_HASH: u64 = {
     let mut h = FNV_OFFSET;
     h = fnv1a_bytes(h, env!("DEADSYNC_RUSTC_VERSION").as_bytes());
@@ -219,40 +232,11 @@ pub const BUILD_HASH: u64 = {
     h = fnv1a_bytes(h, std::env::consts::ARCH.as_bytes());
     h = fnv1a_bytes(h, std::env::consts::OS.as_bytes());
     h = fnv1a_bytes(h, &[PANIC_STRATEGY]);
+    h = fnv1a_bytes(h, env!("DEADSYNC_SHARED_ALLOC").as_bytes());
     h
 };
 
 // --- Boundary types ---------------------------------------------------------
-
-/// [`ActorBlob::status`] value: render succeeded; `ptr`/`len` describe a valid
-/// `actor_wire` byte buffer owned by the cdylib's thread-local scratch.
-pub const RENDER_OK: u32 = 0;
-/// [`ActorBlob::status`] value: the cdylib caught a panic inside the render call
-/// (via its internal `catch_unwind`); `ptr` is null and `len` is 0. The host
-/// quarantines the generation and falls back to the in-lib renderer.
-pub const RENDER_PANIC: u32 = 1;
-
-/// POD result of a hot render call, returned by value over the `extern "C"`
-/// boundary. Carries no heap ownership: `ptr`/`len` borrow the cdylib's
-/// thread-local encode scratch, valid only until the next hot call on that
-/// thread. The host must copy (decode) the bytes synchronously before issuing
-/// any further hot call and must never store `ptr`.
-///
-/// `status` is a raw `u32` (not an `enum`) on purpose: a corrupt/buggy cdylib
-/// returning an out-of-range value is then a plain integer the host can reject,
-/// not an invalid enum discriminant (which would be UB to even form).
-#[repr(C)]
-pub struct ActorBlob {
-    pub status: u32,
-    pub ptr: *const u8,
-    pub len: usize,
-}
-
-/// Upper bound the host enforces on `ActorBlob::len` before forming a slice with
-/// `slice::from_raw_parts`. The codec has its own internal element caps; this is
-/// the coarse byte guard that keeps an absurd/corrupt `len` from being UB at the
-/// slice boundary itself. 64 MiB is far above any realistic menu frame.
-pub const MAX_BLOB_BYTES: usize = 64 << 20;
 
 /// Maximum number of hot surfaces a single [`ScreenVTable`] can carry. Raising
 /// this requires bumping [`ABI_VERSION`] — the array length is part of the
@@ -311,15 +295,12 @@ pub struct ScreenVTable {
 ///
 /// # Safety
 /// This trait is `unsafe` because its associated types cross the hot boundary by
-/// erased reference. An implementor must guarantee:
-///
-/// * `State` and `Context` have a **stable, identical layout** in the host rlib
-///   and the cdylib (same toolchain + same engine source — enforced at load by
-///   [`LAYOUT_HASH`] / [`BUILD_HASH`]); and
-/// * the hot render path only ever **reads** host-owned heap handles
-///   (`Arc<str>`, …) reachable through `State` / `Context` and **never clones,
-///   drops, or mutates** them — doing so would free host heap with the cdylib
-///   allocator. See boundary invariant #3 in the module docs.
+/// erased reference. An implementor must guarantee that `State` and `Context`
+/// have a **stable, identical layout** in the host rlib and the cdylib (same
+/// toolchain + same engine source, enforced at load by [`LAYOUT_HASH`] /
+/// [`BUILD_HASH`]), and that both artifacts share one allocator (boundary
+/// invariant #2) so a `Vec<Actor>` allocated in the cdylib can be dropped
+/// host-side.
 ///
 /// Implementations are generated by [`hot_surface_registry!`] so that slot
 /// numbering, the uniqueness/bounds assertion, and the [`LAYOUT_HASH`] surface
@@ -378,8 +359,9 @@ macro_rules! hot_surface_registry {
             /// Zero-sized hot-surface marker; see [`HotSurface`].
             pub struct $name;
             // SAFETY: layout equality is enforced at load by LAYOUT_HASH /
-            // BUILD_HASH; the referenced glue/render read host data only and
-            // never clone/drop a host `Arc` (boundary invariant #3).
+            // BUILD_HASH, and both artifacts share one allocator (boundary
+            // invariant #2) so a `Vec<Actor>` built by `render` can be dropped
+            // host-side.
             unsafe impl HotSurface for $name {
                 type State = $state;
                 type Context = $ctx;
@@ -450,11 +432,11 @@ pub unsafe fn screen_vtable<'a>(ptr: NonNull<()>) -> &'a ScreenVTable {
 
 /// Font keys consumed by hot render paths.
 ///
-/// See boundary invariant #3 in the module docs: render code must **not** name
-/// these consts directly (that bakes a cdylib-owned pointer under static
-/// linking). They are the single authoritative source the **host** reads to
-/// populate `HostContext`, so the `&'static str` handed to the cdylib points
-/// into the exe's rodata and never dangles.
+/// Render code must **not** name these consts directly: a cdylib that referenced
+/// `font_keys::MISO` would bake a pointer into *its own* rodata, which dangles
+/// the moment that cdylib is unloaded. They are the single authoritative source
+/// the **host** reads to populate `HostContext`, so the `&'static str` handed to
+/// the cdylib points into the exe's rodata and stays valid across reloads.
 pub mod font_keys {
     /// Default body font used by menu status/info text.
     pub const MISO: &str = "miso";
