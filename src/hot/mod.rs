@@ -91,7 +91,10 @@ pub const MAGIC: u64 = 0xDEAD_5719_C0DE_0001;
 /// Bumped on any intentional change to the [`ScreenVTable`] shape/semantics.
 /// `2`: vtable became a counted [`Option<HotEntry>; MAX_SURFACES`] array with a
 /// type-erased entry signature (was a single typed `menu_get_actors` field).
-pub const ABI_VERSION: u32 = 2;
+/// `3`: the entry returns a real `Option<Vec<Actor>>` by value over the Rust ABI
+/// (was an `extern "C"` POD `ActorBlob` byte handle) — the shared-allocator
+/// boundary. A `2` cdylib is rejected on `abi_version` before any heap crosses.
+pub const ABI_VERSION: u32 = 3;
 
 /// Panic strategy of this build: `0` = unwind, `1` = abort. Host and cdylib must
 /// match or `catch_unwind` across the boundary is unsound. The pilot runs the
@@ -259,9 +262,28 @@ pub const MAX_SURFACES: usize = 8;
 /// A type-erased hot render entry. The concrete `&State`/`&Context` references
 /// are reconstructed *inside the cdylib thunk* (which knows the surface's real
 /// types); the host only ever holds them erased and relies on [`LAYOUT_HASH`] to
-/// guarantee both artifacts agree on those layouts. Returns a POD [`ActorBlob`]
-/// by value over `extern "C"`, so no Rust heap value crosses by value.
-pub type HotEntry = extern "C" fn(*const (), *const (), f32) -> ActorBlob;
+/// guarantee both artifacts agree on those layouts.
+///
+/// Returns `Option<Vec<Actor>>` **by value over the Rust ABI** (not `extern
+/// "C"`): `Some(actors)` on success, `None` when the cdylib caught a panic in
+/// the render path. The `Vec` and every `Arc<str>` it carries are allocated in
+/// the cdylib and dropped in the host, so this is sound **only** because both
+/// artifacts are built `-C prefer-dynamic` against one shared `std`/global
+/// allocator (see boundary invariant #2) — a static-allocator cdylib must be
+/// rejected at load. A non-FFI-safe return type is permitted here because the
+/// caller and callee are the same rustc/target (enforced by [`BUILD_HASH`]); the
+/// entry is `unsafe` because it dereferences the two erased `&State`/`&Context`
+/// raw pointers under the layout handshake.
+pub type HotEntry = unsafe fn(*const (), *const (), f32) -> Option<Vec<Actor>>;
+
+// The vtable stores entries as `Option<HotEntry>` and relies on the
+// null-function-pointer niche so an unpublished slot is a plain null pointer the
+// host reads as `None` (never a wild call). Assert that niche holds: `Option`
+// must not grow the pointer and the pointer must be word-sized.
+const _: () = {
+    assert!(size_of::<Option<HotEntry>>() == size_of::<HotEntry>());
+    assert!(size_of::<HotEntry>() == size_of::<*const ()>());
+};
 
 /// The reloadable dispatch table: one optional [`HotEntry`] per surface slot. A
 /// second hot surface adds one line to the [`hot_surface_registry!`] list (which
@@ -442,16 +464,12 @@ pub mod font_keys {
 mod tests {
     use super::*;
 
-    extern "C" fn noop_get_actors(
+    unsafe fn noop_get_actors(
         _state: *const (),
         _ctx: *const (),
         _alpha: f32,
-    ) -> ActorBlob {
-        ActorBlob {
-            status: RENDER_OK,
-            ptr: core::ptr::null(),
-            len: 0,
-        }
+    ) -> Option<Vec<Actor>> {
+        Some(Vec::new())
     }
 
     static TEST_VTABLE: ScreenVTable = {

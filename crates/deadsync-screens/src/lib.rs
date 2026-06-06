@@ -15,39 +15,32 @@
 //! Because the slot comes from the rlib trait, the cdylib cannot desync slot
 //! numbering from the host.
 //!
-//! NOTE (boundary safety): the render output crosses as **`actor_wire` bytes**,
-//! not a `Vec<Actor>`. The included `render.rs` still mints some `&'static str`
-//! font/texture keys that point into *this cdylib's* rodata, but they are
-//! serialized as owned strings during encode and the host decodes them into
-//! host-owned `Arc<str>`, so no cdylib-rodata pointer escapes inside a live
-//! `Actor`. Such a key only exists within a single render call.
+//! NOTE (boundary safety): the render output now crosses as a real
+//! **`Vec<Actor>`** by value over the Rust ABI. The `Vec` and every `Arc<str>`
+//! it carries are allocated in this cdylib and dropped in the host, so both
+//! artifacts MUST be built `-C prefer-dynamic` against one shared `std`/global
+//! allocator — otherwise the host frees cdylib heap with a different allocator
+//! (UB). The included `render.rs` still mints some `&'static str` font/texture
+//! keys that point into *this cdylib's* rodata; such a key only exists within a
+//! single render call and must not outlive the loaded generation.
 //!
-//! SAFETY INVARIANT (thread-local scratch): [`SCRATCH`] is a cdylib-owned
-//! `Vec<u8>` whose destructor and allocator live in *this* module. The runtime
-//! must therefore **never unload a hot generation** (today it keeps every loaded
-//! library mapped for the reloader's lifetime) — running this module's TLS
-//! destructor after unload would be UB. The returned [`ActorBlob`] borrows this
-//! buffer; the host decodes synchronously before the next hot call on the thread.
+//! SAFETY INVARIANT (no unload while live): a returned `Vec<Actor>` and its
+//! `Arc<str>` destructors are this module's code/allocator. The runtime must
+//! therefore **never unload a hot generation** while any value it produced is
+//! still alive (today it keeps every loaded library mapped for the reloader's
+//! lifetime) — running this module's drop glue after unload would be UB.
 
 // The real render path, compiled into THIS crate so edits don't touch the rlib.
 // Relative to `crates/deadsync-screens/src/`, the repo root is three levels up.
 #[path = "../../../src/screens/menu/render.rs"]
 mod render;
 
-use deadsync::engine::present::actor_wire;
 use deadsync::engine::present::actors::Actor;
 use deadsync::hot::{
-    ABI_VERSION, ActorBlob, BUILD_HASH, HotEntry, HotHeader, HotSurface, LAYOUT_HASH, MAGIC,
-    MAX_SURFACES, MenuSurface, PANIC_STRATEGY, RENDER_OK, RENDER_PANIC, ScreenVTable,
+    ABI_VERSION, BUILD_HASH, HotEntry, HotHeader, HotSurface, LAYOUT_HASH, MAGIC, MAX_SURFACES,
+    MenuSurface, PANIC_STRATEGY, ScreenVTable,
 };
-use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-
-thread_local! {
-    /// Cdylib-owned encode scratch reused across frames. Cleared and refilled on
-    /// every render; the returned `ActorBlob` borrows it until the next call.
-    static SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-}
 
 /// This cdylib's **local** real renderer for a surface. Distinct from
 /// [`HotSurface::render`], which is the engine rlib's in-lib *fallback* (the
@@ -59,40 +52,30 @@ trait LocalRender: HotSurface {
 
 /// Generic type-erased hot entry: reconstruct the surface's real `&State` /
 /// `&Context` from the host's erased pointers, run the cdylib-local renderer
-/// under `catch_unwind`, and encode the actors into the thread-local scratch.
-/// One monomorphization per surface; `thunk::<S>` is placed at `S::SLOT` in the
-/// vtable. Panics from the (hot-edited) render path are caught here and reported
-/// as [`RENDER_PANIC`]; no panic crosses the `extern "C"` boundary.
-extern "C" fn thunk<S: LocalRender>(state: *const (), ctx: *const (), alpha: f32) -> ActorBlob {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+/// under `catch_unwind`, and return the actors by value. One monomorphization
+/// per surface; `thunk::<S>` is placed at `S::SLOT` in the vtable. A panic from
+/// the (hot-edited) render path is caught here and reported as `None`; no panic
+/// crosses the boundary. The returned `Vec<Actor>` (and the `Arc<str>` it
+/// carries) is allocated here and dropped in the host — sound only under the
+/// shared `-C prefer-dynamic` allocator both artifacts are built with.
+///
+/// # Safety
+/// `state` / `ctx` must point at live `S::State` / `S::Context` values of the
+/// layout the host's [`LAYOUT_HASH`] handshake agreed on, valid for the call.
+unsafe fn thunk<S: LocalRender>(
+    state: *const (),
+    ctx: *const (),
+    alpha: f32,
+) -> Option<Vec<Actor>> {
+    catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: under the load-time LAYOUT_HASH / BUILD_HASH handshake these
         // pointers reference live `S::State` / `S::Context` of identical layout in
-        // both artifacts; the host holds them valid for this call's duration and
-        // we only ever *read* through them (never clone/drop a host `Arc`).
+        // both artifacts; the host holds them valid for this call's duration.
         let state = unsafe { &*(state as *const S::State) };
         let ctx = unsafe { &*(ctx as *const S::Context) };
-        let actors = S::local_render(state, ctx, alpha);
-        SCRATCH.with(|scratch| {
-            let mut buf = scratch.borrow_mut();
-            buf.clear();
-            actor_wire::encode_actors(&actors, &mut buf);
-            (buf.as_ptr(), buf.len())
-        })
-        // `actors` (and its cdylib-owned `Arc`s) drop here, freed by this
-        // module's own allocator — nothing heap-owned escapes to the host.
-    }));
-    match result {
-        Ok((ptr, len)) => ActorBlob {
-            status: RENDER_OK,
-            ptr,
-            len,
-        },
-        Err(_) => ActorBlob {
-            status: RENDER_PANIC,
-            ptr: std::ptr::null(),
-            len: 0,
-        },
-    }
+        S::local_render(state, ctx, alpha)
+    }))
+    .ok()
 }
 
 /// Map each hot surface to its cdylib-local render fn, generating the

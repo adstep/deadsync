@@ -6643,21 +6643,19 @@ impl App {
     }
 
     /// Poll the reloader and, if a fresh generation is live, hand its validated
-    /// vtable to `select`, which copies out the one `extern "C"` fn pointer the
-    /// caller needs. Returns `None` when no hot cdylib is loaded (the caller then
-    /// renders in-lib). Adding a hot screen means one more `select` call site —
-    /// not another reloader.
+    /// vtable to `select`, which copies out the one fn pointer the caller needs.
+    /// Returns `None` when no hot cdylib is loaded (the caller then renders
+    /// in-lib). Adding a hot screen means one more `select` call site — not
+    /// another reloader.
     ///
     /// Render a hot surface through the reloaded cdylib when its slot is
     /// published, otherwise via the surface's in-lib fallback. The cdylib renders
-    /// + encodes actors into its own scratch buffer and returns a POD
-    /// [`ActorBlob`](crate::hot::ActorBlob) (status + `ptr`/`len`); the host
-    /// decodes the bytes into its **own** `Vec<Actor>`, so no heap ownership
-    /// crosses the boundary (this is what lets the boundary drop
-    /// `-C prefer-dynamic`). The cdylib catches its own render panics and reports
-    /// `RENDER_PANIC`; on that — or a null/oversized blob, a decode error, or an
-    /// unpublished slot — we quarantine the generation and fall back to
-    /// `S::render`.
+    /// the actors and returns a real `Option<Vec<Actor>>` **by value** — the
+    /// `Vec` (and its `Arc<str>`) is allocated in the cdylib and dropped here in
+    /// the host, which is sound only because both artifacts share one
+    /// `-C prefer-dynamic` allocator. The cdylib catches its own render panics
+    /// and returns `None`; on that — or an unpublished slot — we quarantine the
+    /// generation and fall back to `S::render`.
     ///
     /// Takes `reloader` and `state` as **separate** borrows (rather than
     /// `&mut self`) so the caller can hand us a disjoint mutable borrow of the
@@ -6668,9 +6666,6 @@ impl App {
         state: &S::State,
         alpha: f32,
     ) -> Vec<Actor> {
-        use crate::engine::present::actor_wire;
-        use crate::hot::{MAX_BLOB_BYTES, RENDER_OK};
-
         // Build the render snapshot host-side (used by both the hot path and the
         // fallback), so a stale context can never be paired with the state.
         let ctx = S::build_context(state);
@@ -6689,37 +6684,27 @@ impl App {
             return S::render(state, &ctx, alpha);
         };
 
-        // The thunk is `extern "C"` and catches its own panics, so this call
-        // cannot unwind into the host (a panic there would abort). The returned
-        // `ptr`/`len` borrow the cdylib's thread-local scratch and are valid only
-        // until the next hot call — decode immediately, never store.
-        let blob = entry(
-            state as *const S::State as *const (),
-            &ctx as *const S::Context as *const (),
-            alpha,
-        );
-
-        let decoded = if blob.status == RENDER_OK
-            && !blob.ptr.is_null()
-            && blob.len <= MAX_BLOB_BYTES
-            && blob.len <= isize::MAX as usize
-        {
-            // SAFETY: status is OK, the pointer is non-null, and the length is
-            // within `MAX_BLOB_BYTES`/`isize::MAX`. The bytes live in the cdylib's
-            // scratch (kept mapped by the reloader) and are read synchronously
-            // here before any further hot call mutates them.
-            let bytes = unsafe { std::slice::from_raw_parts(blob.ptr, blob.len) };
-            actor_wire::decode_actors(bytes).ok()
-        } else {
-            None
+        // The thunk catches its own panics and returns `None`, so this call
+        // cannot unwind into the host. A returned `Vec<Actor>` is allocated by
+        // the cdylib and freed here under the shared allocator.
+        //
+        // SAFETY: `entry` is a published `HotEntry` from the validated vtable;
+        // we pass live `&S::State` / `&S::Context` of the layout the load-time
+        // handshake agreed on, valid for the duration of the call.
+        let rendered = unsafe {
+            entry(
+                state as *const S::State as *const (),
+                &ctx as *const S::Context as *const (),
+                alpha,
+            )
         };
 
-        match decoded {
+        match rendered {
             Some(actors) => actors,
             None => {
                 if let Some(r) = reloader.as_mut() {
                     log::error!(
-                        "hot({}): render failed; quarantining generation and falling back",
+                        "hot({}): render panicked; quarantining generation and falling back",
                         S::LABEL
                     );
                     r.quarantine_current();
