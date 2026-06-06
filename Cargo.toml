@@ -298,6 +298,39 @@ lto = "thin"
 inherits = "release"
 panic = "unwind"
 
+# Fastest cdylib iteration loop. Inherits `release-hot` (so it keeps
+# `panic = "unwind"` for the cdylib's `catch_unwind`) but trades runtime
+# perf for rebuild speed: no LTO, `opt-level = 1`, many codegen units, and
+# incremental on. On a one-line `render.rs` edit a warm relink of
+# `deadsync-screens` drops from ~8s (`release-hot`) to ~1.6s when combined
+# with the `rust-lld` linker (the linker is the dominant warm-relink cost;
+# dropping fat LTO is the secondary win).
+#
+#   cargo watch -w src/screens/menu/render.rs \
+#     -x "build -p deadsync-screens --profile fast-hot"
+#   # in that watch shell only:  $env:RUSTFLAGS = "-C linker=rust-lld"
+#
+# Profile MIXING is safe and intended: build the cdylib with `fast-hot` while
+# the HOST stays on `release-hot`. The load-time handshake still matches because
+# its inputs are profile-independent — BUILD_HASH folds the rustc version + git
+# HEAD + pkg version, and LAYOUT_HASH folds `#[repr(C)]` offsets/size/align;
+# neither `opt-level`, `lto`, `codegen-units`, nor `incremental` affect the
+# `extern "C"` ABI or `repr(C)` layout. Bonus: a distinct profile name means a
+# distinct `target/fast-hot/` dir, so this watch never fights a sibling
+# worktree's `release-hot` artifacts for the package-cache lock.
+#
+# Caveat (same as the existing same-profile loop): the BUILD_HASH only tracks
+# committed source via `git HEAD`, so it does NOT detect uncommitted edits to
+# the SHARED boundary (`src/hot`, the wire codec, host `State`/`Context`
+# layouts). Pure `render.rs` edits are fine; if you change shared-contract code,
+# rebuild the host too.
+[profile.fast-hot]
+inherits = "release-hot"
+opt-level = 1
+lto = false
+codegen-units = 256
+incremental = true
+
 [lints.clippy]
 perf = { level = "warn", priority = -1 }
 
