@@ -3822,12 +3822,15 @@ pub struct App {
     state: AppState,
     software_renderer_threads: u8,
     gfx_debug_enabled: bool,
-    /// Dev-only hot-reload loop for the `menu` screen render path. `None` until
-    /// the reloadable cdylib first appears; when present, [`Self::get_current_actors`]
-    /// dispatches `menu` rendering through it. Gated behind the `hot` feature so
-    /// release/normal builds carry neither the field nor the dependency edge.
+    /// Dev-only hot-reload loop for the reloadable `deadsync-screens` cdylib.
+    /// One reloader serves every hot screen the cdylib publishes (a `Reloader`
+    /// watches a single library file), so this is app-wide, not per-screen.
+    /// `None` until the cdylib first appears; when present,
+    /// [`Self::get_current_actors`] dispatches hot screens through it. Gated
+    /// behind the `hot` feature so release/normal builds carry neither the field
+    /// nor the dependency edge.
     #[cfg(feature = "hot")]
-    menu_reloader: Option<deadsync_hot::Reloader>,
+    hot_reloader: Option<deadsync_hot::Reloader>,
 }
 
 impl App {
@@ -4917,16 +4920,18 @@ impl App {
             software_renderer_threads,
             gfx_debug_enabled,
             #[cfg(feature = "hot")]
-            menu_reloader: Self::build_menu_reloader(),
+            hot_reloader: Self::build_hot_reloader(),
         }
     }
 
-    /// Construct the `menu` hot-reload loop, pointed at the reloadable cdylib next
-    /// to the running exe. Returns `None` (logged) if the runtime can't be
-    /// configured; the menu then always renders via the in-lib path. The library
-    /// file need not exist yet — `poll()` falls back until it appears.
+    /// Construct the app-wide hot-reload loop, pointed at the reloadable
+    /// `deadsync-screens` cdylib next to the running exe. One reloader serves
+    /// every hot screen that cdylib publishes. Returns `None` (logged) if the
+    /// runtime can't be configured; hot screens then always render via the
+    /// in-lib path. The library file need not exist yet — `poll()` falls back
+    /// until it appears.
     #[cfg(feature = "hot")]
-    fn build_menu_reloader() -> Option<deadsync_hot::Reloader> {
+    fn build_hot_reloader() -> Option<deadsync_hot::Reloader> {
         let lib_name = format!(
             "{}deadsync_screens{}",
             std::env::consts::DLL_PREFIX,
@@ -4949,15 +4954,15 @@ impl App {
         match deadsync_hot::Reloader::builder()
             .library_path(lib_path)
             .expected(expected)
-            .on_event(|event| log::info!("hot(menu): {event:?}"))
+            .on_event(|event| log::info!("hot(screens): {event:?}"))
             .build()
         {
             Ok(reloader) => {
-                log::info!("hot(menu): reloader active; watching for deadsync_screens cdylib");
+                log::info!("hot(screens): reloader active; watching for deadsync_screens cdylib");
                 Some(reloader)
             }
             Err(err) => {
-                log::error!("hot(menu): disabled — {err}");
+                log::error!("hot(screens): disabled — {err}");
                 None
             }
         }
@@ -6637,35 +6642,60 @@ impl App {
         ));
     }
 
+    /// Poll the reloader and, if a fresh generation is live, hand its validated
+    /// vtable to `select`, which copies out the one `extern "Rust"` fn pointer
+    /// the caller needs. Returns `None` when no hot cdylib is loaded (the caller
+    /// then renders in-lib). Adding a hot screen means one more `select` call
+    /// site — not another reloader.
+    ///
+    /// The vtable reference lives only for the duration of `select`; the helper
+    /// hands back a plain `Copy` fn pointer so no boundary-owned reference
+    /// escapes into the frame.
+    #[cfg(feature = "hot")]
+    fn hot_fn<F: Copy>(
+        &mut self,
+        select: impl FnOnce(&crate::hot::ScreenVTable) -> F,
+    ) -> Option<F> {
+        let ptr = self.hot_reloader.as_mut().and_then(|r| r.poll())?;
+        // SAFETY: `ptr` came from a header that passed `verify` against our
+        // `EXPECTED`, so it points at a `ScreenVTable` of the agreed layout, and
+        // the owning library is kept mapped by the reloader. `select` only reads
+        // it to copy out a fn pointer; nothing borrowed escapes.
+        Some(select(unsafe { crate::hot::screen_vtable(ptr) }))
+    }
+
+    /// Quarantine the current cdylib generation after a hot render panicked, so
+    /// the next `poll()` ignores it until the file changes again. Note this
+    /// quarantines the whole `deadsync-screens` generation: a panic in any hot
+    /// screen drops every hot screen back to its in-lib path until the next
+    /// successful rebuild.
+    #[cfg(feature = "hot")]
+    fn quarantine_hot(&mut self, label: &str) {
+        log::error!("hot({label}): render panicked; quarantining generation and falling back");
+        if let Some(r) = self.hot_reloader.as_mut() {
+            r.quarantine_current();
+        }
+    }
+
     /// Render the menu through the hot-reloaded cdylib when one is loaded,
-    /// otherwise via the in-lib path. Polls the reloader at this single
-    /// per-frame safe point; a panic inside the hot render is caught, the
-    /// offending generation is quarantined, and we fall back to the in-lib path
-    /// (sound: host + cdylib share one `std` and panic strategy).
+    /// otherwise via the in-lib path. A panic inside the hot render is caught,
+    /// the offending generation is quarantined, and we fall back to the in-lib
+    /// path (sound: host + cdylib share one `std` and panic strategy).
     #[cfg(feature = "hot")]
     fn menu_actors_hot(&mut self, ctx: &menu::HostContext, alpha: f32) -> Vec<Actor> {
-        let vtable_ptr = self.menu_reloader.as_mut().and_then(|r| r.poll());
-        match vtable_ptr {
-            Some(ptr) => {
-                // SAFETY: `ptr` came from a header that passed `verify` against
-                // our `EXPECTED`, so it points at a `ScreenVTable` of the agreed
-                // layout, and the owning library is kept mapped by the reloader.
-                let vtable = unsafe { crate::hot::screen_vtable(ptr) };
-                let state = &self.state.screens.menu_state;
-                match deadsync_hot::guard(|| (vtable.menu_get_actors)(state, ctx, alpha)) {
-                    Some(actors) => actors,
-                    None => {
-                        log::error!(
-                            "hot(menu): render panicked; quarantining generation and falling back"
-                        );
-                        if let Some(r) = self.menu_reloader.as_mut() {
-                            r.quarantine_current();
-                        }
-                        menu::get_actors(&self.state.screens.menu_state, ctx, alpha)
-                    }
-                }
+        let Some(get_actors) = self.hot_fn(|vt| vt.menu_get_actors) else {
+            return menu::get_actors(&self.state.screens.menu_state, ctx, alpha);
+        };
+        let result = {
+            let state = &self.state.screens.menu_state;
+            deadsync_hot::guard(|| get_actors(state, ctx, alpha))
+        };
+        match result {
+            Some(actors) => actors,
+            None => {
+                self.quarantine_hot("menu");
+                menu::get_actors(&self.state.screens.menu_state, ctx, alpha)
             }
-            None => menu::get_actors(&self.state.screens.menu_state, ctx, alpha),
         }
     }
 

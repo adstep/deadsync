@@ -140,9 +140,11 @@ pub const BUILD_HASH: u64 = {
 
 // --- Boundary types ---------------------------------------------------------
 
-/// The reloadable dispatch table. One `extern "Rust"` fn pointer per hot entry
-/// point. Render-only for the menu pilot — input / audio / navigation stay
-/// host-owned and never run in the cdylib (see the plan's boundary shape).
+/// The reloadable dispatch table — one `extern "Rust"` fn pointer per hot entry
+/// point. A second hot screen adds one field here (and one `mix_layout` over its
+/// `State`/`HostContext` in [`LAYOUT_HASH`]); it does **not** need its own cdylib
+/// or its own reloader. Render-only for now — input / audio / navigation stay
+/// host-owned and never run in the cdylib.
 ///
 /// `#[repr(C)]` freezes field order; the pointers themselves remain Rust-ABI.
 #[repr(C)]
