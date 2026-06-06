@@ -1,3 +1,4 @@
+pub mod actor_wire;
 pub mod actors;
 pub mod anim;
 pub mod cache;

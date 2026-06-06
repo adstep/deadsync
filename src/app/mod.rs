@@ -3822,6 +3822,15 @@ pub struct App {
     state: AppState,
     software_renderer_threads: u8,
     gfx_debug_enabled: bool,
+    /// Dev-only hot-reload loop for the reloadable `deadsync-screens` cdylib.
+    /// One reloader serves every hot screen the cdylib publishes (a `Reloader`
+    /// watches a single library file), so this is app-wide, not per-screen.
+    /// `None` until the cdylib first appears; when present,
+    /// [`Self::get_current_actors`] dispatches hot screens through it. Gated
+    /// behind the `hot` feature so release/normal builds carry neither the field
+    /// nor the dependency edge.
+    #[cfg(feature = "hot")]
+    hot_reloader: Option<deadsync_hot::Reloader>,
 }
 
 impl App {
@@ -4910,6 +4919,52 @@ impl App {
             state,
             software_renderer_threads,
             gfx_debug_enabled,
+            #[cfg(feature = "hot")]
+            hot_reloader: Self::build_hot_reloader(),
+        }
+    }
+
+    /// Construct the app-wide hot-reload loop, pointed at the reloadable
+    /// `deadsync-screens` cdylib next to the running exe. One reloader serves
+    /// every hot screen that cdylib publishes. Returns `None` (logged) if the
+    /// runtime can't be configured; hot screens then always render via the
+    /// in-lib path. The library file need not exist yet — `poll()` falls back
+    /// until it appears.
+    #[cfg(feature = "hot")]
+    fn build_hot_reloader() -> Option<deadsync_hot::Reloader> {
+        let lib_name = format!(
+            "{}deadsync_screens{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        );
+        let lib_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join(&lib_name)))
+            .unwrap_or_else(|| std::path::PathBuf::from(&lib_name));
+
+        let expected = deadsync_hot::Expected {
+            magic: crate::hot::MAGIC,
+            abi_version: crate::hot::ABI_VERSION,
+            size: size_of::<crate::hot::HotHeader>() as u32,
+            layout_hash: crate::hot::LAYOUT_HASH,
+            build_hash: crate::hot::BUILD_HASH,
+            panic_strategy: crate::hot::PANIC_STRATEGY,
+        };
+
+        match deadsync_hot::Reloader::builder()
+            .library_path(lib_path)
+            .expected(expected)
+            .on_event(|event| log::info!("hot(screens): {event:?}"))
+            .build()
+        {
+            Ok(reloader) => {
+                log::info!("hot(screens): reloader active; watching for deadsync_screens cdylib");
+                Some(reloader)
+            }
+            Err(err) => {
+                log::error!("hot(screens): disabled — {err}");
+                None
+            }
         }
     }
 
@@ -6587,6 +6642,91 @@ impl App {
         ));
     }
 
+    /// Poll the reloader and, if a fresh generation is live, hand its validated
+    /// vtable to `select`, which copies out the one `extern "C"` fn pointer the
+    /// caller needs. Returns `None` when no hot cdylib is loaded (the caller then
+    /// renders in-lib). Adding a hot screen means one more `select` call site —
+    /// not another reloader.
+    ///
+    /// The vtable reference lives only for the duration of `select`; the helper
+    /// hands back a plain `Copy` fn pointer so no boundary-owned reference
+    /// escapes into the frame.
+    #[cfg(feature = "hot")]
+    fn hot_fn<F: Copy>(
+        &mut self,
+        select: impl FnOnce(&crate::hot::ScreenVTable) -> F,
+    ) -> Option<F> {
+        let ptr = self.hot_reloader.as_mut().and_then(|r| r.poll())?;
+        // SAFETY: `ptr` came from a header that passed `verify` against our
+        // `EXPECTED`, so it points at a `ScreenVTable` of the agreed layout, and
+        // the owning library is kept mapped by the reloader. `select` only reads
+        // it to copy out a fn pointer; nothing borrowed escapes.
+        Some(select(unsafe { crate::hot::screen_vtable(ptr) }))
+    }
+
+    /// Quarantine the current cdylib generation after a hot render panicked, so
+    /// the next `poll()` ignores it until the file changes again. Note this
+    /// quarantines the whole `deadsync-screens` generation: a panic in any hot
+    /// screen drops every hot screen back to its in-lib path until the next
+    /// successful rebuild.
+    #[cfg(feature = "hot")]
+    fn quarantine_hot(&mut self, label: &str) {
+        log::error!("hot({label}): render panicked; quarantining generation and falling back");
+        if let Some(r) = self.hot_reloader.as_mut() {
+            r.quarantine_current();
+        }
+    }
+
+    /// Render the menu through the hot-reloaded cdylib when one is loaded,
+    /// otherwise via the in-lib path. The cdylib renders + encodes the actors
+    /// into its own scratch buffer and returns a POD [`ActorBlob`] (status +
+    /// `ptr`/`len`); the host decodes the bytes into its **own** `Vec<Actor>`, so
+    /// no heap ownership crosses the boundary (this is what lets the menu boundary
+    /// drop `-C prefer-dynamic`). The cdylib catches its own render panics and
+    /// reports `RENDER_PANIC`; on that — or a null/oversized blob or a decode
+    /// error — we quarantine the generation and fall back to the in-lib path.
+    #[cfg(feature = "hot")]
+    fn menu_actors_hot(&mut self, ctx: &menu::HostContext, alpha: f32) -> Vec<Actor> {
+        use crate::engine::present::actor_wire;
+        use crate::hot::{MAX_BLOB_BYTES, RENDER_OK};
+
+        let Some(get_actors) = self.hot_fn(|vt| vt.menu_get_actors) else {
+            return menu::get_actors(&self.state.screens.menu_state, ctx, alpha);
+        };
+
+        // The cdylib entry is `extern "C"` and catches its own panics, so this
+        // call cannot unwind into the host (a panic there would abort). The
+        // returned `ptr`/`len` borrow the cdylib's thread-local scratch and are
+        // valid only until the next hot call — decode immediately, never store.
+        let blob = {
+            let state = &self.state.screens.menu_state;
+            get_actors(state, ctx, alpha)
+        };
+
+        let decoded = if blob.status == RENDER_OK
+            && !blob.ptr.is_null()
+            && blob.len <= MAX_BLOB_BYTES
+            && blob.len <= isize::MAX as usize
+        {
+            // SAFETY: status is OK, the pointer is non-null, and the length is
+            // within `MAX_BLOB_BYTES`/`isize::MAX`. The bytes live in the cdylib's
+            // scratch (kept mapped by the reloader) and are read synchronously
+            // here before any further hot call mutates them.
+            let bytes = unsafe { std::slice::from_raw_parts(blob.ptr, blob.len) };
+            actor_wire::decode_actors(bytes).ok()
+        } else {
+            None
+        };
+
+        match decoded {
+            Some(actors) => actors,
+            None => {
+                self.quarantine_hot("menu");
+                menu::get_actors(&self.state.screens.menu_state, ctx, alpha)
+            }
+        }
+    }
+
     fn get_current_actors(&mut self) -> (Vec<Actor>, [f32; 4]) {
         const CLEAR: [f32; 4] = [0.03, 0.03, 0.03, 1.0];
         let mut screen_alpha_multiplier = 1.0;
@@ -6609,7 +6749,19 @@ impl App {
 
         let mut actors = match self.state.screens.current_screen {
             CurrentScreen::Menu => {
-                menu::get_actors(&self.state.screens.menu_state, screen_alpha_multiplier)
+                let ctx = menu::build_host_context(&self.state.screens.menu_state);
+                #[cfg(feature = "hot")]
+                {
+                    self.menu_actors_hot(&ctx, screen_alpha_multiplier)
+                }
+                #[cfg(not(feature = "hot"))]
+                {
+                    menu::get_actors(
+                        &self.state.screens.menu_state,
+                        &ctx,
+                        screen_alpha_multiplier,
+                    )
+                }
             }
             CurrentScreen::Gameplay => {
                 let mut actors = std::mem::take(&mut self.gameplay_actor_scratch);
