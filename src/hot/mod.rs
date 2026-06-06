@@ -8,36 +8,40 @@
 //!
 //! # Boundary invariants (must hold for soundness)
 //!
-//! 1. **Same toolchain / same engine rlib.** The reload payload is plain Rust
-//!    (`Vec<Actor>` by value, `Arc<str>`, nested enums), passed over
-//!    `extern "Rust"`. There is no C ABI here and forcing `#[repr(C)]` on the
-//!    payload would be meaningless: both artifacts must be built by the **same
-//!    rustc**, for the **same target**, with the **same panic strategy**, and
-//!    must link **identical** layouts of every boundary type. [`BUILD_HASH`] +
-//!    [`LAYOUT_HASH`] + [`HotHeader::panic_strategy`] encode that contract and a
-//!    stale cdylib is rejected at load.
+//! 1. **Same toolchain / same engine rlib layout.** The render *output* now
+//!    crosses as an opaque **byte blob** ([`ActorBlob`] → `actor_wire` bytes), not
+//!    a `Vec<Actor>`, so the payload no longer depends on `Actor`'s in-memory
+//!    layout. But the host still hands the cdylib `&menu::State` and
+//!    `&menu::HostContext` **by reference**, read by field layout, so those two
+//!    types (and anything reachable by value through them) must still have
+//!    **identical layout** in both artifacts. [`BUILD_HASH`] + [`LAYOUT_HASH`] +
+//!    [`HotHeader::panic_strategy`] encode that contract and a stale cdylib is
+//!    rejected at load.
 //!
-//! 2. **Shared `std` / one allocator.** Host and cdylib are both built with
-//!    `-C prefer-dynamic` so they share one `std-*.dll` → one global allocator.
-//!    Only then is it sound for the host to drop a `Vec<Actor>` / `Arc<str>`
-//!    that the cdylib allocated. Forgetting the flag yields two allocators and
-//!    silent heap corruption — see the runtime docs.
+//! 2. **No shared allocator required (the Option-A payoff).** Nothing that owns
+//!    heap crosses the boundary in either direction: the cdylib allocates and
+//!    frees *its own* render `Arc`s and *its own* scratch byte buffer; the host
+//!    allocates and frees *its own* decoded `Vec<Actor>`. Only POD (`ptr`/`len`/
+//!    `u32` status) and read-only `&State`/`&HostContext` borrows cross, and the
+//!    cdylib only ever *reads* the host's `Arc<str>` bytes (a pointer deref — no
+//!    allocator op). Because of this the menu boundary no longer needs
+//!    `-C prefer-dynamic`/one shared `std`, which is what re-enables `lto` and a
+//!    release-mode hot loop. (The two artifacts must still be the same rustc; see
+//!    invariant 1.)
 //!
-//! 3. **Nothing cdylib-owned may escape inside an `Actor`.** No reference into
-//!    cdylib memory, no fn pointer into cdylib code, no trait object / closure
-//!    whose vtable lives in the cdylib. In particular a `&'static str` baked
-//!    from a **string literal in cdylib code** points into cdylib rodata and
-//!    dangles after unload. Note: a `&'static str` *const defined in this rlib*
-//!    is **not** a safe workaround, because static linking **duplicates** the
-//!    rlib's rodata into the cdylib — referencing the const from cdylib code
-//!    still bakes a cdylib-owned pointer. Font/texture keys must therefore be
-//!    sourced **host-side** (a pointer into the exe's rodata) and handed in via
-//!    `HostContext`; see [`font_keys`].
+//! 3. **Nothing cdylib-owned may escape, and the cdylib must never drop/clone a
+//!    host `Arc`.** Render output is copied out as bytes (keys, not handles), so
+//!    no reference into cdylib memory survives. The inbound `&HostContext`
+//!    exposes real `Arc<str>`, but the render path only reads them via `.as_ref()`
+//!    and re-owns every string it emits with a cdylib-side `Arc::from(&str)` — it
+//!    must never clone or drop a host `Arc` (that would free host heap with the
+//!    cdylib allocator once the shared allocator is gone). Font/texture keys are
+//!    likewise sourced host-side via `HostContext`; see [`font_keys`].
 //!
 //! Only [`HotHeader`] is read "blind" through a raw exported symbol, so it is
-//! the one type that strictly requires `#[repr(C)]`. [`ScreenVTable`] is also
-//! `#[repr(C)]` purely to freeze its field order (cheap insurance as it grows);
-//! its function pointers stay `extern "Rust"`.
+//! the one type that strictly requires `#[repr(C)]`. [`ScreenVTable`] and
+//! [`ActorBlob`] are also `#[repr(C)]`: the vtable to freeze field order, the
+//! blob because it crosses an `extern "C"` return by value.
 
 #![allow(dead_code)] // Wired up by the cdylib and the runtime crate.
 
@@ -105,6 +109,7 @@ pub const LAYOUT_HASH: u64 = {
     let mut h = FNV_OFFSET;
     h = mix_layout::<HotHeader>(h);
     h = mix_layout::<ScreenVTable>(h);
+    h = mix_layout::<ActorBlob>(h);
     h = mix_layout::<menu::State>(h);
     h = mix_layout::<menu::HostContext>(h);
     h = mix_layout::<Actor>(h);
@@ -140,18 +145,52 @@ pub const BUILD_HASH: u64 = {
 
 // --- Boundary types ---------------------------------------------------------
 
-/// The reloadable dispatch table — one `extern "Rust"` fn pointer per hot entry
-/// point. A second hot screen adds one field here (and one `mix_layout` over its
-/// `State`/`HostContext` in [`LAYOUT_HASH`]); it does **not** need its own cdylib
-/// or its own reloader. Render-only for now — input / audio / navigation stay
+/// [`ActorBlob::status`] value: render succeeded; `ptr`/`len` describe a valid
+/// `actor_wire` byte buffer owned by the cdylib's thread-local scratch.
+pub const RENDER_OK: u32 = 0;
+/// [`ActorBlob::status`] value: the cdylib caught a panic inside the render call
+/// (via its internal `catch_unwind`); `ptr` is null and `len` is 0. The host
+/// quarantines the generation and falls back to the in-lib renderer.
+pub const RENDER_PANIC: u32 = 1;
+
+/// POD result of a hot render call, returned by value over the `extern "C"`
+/// boundary. Carries no heap ownership: `ptr`/`len` borrow the cdylib's
+/// thread-local encode scratch, valid only until the next hot call on that
+/// thread. The host must copy (decode) the bytes synchronously before issuing
+/// any further hot call and must never store `ptr`.
+///
+/// `status` is a raw `u32` (not an `enum`) on purpose: a corrupt/buggy cdylib
+/// returning an out-of-range value is then a plain integer the host can reject,
+/// not an invalid enum discriminant (which would be UB to even form).
+#[repr(C)]
+pub struct ActorBlob {
+    pub status: u32,
+    pub ptr: *const u8,
+    pub len: usize,
+}
+
+/// Upper bound the host enforces on `ActorBlob::len` before forming a slice with
+/// `slice::from_raw_parts`. The codec has its own internal element caps; this is
+/// the coarse byte guard that keeps an absurd/corrupt `len` from being UB at the
+/// slice boundary itself. 64 MiB is far above any realistic menu frame.
+pub const MAX_BLOB_BYTES: usize = 64 << 20;
+
+/// The reloadable dispatch table — one hot entry point per screen. A second hot
+/// screen adds one field here (and one `mix_layout` over its `State`/
+/// `HostContext` in [`LAYOUT_HASH`]); it does **not** need its own cdylib or its
+/// own reloader. Render-only for now — input / audio / navigation stay
 /// host-owned and never run in the cdylib.
 ///
-/// `#[repr(C)]` freezes field order; the pointers themselves remain Rust-ABI.
+/// `#[repr(C)]` freezes field order. The entry returns an [`ActorBlob`] (a POD
+/// byte-buffer descriptor) over `extern "C"`, so no Rust heap value crosses by
+/// value — see the module-level invariants.
 #[repr(C)]
 pub struct ScreenVTable {
-    /// `menu::render::get_actors` — the pure layout transform that is hot-edited.
+    /// Renders the menu and encodes the actors into the cdylib's scratch buffer,
+    /// returning a borrowed [`ActorBlob`]. The cdylib catches its own panics and
+    /// reports them via [`RENDER_PANIC`]; a panic never crosses this boundary.
     pub menu_get_actors:
-        extern "Rust" fn(&menu::State, &menu::HostContext, f32) -> Vec<Actor>,
+        extern "C" fn(&menu::State, &menu::HostContext, f32) -> ActorBlob,
 }
 
 /// What this host build expects of any cdylib it loads. Built from this rlib's
@@ -193,12 +232,16 @@ pub mod font_keys {
 mod tests {
     use super::*;
 
-    extern "Rust" fn noop_get_actors(
+    extern "C" fn noop_get_actors(
         _state: &menu::State,
         _ctx: &menu::HostContext,
         _alpha: f32,
-    ) -> Vec<Actor> {
-        Vec::new()
+    ) -> ActorBlob {
+        ActorBlob {
+            status: RENDER_OK,
+            ptr: core::ptr::null(),
+            len: 0,
+        }
     }
 
     static TEST_VTABLE: ScreenVTable = ScreenVTable {

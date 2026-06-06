@@ -8,27 +8,74 @@
 //! `deadsync_hot_entry`, returning a pointer to a `static HotHeader` whose
 //! vtable the host validates and dispatches through (see `deadsync::hot`).
 //!
-//! NOTE (boundary safety): the included `render.rs` still produces some
+//! NOTE (boundary safety): the render output now crosses as **`actor_wire`
+//! bytes**, not a `Vec<Actor>`. The included `render.rs` still mints some
 //! `&'static str` font/texture keys (e.g. `font("miso")` and the component
-//! builders' `TextureStatic*` keys) that, under static linking, point into
-//! *this cdylib's* rodata and would dangle after an unload. That is the
-//! documented deferred impurity; the boundary repoints (route keys through
-//! host-owned `HostContext`) are required before old cdylibs are ever unloaded.
-//! Today the runtime keeps all loaded libraries mapped, so the keys stay valid.
+//! builders' `TextureStatic*` keys) that point into *this cdylib's* rodata, but
+//! they are serialized as owned strings during encode and the host decodes them
+//! into host-owned `Arc<str>`, so no cdylib-rodata pointer escapes inside a live
+//! `Actor`. Such a key only exists within a single render call.
+//!
+//! SAFETY INVARIANT (thread-local scratch): [`SCRATCH`] is a cdylib-owned
+//! `Vec<u8>` whose destructor and allocator live in *this* module. The runtime
+//! must therefore **never unload a hot generation** (today it keeps every loaded
+//! library mapped for the reloader's lifetime) — running this module's TLS
+//! destructor after unload would be UB. The returned [`ActorBlob`] borrows this
+//! buffer; the host decodes synchronously before the next hot call on the thread.
 
 // The real render path, compiled into THIS crate so edits don't touch the rlib.
 // Relative to `crates/deadsync-screens/src/`, the repo root is three levels up.
 #[path = "../../../src/screens/menu/render.rs"]
 mod render;
 
+use deadsync::engine::present::actor_wire;
 use deadsync::hot::{
-    ABI_VERSION, BUILD_HASH, HotHeader, LAYOUT_HASH, MAGIC, PANIC_STRATEGY, ScreenVTable,
+    ABI_VERSION, ActorBlob, BUILD_HASH, HotHeader, LAYOUT_HASH, MAGIC, PANIC_STRATEGY, RENDER_OK,
+    RENDER_PANIC, ScreenVTable,
 };
+use deadsync::screens::menu::state::{HostContext, State};
+use std::cell::RefCell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// The dispatch table this cdylib publishes. `render::get_actors` is the freshly
-/// compiled copy; its `fn` item coerces to the vtable's `extern "Rust"` pointer.
+thread_local! {
+    /// Cdylib-owned encode scratch reused across frames. Cleared and refilled on
+    /// every render; the returned `ActorBlob` borrows it until the next call.
+    static SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// `extern "C"` hot entry: render the menu, encode the actors into the
+/// thread-local scratch, and return a borrowed [`ActorBlob`]. Panics from the
+/// (hot-edited) render path are caught here and reported as [`RENDER_PANIC`]; no
+/// panic crosses the `extern "C"` boundary (which would otherwise abort).
+extern "C" fn menu_get_actors_blob(state: &State, ctx: &HostContext, alpha: f32) -> ActorBlob {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let actors = render::get_actors(state, ctx, alpha);
+        SCRATCH.with(|scratch| {
+            let mut buf = scratch.borrow_mut();
+            buf.clear();
+            actor_wire::encode_actors(&actors, &mut buf);
+            (buf.as_ptr(), buf.len())
+        })
+        // `actors` (and its cdylib-owned `Arc`s) drop here, freed by this
+        // module's own allocator — nothing heap-owned escapes to the host.
+    }));
+    match result {
+        Ok((ptr, len)) => ActorBlob {
+            status: RENDER_OK,
+            ptr,
+            len,
+        },
+        Err(_) => ActorBlob {
+            status: RENDER_PANIC,
+            ptr: std::ptr::null(),
+            len: 0,
+        },
+    }
+}
+
+/// The dispatch table this cdylib publishes.
 static VTABLE: ScreenVTable = ScreenVTable {
-    menu_get_actors: render::get_actors,
+    menu_get_actors: menu_get_actors_blob,
 };
 
 /// `HotHeader` holds a raw `*const ()` vtable pointer, so it isn't `Sync`. The

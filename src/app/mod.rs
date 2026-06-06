@@ -6643,10 +6643,10 @@ impl App {
     }
 
     /// Poll the reloader and, if a fresh generation is live, hand its validated
-    /// vtable to `select`, which copies out the one `extern "Rust"` fn pointer
-    /// the caller needs. Returns `None` when no hot cdylib is loaded (the caller
-    /// then renders in-lib). Adding a hot screen means one more `select` call
-    /// site — not another reloader.
+    /// vtable to `select`, which copies out the one `extern "C"` fn pointer the
+    /// caller needs. Returns `None` when no hot cdylib is loaded (the caller then
+    /// renders in-lib). Adding a hot screen means one more `select` call site —
+    /// not another reloader.
     ///
     /// The vtable reference lives only for the duration of `select`; the helper
     /// hands back a plain `Copy` fn pointer so no boundary-owned reference
@@ -6678,19 +6678,47 @@ impl App {
     }
 
     /// Render the menu through the hot-reloaded cdylib when one is loaded,
-    /// otherwise via the in-lib path. A panic inside the hot render is caught,
-    /// the offending generation is quarantined, and we fall back to the in-lib
-    /// path (sound: host + cdylib share one `std` and panic strategy).
+    /// otherwise via the in-lib path. The cdylib renders + encodes the actors
+    /// into its own scratch buffer and returns a POD [`ActorBlob`] (status +
+    /// `ptr`/`len`); the host decodes the bytes into its **own** `Vec<Actor>`, so
+    /// no heap ownership crosses the boundary (this is what lets the menu boundary
+    /// drop `-C prefer-dynamic`). The cdylib catches its own render panics and
+    /// reports `RENDER_PANIC`; on that — or a null/oversized blob or a decode
+    /// error — we quarantine the generation and fall back to the in-lib path.
     #[cfg(feature = "hot")]
     fn menu_actors_hot(&mut self, ctx: &menu::HostContext, alpha: f32) -> Vec<Actor> {
+        use crate::engine::present::actor_wire;
+        use crate::hot::{MAX_BLOB_BYTES, RENDER_OK};
+
         let Some(get_actors) = self.hot_fn(|vt| vt.menu_get_actors) else {
             return menu::get_actors(&self.state.screens.menu_state, ctx, alpha);
         };
-        let result = {
+
+        // The cdylib entry is `extern "C"` and catches its own panics, so this
+        // call cannot unwind into the host (a panic there would abort). The
+        // returned `ptr`/`len` borrow the cdylib's thread-local scratch and are
+        // valid only until the next hot call — decode immediately, never store.
+        let blob = {
             let state = &self.state.screens.menu_state;
-            deadsync_hot::guard(|| get_actors(state, ctx, alpha))
+            get_actors(state, ctx, alpha)
         };
-        match result {
+
+        let decoded = if blob.status == RENDER_OK
+            && !blob.ptr.is_null()
+            && blob.len <= MAX_BLOB_BYTES
+            && blob.len <= isize::MAX as usize
+        {
+            // SAFETY: status is OK, the pointer is non-null, and the length is
+            // within `MAX_BLOB_BYTES`/`isize::MAX`. The bytes live in the cdylib's
+            // scratch (kept mapped by the reloader) and are read synchronously
+            // here before any further hot call mutates them.
+            let bytes = unsafe { std::slice::from_raw_parts(blob.ptr, blob.len) };
+            actor_wire::decode_actors(bytes).ok()
+        } else {
+            None
+        };
+
+        match decoded {
             Some(actors) => actors,
             None => {
                 self.quarantine_hot("menu");
