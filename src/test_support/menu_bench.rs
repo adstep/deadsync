@@ -12,7 +12,7 @@ impl MenuBenchFixture {
         if !retained {
             menu::clear_render_cache(&self.state);
         }
-        let ctx = menu::build_host_context();
+        let ctx = menu::build_host_context(&self.state);
         let mut actors = menu::get_actors(&self.state, &ctx, 1.0);
         actors.retain(|actor| actor_z(actor) >= 0);
         actors

@@ -5,12 +5,14 @@
 //! boundary value the host resolves each frame and hands to the pure
 //! `render::get_actors`.
 //!
-//! NOTE: `HostContext` is an in-process facade resolved by the host. It uses
-//! ergonomic Rust types (`Arc<str>`, `Option<String>`, `&'static str`, Rust
-//! `fn` pointers, a `&[(&str,&str)]` argument) and crosses the cdylib boundary
-//! over `extern "Rust"` alongside the rest of the render payload, so both
-//! artifacts must be built by the same toolchain with identical type layouts
-//! (enforced by the `LAYOUT_HASH`/`BUILD_HASH` handshake).
+//! NOTE: `HostContext` is an in-process facade resolved by the host. Every
+//! string it carries is **already resolved and cached host-side** before the
+//! boundary is crossed — the render path only reads them as `&str` and builds
+//! its own owned actors. It uses ergonomic Rust types (`Arc<str>`,
+//! `&'static str`) and crosses the cdylib boundary over `extern "Rust"`
+//! alongside the rest of the render payload, so both artifacts must be built by
+//! the same toolchain with identical type layouts (enforced by the
+//! `LAYOUT_HASH`/`BUILD_HASH` handshake).
 
 use deadsync::screens::components::shared::visual_style_bg;
 use deadsync::screens::input as screen_input;
@@ -76,24 +78,28 @@ pub struct State {
 }
 
 /// Everything the pure render path needs that would otherwise be a process-global
-/// read. The host resolves this each frame (see `super::build_host_context`).
+/// read, **fully pre-resolved host-side** (see `super::build_host_context`).
 ///
-/// Value/callback hybrid: cheap scalars are passed by value; i18n is passed as a
-/// callback so the ~25 `tr` sites stay editable in the render code.
+/// Every string here is resolved and cached on the host before the boundary is
+/// crossed; the render path only ever *reads* them as `&str` and builds its own
+/// owned actors. Nothing here transfers ownership of host heap into the render
+/// unit, and the render unit must never clone or drop one of these `Arc`s — it
+/// reads `.as_ref()` and re-owns. That ownership purity is what lets the
+/// boundary eventually run without a shared allocator.
 pub struct HostContext {
-    /// `i18n::tr` — resolve a localized string.
-    pub tr: fn(&str, &str) -> Arc<str>,
-    /// `i18n::tr_fmt` — resolve a localized format string with `{name}` args.
-    pub tr_fmt: fn(&str, &str, &[(&str, &str)]) -> Arc<str>,
-    /// `i18n::revision()` snapshot — used to invalidate the render caches.
-    pub i18n_revision: u64,
-    pub version: Arc<str>,
-    pub banner_tag: Option<String>,
-    pub song_count: usize,
-    pub pack_count: usize,
-    pub course_count: usize,
-    pub groove_key: GrooveStatusKey,
-    pub arrowcloud_key: ArrowCloudStatusKey,
+    /// Pre-resolved menu info line (version + optional update tag + the
+    /// song/pack/course summary), cached on `State`.
+    pub info_text: Arc<str>,
+    /// Pre-resolved menu option labels (Gameplay / Options / Exit).
+    pub menu_labels: [Arc<str>; 3],
+    /// Pre-resolved footer title (`Common/EventMode`).
+    pub footer_title: Arc<str>,
+    /// Pre-resolved footer side text (`Common/PressStart`), shown left and right.
+    pub footer_side: Arc<str>,
+    /// Pre-resolved GrooveStats/BoogieStats status block, cached on `State`.
+    pub gs: StatusTextCache<GrooveStatusKey, 3>,
+    /// Pre-resolved ArrowCloud status block, cached on `State`.
+    pub ac: StatusTextCache<ArrowCloudStatusKey, 1>,
     pub screen_center_x: f32,
     /// Shared UI background elapsed clock (`visual_style_bg::elapsed_seconds()`),
     /// resolved host-side so the hot render path animates off the host's ticked

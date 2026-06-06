@@ -6721,7 +6721,7 @@ impl App {
 
         let mut actors = match self.state.screens.current_screen {
             CurrentScreen::Menu => {
-                let ctx = menu::build_host_context();
+                let ctx = menu::build_host_context(&self.state.screens.menu_state);
                 #[cfg(feature = "hot")]
                 {
                     self.menu_actors_hot(&ctx, screen_alpha_multiplier)

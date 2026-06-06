@@ -1,9 +1,10 @@
 //! Pure render path for the title menu — the hot-reload target.
 //!
-//! Every value this code needs that used to be a process-global read now comes
-//! in through `HostContext` (resolved host-side by `super::build_host_context`).
-//! This module performs **no** engine-global read of its own and keeps no
-//! persistent state (the render caches live on the host-owned `State`).
+//! Every value this code needs is **pre-resolved host-side** and handed in
+//! through `HostContext` (see `super::build_host_context`). This module performs
+//! **no** engine-global read of its own, keeps no persistent state, and never
+//! clones or drops a host `Arc` — it reads the context strings as `&str` and
+//! builds its own owned actors from them.
 //!
 //! KNOWN IMPURITY (intentionally deferred): the component builders called below
 //! (`visual_style_bg`, `logo`, `menu_list`, `screen_bar`) and the `act!` text
@@ -21,11 +22,7 @@ use deadsync::engine::present::color;
 use deadsync::screens::components::menu::logo::{self, LogoParams};
 use deadsync::screens::components::menu::menu_list::{self};
 use deadsync::screens::components::shared::{screen_bar, visual_style_bg};
-use deadsync::screens::menu::state::{
-    ArrowCloudStatusKey, GrooveStatusKey, HostContext, State, StatusTextCache,
-};
-use deadsync_online::arrowcloud::ConnectionError as ArrowCloudError;
-use deadsync_online::groovestats::ConnectionError as GrooveStatsError;
+use deadsync::screens::menu::state::{HostContext, State};
 use std::sync::Arc;
 
 const NORMAL_COLOR_HEX: &str = "#888888";
@@ -42,191 +39,19 @@ const STATUS_ZOOM: f32 = 0.8;
 const STATUS_LINE_HEIGHT: f32 = 18.0;
 const STATUS_BLOCK_GAP: f32 = 6.0;
 
-pub fn clear_render_cache(state: &State) {
-    *state.info_text_cache.borrow_mut() = None;
-    *state.groovestats_text_cache.borrow_mut() = None;
-    *state.arrowcloud_text_cache.borrow_mut() = None;
-}
-
-fn sync_i18n_cache(state: &State, revision: u64) {
-    if state.i18n_revision.get() == revision {
-        return;
-    }
-    clear_render_cache(state);
-    state.i18n_revision.set(revision);
-}
-
-fn groove_error_text(ctx: &HostContext, kind: GrooveStatsError) -> Arc<str> {
-    match kind {
-        GrooveStatsError::Disabled => (ctx.tr)("Menu", "Disabled"),
-        GrooveStatsError::MachineOffline => (ctx.tr)("Menu", "MachineOffline"),
-        GrooveStatsError::CannotConnect => (ctx.tr)("Menu", "CannotConnect"),
-        GrooveStatsError::TimedOut => (ctx.tr)("Menu", "TimedOut"),
-        GrooveStatsError::InvalidResponse => (ctx.tr)("Menu", "FailedToLoad"),
-    }
-}
-
-fn arrowcloud_error_text(ctx: &HostContext, kind: ArrowCloudError) -> Arc<str> {
-    match kind {
-        ArrowCloudError::Disabled => (ctx.tr)("Menu", "Disabled"),
-        ArrowCloudError::TimedOut => (ctx.tr)("Menu", "TimedOut"),
-        ArrowCloudError::HostBlocked => (ctx.tr)("Menu", "HostBlocked"),
-        ArrowCloudError::CannotConnect => (ctx.tr)("Menu", "CannotConnect"),
-    }
-}
-
+/// Build a fresh render-unit-owned `Arc<str>` from a borrowed string.
+///
+/// The render unit must never clone or drop a host-owned `Arc` (that would be a
+/// cross-allocator free once the shared allocator is dropped). Every string the
+/// actors carry is re-owned here from the borrowed `HostContext` text.
 #[inline(always)]
-fn menu_info_text(state: &State, ctx: &HostContext) -> Arc<str> {
-    if let Some((cached_tag, text)) = state.info_text_cache.borrow().as_ref()
-        && cached_tag == &ctx.banner_tag
-    {
-        return text.clone();
-    }
-
-    let mut version_line =
-        (ctx.tr_fmt)("Menu", "VersionLine", &[("version", ctx.version.as_ref())]).to_string();
-    if let Some(tag) = ctx.banner_tag.as_deref() {
-        let suffix = (ctx.tr_fmt)("Menu", "UpdateAvailableSuffix", &[("version", tag)]);
-        version_line.push(' ');
-        version_line.push_str(&suffix);
-    }
-    let songs = ctx.song_count.to_string();
-    let packs = ctx.pack_count.to_string();
-    let courses = ctx.course_count.to_string();
-    let summary = (ctx.tr_fmt)(
-        "Menu",
-        "SongSummary",
-        &[("songs", &songs), ("packs", &packs), ("courses", &courses)],
-    );
-    let text = Arc::<str>::from(format!("{version_line}\n{summary}"));
-    *state.info_text_cache.borrow_mut() = Some((ctx.banner_tag.clone(), text.clone()));
-    text
-}
-
-#[inline(always)]
-fn groove_service_name(ctx: &HostContext, boogie: bool) -> Arc<str> {
-    if boogie {
-        (ctx.tr)("Menu", "BoogieStatsName")
-    } else {
-        (ctx.tr)("Menu", "GrooveStatsName")
-    }
-}
-
-fn build_groovestats_text(
-    ctx: &HostContext,
-    key: GrooveStatusKey,
-) -> StatusTextCache<GrooveStatusKey, 3> {
-    let mut lines = [None, None, None];
-    let (main, line_count) = match key {
-        GrooveStatusKey::Pending { boogie } => {
-            let service = groove_service_name(ctx, boogie);
-            (
-                (ctx.tr_fmt)("Menu", "ServicePending", &[("service", service.as_ref())]),
-                0,
-            )
-        }
-        GrooveStatusKey::Error { boogie, kind } => {
-            lines[0] = Some(groove_error_text(ctx, kind));
-            if kind == GrooveStatsError::Disabled {
-                ((ctx.tr)("Menu", "GrooveStatsDisabled"), 1)
-            } else {
-                let service = groove_service_name(ctx, boogie);
-                (
-                    (ctx.tr_fmt)(
-                        "Menu",
-                        "ServiceNotConnected",
-                        &[("service", service.as_ref())],
-                    ),
-                    1,
-                )
-            }
-        }
-        GrooveStatusKey::Connected {
-            boogie,
-            disabled_mask,
-        } => {
-            if disabled_mask == 0 {
-                let service = groove_service_name(ctx, boogie);
-                (
-                    (ctx.tr_fmt)("Menu", "ServiceConnected", &[("service", service.as_ref())]),
-                    0,
-                )
-            } else if disabled_mask == 0b111 {
-                ((ctx.tr)("Menu", "GrooveStatsDisabled"), 0)
-            } else {
-                let mut line_count = 0;
-                if disabled_mask & 0b001 != 0 {
-                    lines[line_count] = Some((ctx.tr)("Menu", "GetScoresDisabled"));
-                    line_count += 1;
-                }
-                if disabled_mask & 0b010 != 0 {
-                    lines[line_count] = Some((ctx.tr)("Menu", "LeaderboardDisabled"));
-                    line_count += 1;
-                }
-                if disabled_mask & 0b100 != 0 {
-                    lines[line_count] = Some((ctx.tr)("Menu", "AutoSubmitDisabled"));
-                    line_count += 1;
-                }
-                ((ctx.tr)("Menu", "GrooveStatsWarn"), line_count)
-            }
-        }
-    };
-    StatusTextCache {
-        key,
-        main,
-        lines,
-        line_count,
-    }
-}
-
-fn groovestats_text(state: &State, ctx: &HostContext) -> StatusTextCache<GrooveStatusKey, 3> {
-    let key = ctx.groove_key;
-    if let Some(cache) = state.groovestats_text_cache.borrow().as_ref()
-        && cache.key == key
-    {
-        return cache.clone();
-    }
-    let cache = build_groovestats_text(ctx, key);
-    *state.groovestats_text_cache.borrow_mut() = Some(cache.clone());
-    cache
-}
-
-fn build_arrowcloud_text(
-    ctx: &HostContext,
-    key: ArrowCloudStatusKey,
-) -> StatusTextCache<ArrowCloudStatusKey, 1> {
-    let mut lines = [None];
-    let (main, line_count) = match key {
-        ArrowCloudStatusKey::Pending => ((ctx.tr)("Menu", "ArrowCloudPending"), 0),
-        ArrowCloudStatusKey::Connected => ((ctx.tr)("Menu", "ArrowCloudConnected"), 0),
-        ArrowCloudStatusKey::Error(kind) => {
-            lines[0] = Some(arrowcloud_error_text(ctx, kind));
-            ((ctx.tr)("Menu", "ArrowCloudDisabled"), 1)
-        }
-    };
-    StatusTextCache {
-        key,
-        main,
-        lines,
-        line_count,
-    }
-}
-
-fn arrowcloud_text(state: &State, ctx: &HostContext) -> StatusTextCache<ArrowCloudStatusKey, 1> {
-    let key = ctx.arrowcloud_key;
-    if let Some(cache) = state.arrowcloud_text_cache.borrow().as_ref()
-        && cache.key == key
-    {
-        return cache.clone();
-    }
-    let cache = build_arrowcloud_text(ctx, key);
-    *state.arrowcloud_text_cache.borrow_mut() = Some(cache.clone());
-    cache
+fn own(s: &str) -> Arc<str> {
+    Arc::from(s)
 }
 
 #[inline(always)]
 fn status_text_actor(
-    text: Arc<str>,
+    text: &str,
     align_x: f32,
     x: f32,
     y: f32,
@@ -238,7 +63,7 @@ fn status_text_actor(
     // lib-owned font-key value on `HostContext` before old cdylibs are unloaded.
     let mut actor = act!(text:
         font("miso"):
-        settext(text):
+        settext(own(text)):
         align(align_x, 0.0):
         xy(x, y):
         zoom(zoom):
@@ -257,7 +82,6 @@ fn status_text_actor(
 }
 
 pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Vec<Actor> {
-    sync_i18n_cache(state, ctx.i18n_revision);
     let lp = LogoParams::default();
     let mut actors: Vec<Actor> = Vec::with_capacity(96);
 
@@ -298,7 +122,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
 
     actors.push(act!(text:
         align(0.5, 0.0): xy(ctx.screen_center_x, info1_y_tl): zoom(0.8):
-        font("miso"): settext(menu_info_text(state, ctx)): horizalign(center):
+        font("miso"): settext(own(ctx.info_text.as_ref())): horizalign(center):
         diffuse(info_color[0], info_color[1], info_color[2], info_color[3])
     ));
 
@@ -309,10 +133,11 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     selected[3] *= alpha_multiplier;
     normal[3] *= alpha_multiplier;
 
-    let menu_labels = [
-        (ctx.tr)("Menu", "Gameplay"),
-        (ctx.tr)("Menu", "Options"),
-        (ctx.tr)("Menu", "Exit"),
+    // Re-own the labels as render-unit `Arc`s (never clone the host's).
+    let menu_labels: [Arc<str>; 3] = [
+        own(ctx.menu_labels[0].as_ref()),
+        own(ctx.menu_labels[1].as_ref()),
+        own(ctx.menu_labels[2].as_ref()),
     ];
 
     let params = menu_list::MenuParams {
@@ -329,26 +154,24 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     // --- footer bar ---
     let mut footer_fg = [1.0, 1.0, 1.0, 1.0];
     footer_fg[3] *= alpha_multiplier;
-    let event_mode = (ctx.tr)("Common", "EventMode");
-    let press_start = (ctx.tr)("Common", "PressStart");
 
     actors.push(screen_bar::build_title_menu(screen_bar::ScreenBarParams {
-        title: event_mode.as_ref(),
+        title: ctx.footer_title.as_ref(),
         title_placement: screen_bar::ScreenBarTitlePlacement::Center,
         position: screen_bar::ScreenBarPosition::Bottom,
         transparent: true,
-        left_text: Some(press_start.as_ref()),
+        left_text: Some(ctx.footer_side.as_ref()),
         center_text: None,
-        right_text: Some(press_start.as_ref()),
+        right_text: Some(ctx.footer_side.as_ref()),
         left_avatar: None,
         right_avatar: None,
         fg_color: footer_fg,
     }));
 
     // --- GrooveStats Info Pane (top-left) ---
-    let gs_text = groovestats_text(state, ctx);
+    let gs_text = &ctx.gs;
     actors.push(status_text_actor(
-        gs_text.main.clone(),
+        gs_text.main.as_ref(),
         0.0,
         STATUS_BASE_X,
         STATUS_BASE_Y,
@@ -359,7 +182,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     for line_idx in 0..gs_text.line_count {
         if let Some(text) = gs_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
-                text.clone(),
+                text.as_ref(),
                 0.0,
                 STATUS_BASE_X,
                 (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, STATUS_BASE_Y),
@@ -373,9 +196,9 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     // --- Arrow Cloud Info Pane (below GrooveStats/BoogieStats) ---
     let ac_base_y = (STATUS_LINE_HEIGHT * (gs_text.line_count as f32 + 1.0))
         .mul_add(STATUS_ZOOM, STATUS_BASE_Y + STATUS_BLOCK_GAP);
-    let ac_text = arrowcloud_text(state, ctx);
+    let ac_text = &ctx.ac;
     actors.push(status_text_actor(
-        ac_text.main.clone(),
+        ac_text.main.as_ref(),
         0.0,
         STATUS_BASE_X,
         ac_base_y,
@@ -386,7 +209,7 @@ pub fn get_actors(state: &State, ctx: &HostContext, alpha_multiplier: f32) -> Ve
     for line_idx in 0..ac_text.line_count {
         if let Some(text) = ac_text.lines[line_idx].as_ref() {
             actors.push(status_text_actor(
-                text.clone(),
+                text.as_ref(),
                 0.0,
                 STATUS_BASE_X,
                 (STATUS_LINE_HEIGHT * (line_idx as f32 + 1.0)).mul_add(STATUS_ZOOM, ac_base_y),
