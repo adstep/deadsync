@@ -3822,6 +3822,12 @@ pub struct App {
     state: AppState,
     software_renderer_threads: u8,
     gfx_debug_enabled: bool,
+    /// Dev-only hot-reload loop for the `menu` screen render path. `None` until
+    /// the reloadable cdylib first appears; when present, [`Self::get_current_actors`]
+    /// dispatches `menu` rendering through it. Gated behind the `hot` feature so
+    /// release/normal builds carry neither the field nor the dependency edge.
+    #[cfg(feature = "hot")]
+    menu_reloader: Option<deadsync_hot::Reloader>,
 }
 
 impl App {
@@ -4910,6 +4916,50 @@ impl App {
             state,
             software_renderer_threads,
             gfx_debug_enabled,
+            #[cfg(feature = "hot")]
+            menu_reloader: Self::build_menu_reloader(),
+        }
+    }
+
+    /// Construct the `menu` hot-reload loop, pointed at the reloadable cdylib next
+    /// to the running exe. Returns `None` (logged) if the runtime can't be
+    /// configured; the menu then always renders via the in-lib path. The library
+    /// file need not exist yet — `poll()` falls back until it appears.
+    #[cfg(feature = "hot")]
+    fn build_menu_reloader() -> Option<deadsync_hot::Reloader> {
+        let lib_name = format!(
+            "{}deadsync_screens{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        );
+        let lib_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join(&lib_name)))
+            .unwrap_or_else(|| std::path::PathBuf::from(&lib_name));
+
+        let expected = deadsync_hot::Expected {
+            magic: crate::hot::MAGIC,
+            abi_version: crate::hot::ABI_VERSION,
+            size: size_of::<crate::hot::HotHeader>() as u32,
+            layout_hash: crate::hot::LAYOUT_HASH,
+            build_hash: crate::hot::BUILD_HASH,
+            panic_strategy: crate::hot::PANIC_STRATEGY,
+        };
+
+        match deadsync_hot::Reloader::builder()
+            .library_path(lib_path)
+            .expected(expected)
+            .on_event(|event| log::info!("hot(menu): {event:?}"))
+            .build()
+        {
+            Ok(reloader) => {
+                log::info!("hot(menu): reloader active; watching for deadsync_screens cdylib");
+                Some(reloader)
+            }
+            Err(err) => {
+                log::error!("hot(menu): disabled — {err}");
+                None
+            }
         }
     }
 
@@ -6587,6 +6637,38 @@ impl App {
         ));
     }
 
+    /// Render the menu through the hot-reloaded cdylib when one is loaded,
+    /// otherwise via the in-lib path. Polls the reloader at this single
+    /// per-frame safe point; a panic inside the hot render is caught, the
+    /// offending generation is quarantined, and we fall back to the in-lib path
+    /// (sound: host + cdylib share one `std` and panic strategy).
+    #[cfg(feature = "hot")]
+    fn menu_actors_hot(&mut self, ctx: &menu::HostContext, alpha: f32) -> Vec<Actor> {
+        let vtable_ptr = self.menu_reloader.as_mut().and_then(|r| r.poll());
+        match vtable_ptr {
+            Some(ptr) => {
+                // SAFETY: `ptr` came from a header that passed `verify` against
+                // our `EXPECTED`, so it points at a `ScreenVTable` of the agreed
+                // layout, and the owning library is kept mapped by the reloader.
+                let vtable = unsafe { crate::hot::screen_vtable(ptr) };
+                let state = &self.state.screens.menu_state;
+                match deadsync_hot::guard(|| (vtable.menu_get_actors)(state, ctx, alpha)) {
+                    Some(actors) => actors,
+                    None => {
+                        log::error!(
+                            "hot(menu): render panicked; quarantining generation and falling back"
+                        );
+                        if let Some(r) = self.menu_reloader.as_mut() {
+                            r.quarantine_current();
+                        }
+                        menu::get_actors(&self.state.screens.menu_state, ctx, alpha)
+                    }
+                }
+            }
+            None => menu::get_actors(&self.state.screens.menu_state, ctx, alpha),
+        }
+    }
+
     fn get_current_actors(&mut self) -> (Vec<Actor>, [f32; 4]) {
         const CLEAR: [f32; 4] = [0.03, 0.03, 0.03, 1.0];
         let mut screen_alpha_multiplier = 1.0;
@@ -6609,7 +6691,19 @@ impl App {
 
         let mut actors = match self.state.screens.current_screen {
             CurrentScreen::Menu => {
-                menu::get_actors(&self.state.screens.menu_state, screen_alpha_multiplier)
+                let ctx = menu::build_host_context();
+                #[cfg(feature = "hot")]
+                {
+                    self.menu_actors_hot(&ctx, screen_alpha_multiplier)
+                }
+                #[cfg(not(feature = "hot"))]
+                {
+                    menu::get_actors(
+                        &self.state.screens.menu_state,
+                        &ctx,
+                        screen_alpha_multiplier,
+                    )
+                }
             }
             CurrentScreen::Gameplay => {
                 let mut actors = std::mem::take(&mut self.gameplay_actor_scratch);

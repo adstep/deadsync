@@ -251,6 +251,21 @@ fn emit_build_info() {
     .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=DEADSYNC_BUILD_HASH={hash}");
     println!("cargo:rustc-env=DEADSYNC_BUILD_STAMP={stamp}");
+
+    // Full rustc identity (version + commit + host triple). Folded into the
+    // hot-reload `BUILD_HASH` so a toolchain swap is detected across the
+    // host/cdylib boundary — `extern "Rust"` is not stable across rustc
+    // versions, so a mismatch must reject the reload. See `src/hot`.
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let rustc_version = std::process::Command::new(&rustc)
+        .args(["--version", "--verbose"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.replace(['\n', '\r'], "|"))
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=DEADSYNC_RUSTC_VERSION={rustc_version}");
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {

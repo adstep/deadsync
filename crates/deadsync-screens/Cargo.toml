@@ -1,0 +1,25 @@
+# The reloadable hot-reload unit. A `cdylib` exports only `#[no_mangle]`
+# symbols (just `deadsync_hot_entry`), so it sidesteps the LNK1189 65535-export
+# cap that killed the `deadsync`-as-dylib approach. It `#[path]`-includes the real
+# `screens/menu/render.rs` so editing that file recompiles only this small crate
+# (not the engine rlib), then statically links the engine rlib for everything else.
+[package]
+name = "deadsync-screens"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `features = ["hot"]` excludes `screens/menu/render.rs` from the engine rlib, so
+# editing render.rs (which this crate `#[path]`-includes) recompiles ONLY this
+# cdylib, not the ~1-minute engine rlib. The host runs with the same feature, so
+# both reuse the identical cached `deadsync` (+hot) rlib.
+deadsync = { path = "../..", features = ["hot"] }
+# render.rs imports `deadsync_online::{arrowcloud,groovestats}::ConnectionError`.
+deadsync-online = { path = "../deadsync-online" }
+# The `act!` macro expands to `::smallvec::SmallVec`, an absolute extern-crate
+# path, so this crate must depend on smallvec directly (same version as the rlib).
+smallvec = "1.15.1"

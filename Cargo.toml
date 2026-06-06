@@ -20,6 +20,8 @@ members = [
     "crates/deadsync-rules",
     "crates/deadsync-score",
     "crates/deadsync-simfile",
+    "crates/deadsync-screens",
+    "crates/deadsync-hot",
 ]
 resolver = "3"
 
@@ -54,10 +56,14 @@ path = "scripts/replaygain_bench.rs"
 
 [features]
 pipewire-audio = ["dep:pipewire"]
+# Dev-only: enable the runtime hot-reload dispatch path in `app`. Not in default;
+# release/normal builds are unaffected. See crates/deadsync-hot and the plan.
+hot = []
 
 [dependencies]
 deadsync-chart = { path = "crates/deadsync-chart" }
 deadsync-core = { path = "crates/deadsync-core" }
+deadsync-hot = { path = "crates/deadsync-hot" }
 deadsync-input = { path = "crates/deadsync-input" }
 deadsync-net = { path = "crates/deadsync-net" }
 deadsync-online = { path = "crates/deadsync-online" }
@@ -133,6 +139,7 @@ bitflags = "2.12.1"
 [target.'cfg(windows)'.dependencies]
 gpu-allocator = { version = "0.28.0", default-features = false, features = ["std", "d3d12"] }
 hidapi = { version = "2.6.6", default-features = false, features = ["windows-native"] }
+libloading = "0.9.0"
 windows-core = "0.62.2"
 windows-targets = "0.53.5"
 windows-sys = { version = "0.61.2", features = [
