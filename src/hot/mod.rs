@@ -40,13 +40,38 @@
 //!
 //! Only [`HotHeader`] is read "blind" through a raw exported symbol, so it is
 //! the one type that strictly requires `#[repr(C)]`. [`ScreenVTable`] and
-//! [`ActorBlob`] are also `#[repr(C)]`: the vtable to freeze field order, the
-//! blob because it crosses an `extern "C"` return by value.
+//! [`ActorBlob`] are also `#[repr(C)]`: the vtable to freeze its array layout,
+//! the blob because it crosses an `extern "C"` return by value.
+//!
+//! # Adding a hot surface
+//!
+//! Surfaces are registered in **one** place — the [`hot_surface_registry!`]
+//! invocation in this module — and the cdylib maps each to its local renderer in
+//! its own `hot_local_renders!`. To add a surface `Foo`:
+//!
+//! 1. Give its screen a host-owned `State` and a per-frame `Context`, plus a
+//!    `build_context(&State) -> Context` and a pure `get_actors(&State,
+//!    &Context, f32) -> Vec<Actor>` (the in-lib fallback). Keep `Context` to
+//!    **read-only** views of host data — see boundary invariant #3.
+//! 2. Add one line to [`hot_surface_registry!`] with the next free slot number;
+//!    this generates the `FooSurface` marker + [`HotSurface`] impl, slot-checks
+//!    it (uniqueness + `< MAX_SURFACES`), and folds it into [`LAYOUT_HASH`].
+//!    Also add `offset_of!` lines for its `State`/`Context` fields (the one part
+//!    not auto-derivable in `macro_rules!`).
+//! 3. Add `FooSurface => render::get_actors` to the cdylib's `hot_local_renders!`
+//!    (the typed binding there rejects a mismatched render fn at compile time).
+//! 4. Dispatch it host-side: `Self::hot_actors::<FooSurface>(&mut self.hot_reloader,
+//!    &state, alpha)`.
+//!
+//! No new cdylib, reloader, or `extern "C"` symbol is needed — the existing
+//! `deadsync-screens` library carries all surfaces in one vtable.
 
 #![allow(dead_code)] // Wired up by the cdylib and the runtime crate.
 
 use crate::engine::present::actors::{Actor, SpriteSource, TextContent};
+use crate::screens::components::shared::visual_style_bg;
 use crate::screens::menu;
+use crate::screens::menu::state::{ArrowCloudStatusKey, GrooveStatusKey, StatusTextCache};
 use core::mem::offset_of;
 use core::ptr::NonNull;
 
@@ -64,7 +89,9 @@ pub use deadsync_hot::{Expected, HeaderRejection};
 pub const MAGIC: u64 = 0xDEAD_5719_C0DE_0001;
 
 /// Bumped on any intentional change to the [`ScreenVTable`] shape/semantics.
-pub const ABI_VERSION: u32 = 1;
+/// `2`: vtable became a counted [`Option<HotEntry>; MAX_SURFACES`] array with a
+/// type-erased entry signature (was a single typed `menu_get_actors` field).
+pub const ABI_VERSION: u32 = 2;
 
 /// Panic strategy of this build: `0` = unwind, `1` = abort. Host and cdylib must
 /// match or `catch_unwind` across the boundary is unsound. The pilot runs the
@@ -95,16 +122,33 @@ const fn mix_layout<T>(hash: u64) -> u64 {
     fnv1a_u64(fnv1a_u64(hash, size_of::<T>() as u64), align_of::<T>() as u64)
 }
 
+/// Fold a single field offset into the running hash.
+const fn mix_off(hash: u64, offset: usize) -> u64 {
+    fnv1a_u64(hash, offset as u64)
+}
+
 /// Compile-time hash over the layout of every type that crosses the boundary.
 ///
-/// Covers `size`/`align` of the header, the vtable, the per-screen `State`, the
-/// `HostContext`, and the `Actor` payload tree (`Actor` / `SpriteSource` /
-/// `TextContent`), plus the `#[repr(C)]` field offsets of [`HotHeader`] that the
-/// loader reads blind. This is a **stale-artifact smoke detector**, not a full
-/// structural ABI proof: it can miss an equal-size/equal-align field-type swap
-/// inside `State`/`HostContext`. That is acceptable for the single-developer,
-/// same-checkout pilot; a stronger structural hash is future work before the
-/// runtime is trusted for unattended reloads.
+/// Three layers of coverage:
+///   1. `size`/`align` of every boundary type — the header, vtable, `ActorBlob`,
+///      the per-screen `State`/`HostContext`, the `Actor` payload tree, and the
+///      nested-by-value types `State`/`HostContext` carry (`visual_style_bg::State`,
+///      the status-cache instantiations, and the Copy status-key enums).
+///   2. The `#[repr(C)]` field offsets of [`HotHeader`] the loader reads blind.
+///   3. **Every field offset of `State` and `HostContext`** — the two types the
+///      host still passes by `extern "Rust"` reference (read by field layout). This
+///      makes the hash sensitive to a field being added, removed, or reordered even
+///      when the struct's total `size`/`align` coincidentally lands the same.
+///
+/// Residual gap (documented, narrow): a field whose type is swapped for a
+/// *different* type of identical `size` **and** `align`, at an unchanged offset,
+/// can still slip past — the offsets and the whole-struct size/align are all
+/// unchanged. Mixing the nested status-cache/key types (layer 1) shrinks this to
+/// fields that are neither one of those types nor offset-shifting. Acceptable for
+/// the single-developer, same-checkout pilot; closed structurally once the
+/// `hot_surfaces!` registry co-generates this hash from each surface's field set
+/// (see the extensibility plan). The fields below must be kept in sync with
+/// `menu::state` until then.
 pub const LAYOUT_HASH: u64 = {
     let mut h = FNV_OFFSET;
     h = mix_layout::<HotHeader>(h);
@@ -115,13 +159,45 @@ pub const LAYOUT_HASH: u64 = {
     h = mix_layout::<Actor>(h);
     h = mix_layout::<SpriteSource>(h);
     h = mix_layout::<TextContent>(h);
+    // Nested-by-value types reachable through `State`/`HostContext`, so a layout
+    // change inside one of them is caught even if it doesn't shift an outer offset.
+    h = mix_layout::<visual_style_bg::State>(h);
+    h = mix_layout::<GrooveStatusKey>(h);
+    h = mix_layout::<ArrowCloudStatusKey>(h);
+    h = mix_layout::<StatusTextCache<GrooveStatusKey, 3>>(h);
+    h = mix_layout::<StatusTextCache<ArrowCloudStatusKey, 1>>(h);
     // Pin the repr(C) field offsets the loader dereferences before it trusts
     // anything else in the header.
-    h = fnv1a_u64(h, offset_of!(HotHeader, magic) as u64);
-    h = fnv1a_u64(h, offset_of!(HotHeader, size) as u64);
-    h = fnv1a_u64(h, offset_of!(HotHeader, layout_hash) as u64);
-    h = fnv1a_u64(h, offset_of!(HotHeader, build_hash) as u64);
-    h = fnv1a_u64(h, offset_of!(HotHeader, vtable) as u64);
+    h = mix_off(h, offset_of!(HotHeader, magic));
+    h = mix_off(h, offset_of!(HotHeader, size));
+    h = mix_off(h, offset_of!(HotHeader, layout_hash));
+    h = mix_off(h, offset_of!(HotHeader, build_hash));
+    h = mix_off(h, offset_of!(HotHeader, vtable));
+    // Pin every field offset of the two by-reference boundary structs.
+    h = mix_off(h, offset_of!(menu::State, selected_index));
+    h = mix_off(h, offset_of!(menu::State, active_color_index));
+    h = mix_off(h, offset_of!(menu::State, rainbow_mode));
+    h = mix_off(h, offset_of!(menu::State, started_by_p2));
+    h = mix_off(h, offset_of!(menu::State, bg));
+    h = mix_off(h, offset_of!(menu::State, i18n_revision));
+    h = mix_off(h, offset_of!(menu::State, info_text_cache));
+    h = mix_off(h, offset_of!(menu::State, groovestats_text_cache));
+    h = mix_off(h, offset_of!(menu::State, arrowcloud_text_cache));
+    h = mix_off(h, offset_of!(menu::State, menu_lr_chord));
+    h = mix_off(h, offset_of!(menu::State, menu_lr_undo));
+    h = mix_off(h, offset_of!(menu::HostContext, info_text));
+    h = mix_off(h, offset_of!(menu::HostContext, menu_labels));
+    h = mix_off(h, offset_of!(menu::HostContext, footer_title));
+    h = mix_off(h, offset_of!(menu::HostContext, footer_side));
+    h = mix_off(h, offset_of!(menu::HostContext, gs));
+    h = mix_off(h, offset_of!(menu::HostContext, ac));
+    h = mix_off(h, offset_of!(menu::HostContext, screen_center_x));
+    h = mix_off(h, offset_of!(menu::HostContext, bg_elapsed_s));
+    h = mix_off(h, offset_of!(menu::HostContext, menu_font));
+    // Surface identity + per-surface State/Context size/align, folded from the
+    // single `hot_surface_registry!` list so every registered surface is hash-
+    // covered (a surface cannot exist without contributing here).
+    h = mix_registered_surfaces(h);
     h
 };
 
@@ -175,22 +251,156 @@ pub struct ActorBlob {
 /// slice boundary itself. 64 MiB is far above any realistic menu frame.
 pub const MAX_BLOB_BYTES: usize = 64 << 20;
 
-/// The reloadable dispatch table — one hot entry point per screen. A second hot
-/// screen adds one field here (and one `mix_layout` over its `State`/
-/// `HostContext` in [`LAYOUT_HASH`]); it does **not** need its own cdylib or its
-/// own reloader. Render-only for now — input / audio / navigation stay
-/// host-owned and never run in the cdylib.
+/// Maximum number of hot surfaces a single [`ScreenVTable`] can carry. Raising
+/// this requires bumping [`ABI_VERSION`] — the array length is part of the
+/// vtable's `#[repr(C)]` layout and is covered by [`LAYOUT_HASH`].
+pub const MAX_SURFACES: usize = 8;
+
+/// A type-erased hot render entry. The concrete `&State`/`&Context` references
+/// are reconstructed *inside the cdylib thunk* (which knows the surface's real
+/// types); the host only ever holds them erased and relies on [`LAYOUT_HASH`] to
+/// guarantee both artifacts agree on those layouts. Returns a POD [`ActorBlob`]
+/// by value over `extern "C"`, so no Rust heap value crosses by value.
+pub type HotEntry = extern "C" fn(*const (), *const (), f32) -> ActorBlob;
+
+/// The reloadable dispatch table: one optional [`HotEntry`] per surface slot. A
+/// second hot surface adds one line to the [`hot_surface_registry!`] list (which
+/// assigns its slot, generates its [`HotSurface`] impl, and folds it into
+/// [`LAYOUT_HASH`]) and one mapping in the cdylib's `hot_local_renders!`; it does
+/// **not** need its own cdylib or its own reloader. Render-only — input / audio /
+/// navigation stay host-owned and never run in the cdylib.
 ///
-/// `#[repr(C)]` freezes field order. The entry returns an [`ActorBlob`] (a POD
-/// byte-buffer descriptor) over `extern "C"`, so no Rust heap value crosses by
-/// value — see the module-level invariants.
+/// A slot the cdylib does not implement is `None`. `Option<HotEntry>` is FFI-safe
+/// via the null-function-pointer niche, so an unpublished slot is a plain null
+/// pointer the host reads as `None` and falls back to its in-lib renderer — never
+/// an out-of-bounds read or a call through uninitialized memory. This per-slot
+/// presence is why no separate `count` field is needed.
+///
+/// `#[repr(C)]` freezes the array layout; [`LAYOUT_HASH`] mixes its size/align.
 #[repr(C)]
 pub struct ScreenVTable {
-    /// Renders the menu and encodes the actors into the cdylib's scratch buffer,
-    /// returning a borrowed [`ActorBlob`]. The cdylib catches its own panics and
-    /// reports them via [`RENDER_PANIC`]; a panic never crosses this boundary.
-    pub menu_get_actors:
-        extern "C" fn(&menu::State, &menu::HostContext, f32) -> ActorBlob,
+    /// Per-slot entries indexed by [`HotSurface::SLOT`]; `None` = not published.
+    pub entries: [Option<HotEntry>; MAX_SURFACES],
+}
+
+/// Binds a host-owned `State`/`Context` pair to a fixed vtable [`SLOT`] and
+/// supplies the host-side glue ([`build_context`]) plus the **in-lib fallback**
+/// renderer ([`render`] — the empty stub under `feature = "hot"`).
+///
+/// # Safety
+/// This trait is `unsafe` because its associated types cross the hot boundary by
+/// erased reference. An implementor must guarantee:
+///
+/// * `State` and `Context` have a **stable, identical layout** in the host rlib
+///   and the cdylib (same toolchain + same engine source — enforced at load by
+///   [`LAYOUT_HASH`] / [`BUILD_HASH`]); and
+/// * the hot render path only ever **reads** host-owned heap handles
+///   (`Arc<str>`, …) reachable through `State` / `Context` and **never clones,
+///   drops, or mutates** them — doing so would free host heap with the cdylib
+///   allocator. See boundary invariant #3 in the module docs.
+///
+/// Implementations are generated by [`hot_surface_registry!`] so that slot
+/// numbering, the uniqueness/bounds assertion, and the [`LAYOUT_HASH`] surface
+/// contributions all derive from one list and cannot drift apart.
+///
+/// [`SLOT`]: HotSurface::SLOT
+/// [`build_context`]: HotSurface::build_context
+/// [`render`]: HotSurface::render
+pub unsafe trait HotSurface {
+    /// Host-owned per-screen state, passed to the cdylib by erased reference.
+    type State: 'static;
+    /// Per-frame render snapshot, built host-side by [`build_context`](Self::build_context).
+    type Context: 'static;
+    /// This surface's fixed index into [`ScreenVTable::entries`].
+    const SLOT: usize;
+    /// Stable identifier mixed into [`LAYOUT_HASH`] and used in logs.
+    const LABEL: &'static str;
+    /// Resolve process-globals into the render snapshot (runs host-side).
+    fn build_context(state: &Self::State) -> Self::Context;
+    /// In-lib fallback renderer (the empty stub under `feature = "hot"`), used
+    /// before the first successful load and after a quarantined generation.
+    fn render(state: &Self::State, ctx: &Self::Context, alpha: f32) -> Vec<Actor>;
+}
+
+/// Compile-time check that every registered slot is in range and unique. A
+/// duplicate or out-of-range slot fails the build at the `const _` call site.
+const fn assert_surface_slots(surfaces: &[(usize, &str)]) {
+    let mut i = 0;
+    while i < surfaces.len() {
+        assert!(surfaces[i].0 < MAX_SURFACES, "hot surface SLOT out of range");
+        let mut j = i + 1;
+        while j < surfaces.len() {
+            assert!(surfaces[i].0 != surfaces[j].0, "duplicate hot surface SLOT");
+            j += 1;
+        }
+        i += 1;
+    }
+}
+
+/// The single registry of hot surfaces. One invocation generates, for every
+/// surface: a zero-sized marker type, its [`HotSurface`] impl (slot / label /
+/// glue / fallback), an entry in [`REGISTERED_SURFACES`] (driving the slot
+/// uniqueness + bounds assertion), and a [`LAYOUT_HASH`] contribution
+/// (`State` / `Context` size+align, slot, label). Because all of these derive
+/// from this one list, a surface cannot exist without being slot-checked and
+/// hash-covered — closing the lockstep desync risk structurally.
+macro_rules! hot_surface_registry {
+    ( $( $slot:literal => $name:ident {
+            state: $state:ty,
+            context: $ctx:ty,
+            label: $label:literal,
+            build: $build:path,
+            render: $render:path $(,)?
+    } ),+ $(,)? ) => {
+        $(
+            /// Zero-sized hot-surface marker; see [`HotSurface`].
+            pub struct $name;
+            // SAFETY: layout equality is enforced at load by LAYOUT_HASH /
+            // BUILD_HASH; the referenced glue/render read host data only and
+            // never clone/drop a host `Arc` (boundary invariant #3).
+            unsafe impl HotSurface for $name {
+                type State = $state;
+                type Context = $ctx;
+                const SLOT: usize = $slot;
+                const LABEL: &'static str = $label;
+                fn build_context(state: &Self::State) -> Self::Context {
+                    $build(state)
+                }
+                fn render(state: &Self::State, ctx: &Self::Context, alpha: f32) -> Vec<Actor> {
+                    $render(state, ctx, alpha)
+                }
+            }
+        )+
+
+        /// Every registered `(slot, label)` — the single list both the slot
+        /// assertion and the [`LAYOUT_HASH`] surface mix iterate.
+        pub const REGISTERED_SURFACES: &[(usize, &str)] = &[ $( ($slot, $label) ),+ ];
+
+        // Build-time: every slot is < MAX_SURFACES and all slots are distinct.
+        const _: () = assert_surface_slots(REGISTERED_SURFACES);
+
+        /// Fold each registered surface's `State` / `Context` layout, slot, and
+        /// label into the running [`LAYOUT_HASH`].
+        const fn mix_registered_surfaces(mut h: u64) -> u64 {
+            $(
+                h = mix_layout::<$state>(h);
+                h = mix_layout::<$ctx>(h);
+                h = mix_off(h, $slot);
+                h = fnv1a_bytes(h, $label.as_bytes());
+            )+
+            h
+        }
+    };
+}
+
+hot_surface_registry! {
+    0 => MenuSurface {
+        state: menu::State,
+        context: menu::HostContext,
+        label: "menu",
+        build: menu::build_host_context,
+        render: menu::get_actors,
+    },
 }
 
 /// What this host build expects of any cdylib it loads. Built from this rlib's
@@ -233,8 +443,8 @@ mod tests {
     use super::*;
 
     extern "C" fn noop_get_actors(
-        _state: &menu::State,
-        _ctx: &menu::HostContext,
+        _state: *const (),
+        _ctx: *const (),
         _alpha: f32,
     ) -> ActorBlob {
         ActorBlob {
@@ -244,8 +454,10 @@ mod tests {
         }
     }
 
-    static TEST_VTABLE: ScreenVTable = ScreenVTable {
-        menu_get_actors: noop_get_actors,
+    static TEST_VTABLE: ScreenVTable = {
+        let mut entries: [Option<HotEntry>; MAX_SURFACES] = [None; MAX_SURFACES];
+        entries[MenuSurface::SLOT] = Some(noop_get_actors as HotEntry);
+        ScreenVTable { entries }
     };
 
     fn well_formed_header() -> HotHeader {
@@ -272,6 +484,49 @@ mod tests {
         assert_ne!(LAYOUT_HASH, 0);
         assert_ne!(BUILD_HASH, 0);
         assert_ne!(LAYOUT_HASH, BUILD_HASH);
+    }
+
+    #[test]
+    fn field_offset_mixing_is_layout_sensitive() {
+        // Proves the `mix_off`/`offset_of!` technique LAYOUT_HASH relies on
+        // actually distinguishes a field reorder: two structs with identical
+        // field *types* but swapped *order* hash differently, because the
+        // offsets differ. (Total size/align alone would not catch this.)
+        #[repr(C)]
+        struct A {
+            x: u8,
+            y: u64,
+        }
+        #[repr(C)]
+        struct B {
+            y: u64,
+            x: u8,
+        }
+        let ha = mix_off(mix_off(FNV_OFFSET, offset_of!(A, x)), offset_of!(A, y));
+        let hb = mix_off(mix_off(FNV_OFFSET, offset_of!(B, x)), offset_of!(B, y));
+        assert_ne!(ha, hb, "field reorder must change the offset hash");
+    }
+
+    #[test]
+    fn registered_surfaces_are_slot_unique_and_in_range() {
+        // Mirrors the compile-time `assert_surface_slots`, and pins the pilot's
+        // single registered surface so an accidental registry edit is caught.
+        assert_eq!(MenuSurface::SLOT, 0);
+        assert_eq!(MenuSurface::LABEL, "menu");
+        assert!(REGISTERED_SURFACES.iter().all(|(slot, _)| *slot < MAX_SURFACES));
+        for (i, (slot_a, _)) in REGISTERED_SURFACES.iter().enumerate() {
+            for (slot_b, _) in &REGISTERED_SURFACES[i + 1..] {
+                assert_ne!(slot_a, slot_b, "registered slots must be unique");
+            }
+        }
+    }
+
+    #[test]
+    fn unpublished_slot_is_none() {
+        // A published surface resolves to `Some`; any slot the vtable did not
+        // populate is a safe `None` (graceful fallback, never a wild call).
+        assert!(TEST_VTABLE.entries[MenuSurface::SLOT].is_some());
+        assert!(TEST_VTABLE.entries[MAX_SURFACES - 1].is_none());
     }
 
     #[test]

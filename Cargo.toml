@@ -57,13 +57,14 @@ path = "scripts/replaygain_bench.rs"
 [features]
 pipewire-audio = ["dep:pipewire"]
 # Dev-only: enable the runtime hot-reload dispatch path in `app`. Not in default;
-# release/normal builds are unaffected. See crates/deadsync-hot and the plan.
-hot = []
+# release/normal builds are unaffected. Pulls in the `deadsync-hot` runtime crate
+# (and its `libloading`) only when enabled. See crates/deadsync-hot and the plan.
+hot = ["dep:deadsync-hot"]
 
 [dependencies]
 deadsync-chart = { path = "crates/deadsync-chart" }
 deadsync-core = { path = "crates/deadsync-core" }
-deadsync-hot = { path = "crates/deadsync-hot" }
+deadsync-hot = { path = "crates/deadsync-hot", optional = true }
 deadsync-input = { path = "crates/deadsync-input" }
 deadsync-net = { path = "crates/deadsync-net" }
 deadsync-online = { path = "crates/deadsync-online" }
@@ -139,7 +140,6 @@ bitflags = "2.12.1"
 [target.'cfg(windows)'.dependencies]
 gpu-allocator = { version = "0.28.0", default-features = false, features = ["std", "d3d12"] }
 hidapi = { version = "2.6.6", default-features = false, features = ["windows-native"] }
-libloading = "0.9.0"
 windows-core = "0.62.2"
 windows-targets = "0.53.5"
 windows-sys = { version = "0.61.2", features = [
@@ -280,6 +280,20 @@ lto = "thin"
 # and lto are mutually exclusive, so this profile is the payoff of that work.
 # Build both the host (`--features hot`) and `deadsync-screens` with
 # `--profile release-hot` and NO `RUSTFLAGS=-C prefer-dynamic`.
+#
+# HOT-RELOAD DEV LOOP (Windows): the hot loop's build flags are kept OUT of
+# `.cargo/config.toml` on purpose, so they never apply to release or CI builds.
+# Set them per-terminal via RUSTFLAGS only in the two hot-loop shells (host +
+# `deadsync-screens`):
+#   * Daily fast loop (dev profile): `-C prefer-dynamic` (shared std/allocator)
+#     plus, optionally, `-C linker=rust-lld` — the bundled LLVM linker links the
+#     whole engine into `deadsync_screens.dll` several times faster than the
+#     default MSVC `link.exe`, which is the dominant cost of a warm relink.
+#       $env:RUSTFLAGS = "-C prefer-dynamic -C linker=rust-lld"
+#   * `release-hot` loop: drop `prefer-dynamic` (incompatible with `lto`); the
+#     `-C linker=rust-lld` speed-up still applies if you want it.
+# Using `rust-lld` is opt-in and developer-local; release artifacts keep the
+# default linker.
 [profile.release-hot]
 inherits = "release"
 panic = "unwind"

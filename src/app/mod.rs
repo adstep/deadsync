@@ -6648,60 +6648,56 @@ impl App {
     /// renders in-lib). Adding a hot screen means one more `select` call site —
     /// not another reloader.
     ///
-    /// The vtable reference lives only for the duration of `select`; the helper
-    /// hands back a plain `Copy` fn pointer so no boundary-owned reference
-    /// escapes into the frame.
+    /// Render a hot surface through the reloaded cdylib when its slot is
+    /// published, otherwise via the surface's in-lib fallback. The cdylib renders
+    /// + encodes actors into its own scratch buffer and returns a POD
+    /// [`ActorBlob`](crate::hot::ActorBlob) (status + `ptr`/`len`); the host
+    /// decodes the bytes into its **own** `Vec<Actor>`, so no heap ownership
+    /// crosses the boundary (this is what lets the boundary drop
+    /// `-C prefer-dynamic`). The cdylib catches its own render panics and reports
+    /// `RENDER_PANIC`; on that — or a null/oversized blob, a decode error, or an
+    /// unpublished slot — we quarantine the generation and fall back to
+    /// `S::render`.
+    ///
+    /// Takes `reloader` and `state` as **separate** borrows (rather than
+    /// `&mut self`) so the caller can hand us a disjoint mutable borrow of the
+    /// reloader field alongside a shared borrow of the surface's state field.
     #[cfg(feature = "hot")]
-    fn hot_fn<F: Copy>(
-        &mut self,
-        select: impl FnOnce(&crate::hot::ScreenVTable) -> F,
-    ) -> Option<F> {
-        let ptr = self.hot_reloader.as_mut().and_then(|r| r.poll())?;
-        // SAFETY: `ptr` came from a header that passed `verify` against our
-        // `EXPECTED`, so it points at a `ScreenVTable` of the agreed layout, and
-        // the owning library is kept mapped by the reloader. `select` only reads
-        // it to copy out a fn pointer; nothing borrowed escapes.
-        Some(select(unsafe { crate::hot::screen_vtable(ptr) }))
-    }
-
-    /// Quarantine the current cdylib generation after a hot render panicked, so
-    /// the next `poll()` ignores it until the file changes again. Note this
-    /// quarantines the whole `deadsync-screens` generation: a panic in any hot
-    /// screen drops every hot screen back to its in-lib path until the next
-    /// successful rebuild.
-    #[cfg(feature = "hot")]
-    fn quarantine_hot(&mut self, label: &str) {
-        log::error!("hot({label}): render panicked; quarantining generation and falling back");
-        if let Some(r) = self.hot_reloader.as_mut() {
-            r.quarantine_current();
-        }
-    }
-
-    /// Render the menu through the hot-reloaded cdylib when one is loaded,
-    /// otherwise via the in-lib path. The cdylib renders + encodes the actors
-    /// into its own scratch buffer and returns a POD [`ActorBlob`] (status +
-    /// `ptr`/`len`); the host decodes the bytes into its **own** `Vec<Actor>`, so
-    /// no heap ownership crosses the boundary (this is what lets the menu boundary
-    /// drop `-C prefer-dynamic`). The cdylib catches its own render panics and
-    /// reports `RENDER_PANIC`; on that — or a null/oversized blob or a decode
-    /// error — we quarantine the generation and fall back to the in-lib path.
-    #[cfg(feature = "hot")]
-    fn menu_actors_hot(&mut self, ctx: &menu::HostContext, alpha: f32) -> Vec<Actor> {
+    fn hot_actors<S: crate::hot::HotSurface>(
+        reloader: &mut Option<deadsync_hot::Reloader>,
+        state: &S::State,
+        alpha: f32,
+    ) -> Vec<Actor> {
         use crate::engine::present::actor_wire;
         use crate::hot::{MAX_BLOB_BYTES, RENDER_OK};
 
-        let Some(get_actors) = self.hot_fn(|vt| vt.menu_get_actors) else {
-            return menu::get_actors(&self.state.screens.menu_state, ctx, alpha);
+        // Build the render snapshot host-side (used by both the hot path and the
+        // fallback), so a stale context can never be paired with the state.
+        let ctx = S::build_context(state);
+
+        // Poll for a fresh generation and resolve this surface's entry, if the
+        // loaded cdylib published its slot.
+        let entry = reloader.as_mut().and_then(|r| r.poll()).and_then(|ptr| {
+            // SAFETY: `ptr` came from a header that passed `verify` against our
+            // `EXPECTED`, so it points at a `ScreenVTable` of the agreed layout,
+            // and the owning library is kept mapped by the reloader. We only read
+            // it to copy out an `Option<HotEntry>`; nothing borrowed escapes.
+            let vt = unsafe { crate::hot::screen_vtable(ptr) };
+            vt.entries.get(S::SLOT).copied().flatten()
+        });
+        let Some(entry) = entry else {
+            return S::render(state, &ctx, alpha);
         };
 
-        // The cdylib entry is `extern "C"` and catches its own panics, so this
-        // call cannot unwind into the host (a panic there would abort). The
-        // returned `ptr`/`len` borrow the cdylib's thread-local scratch and are
-        // valid only until the next hot call — decode immediately, never store.
-        let blob = {
-            let state = &self.state.screens.menu_state;
-            get_actors(state, ctx, alpha)
-        };
+        // The thunk is `extern "C"` and catches its own panics, so this call
+        // cannot unwind into the host (a panic there would abort). The returned
+        // `ptr`/`len` borrow the cdylib's thread-local scratch and are valid only
+        // until the next hot call — decode immediately, never store.
+        let blob = entry(
+            state as *const S::State as *const (),
+            &ctx as *const S::Context as *const (),
+            alpha,
+        );
 
         let decoded = if blob.status == RENDER_OK
             && !blob.ptr.is_null()
@@ -6721,8 +6717,14 @@ impl App {
         match decoded {
             Some(actors) => actors,
             None => {
-                self.quarantine_hot("menu");
-                menu::get_actors(&self.state.screens.menu_state, ctx, alpha)
+                if let Some(r) = reloader.as_mut() {
+                    log::error!(
+                        "hot({}): render failed; quarantining generation and falling back",
+                        S::LABEL
+                    );
+                    r.quarantine_current();
+                }
+                S::render(state, &ctx, alpha)
             }
         }
     }
@@ -6749,13 +6751,17 @@ impl App {
 
         let mut actors = match self.state.screens.current_screen {
             CurrentScreen::Menu => {
-                let ctx = menu::build_host_context(&self.state.screens.menu_state);
                 #[cfg(feature = "hot")]
                 {
-                    self.menu_actors_hot(&ctx, screen_alpha_multiplier)
+                    Self::hot_actors::<crate::hot::MenuSurface>(
+                        &mut self.hot_reloader,
+                        &self.state.screens.menu_state,
+                        screen_alpha_multiplier,
+                    )
                 }
                 #[cfg(not(feature = "hot"))]
                 {
+                    let ctx = menu::build_host_context(&self.state.screens.menu_state);
                     menu::get_actors(
                         &self.state.screens.menu_state,
                         &ctx,

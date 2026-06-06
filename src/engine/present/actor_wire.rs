@@ -250,6 +250,16 @@ impl<'a> Reader<'a> {
     fn opt_f32n<const N: usize>(&mut self) -> Result<Option<[f32; N]>, DecodeError> {
         if self.bool()? { Ok(Some(self.f32n()?)) } else { Ok(None) }
     }
+    /// Cap a pre-allocation request at what the unread remainder of the buffer
+    /// could possibly hold, so a corrupt/oversized count (still under the coarse
+    /// element caps) can't trigger a huge up-front allocation. `min_elem_bytes`
+    /// is a guaranteed lower bound on one element's encoded size; under-capping
+    /// only costs an eventual realloc, never correctness — the per-element reads
+    /// fail closed on EOF if the count was a lie.
+    fn capacity_for(&self, requested: usize, min_elem_bytes: usize) -> usize {
+        let remaining = self.buf.len().saturating_sub(self.pos);
+        requested.min(remaining / min_elem_bytes.max(1) + 1)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -463,7 +473,7 @@ fn write_mesh_vertices(w: &mut Writer, verts: &[MeshVertex]) {
 }
 fn read_mesh_vertices(r: &mut Reader) -> Result<Arc<[MeshVertex]>, DecodeError> {
     let n = r.count("mesh-vertices", MAX_VERTS)?;
-    let mut v = Vec::with_capacity(n);
+    let mut v = Vec::with_capacity(r.capacity_for(n, 4));
     for _ in 0..n {
         v.push(MeshVertex { pos: r.f32n()?, color: r.f32n()? });
     }
@@ -481,7 +491,7 @@ fn write_tmesh_vertices(w: &mut Writer, verts: &[TexturedMeshVertex]) {
 }
 fn read_tmesh_vertices(r: &mut Reader) -> Result<Arc<[TexturedMeshVertex]>, DecodeError> {
     let n = r.count("tmesh-vertices", MAX_VERTS)?;
-    let mut v = Vec::with_capacity(n);
+    let mut v = Vec::with_capacity(r.capacity_for(n, 4));
     for _ in 0..n {
         v.push(TexturedMeshVertex {
             pos: r.f32n()?,
@@ -532,6 +542,32 @@ fn read_opt_blend(r: &mut Reader) -> Result<Option<BlendMode>, DecodeError> {
 // Actor variant tags
 // ---------------------------------------------------------------------------
 
+// --- Actor variant tags -----------------------------------------------------
+//
+// EXTENSION SEAM — adding a new `Actor` variant to the wire format.
+//
+// The byte stream is self-describing: each actor is a 1-byte tag followed by the
+// variant's fields. To extend the codec when a new `Actor` variant is added,
+// touch exactly these four sites (the compiler's exhaustiveness check on
+// `write_actor`'s `match` forces you to the first; the rest fail closed if
+// missed):
+//
+//   1. Add a new `const T_XXX: u8 = <next unused value>;` below. **Never reuse or
+//      reorder existing tag values** — they are the on-wire contract; bump
+//      [`VERSION`] only on a breaking change to an *existing* tag's payload.
+//   2. Add a `Actor::Xxx { .. } => { w.u8(T_XXX); .. }` arm to [`write_actor`],
+//      serializing each field with the `Writer` helpers (use `write_opt_*` for
+//      `Option`, `count`/`len` + a loop for sequences).
+//   3. Add the mirror `T_XXX => { .. }` arm to [`read_actor`], reading fields back
+//      in the **same order** and rebuilding the variant. Use
+//      `Reader::capacity_for` (not the raw count) for any `Vec::with_capacity`.
+//   4. If the variant carries an unbounded sequence, give it a `MAX_*` cap and
+//      read its length via `Reader::count` so a corrupt buffer fails closed.
+//
+// Because this module is compiled into the engine rlib that is statically linked
+// into BOTH the host and the cdylib, the encoder and decoder can never disagree
+// on tag meaning — a desync is impossible by construction, not by discipline.
+
 const T_SPRITE: u8 = 0;
 const T_TEXT: u8 = 1;
 const T_MESH: u8 = 2;
@@ -551,7 +587,7 @@ fn write_children(w: &mut Writer, children: &[Actor]) {
 }
 fn read_children(r: &mut Reader, depth: usize) -> Result<Vec<Actor>, DecodeError> {
     let n = r.count("children", MAX_ACTORS)?;
-    let mut v = Vec::with_capacity(n);
+    let mut v = Vec::with_capacity(r.capacity_for(n, 1));
     for _ in 0..n {
         v.push(read_actor(r, depth + 1)?);
     }
@@ -845,7 +881,7 @@ fn read_actor(r: &mut Reader, depth: usize) -> Result<Actor, DecodeError> {
             let font = intern_static(r.str()?)?;
             let content = read_text_content(r)?;
             let n_attr = r.count("text-attributes", MAX_ATTRS)?;
-            let mut attributes = Vec::with_capacity(n_attr);
+            let mut attributes = Vec::with_capacity(r.capacity_for(n_attr, 1));
             for _ in 0..n_attr {
                 attributes.push(read_attribute(r)?);
             }
@@ -1018,7 +1054,7 @@ pub fn decode_actors(buf: &[u8]) -> Result<Vec<Actor>, DecodeError> {
         return Err(DecodeError::BadVersion(version));
     }
     let n = r.count("actors", MAX_ACTORS)?;
-    let mut out = Vec::with_capacity(n);
+    let mut out = Vec::with_capacity(r.capacity_for(n, 1));
     for _ in 0..n {
         out.push(read_actor(&mut r, 0)?);
     }
@@ -1357,6 +1393,23 @@ mod tests {
         assert!(matches!(
             decode_actors(&hand),
             Err(DecodeError::TooLarge { what: "actors", .. })
+        ));
+    }
+
+    #[test]
+    fn huge_count_small_buffer_fails_closed() {
+        // A count under the coarse cap (MAX_ACTORS) but far larger than the
+        // buffer could supply must fail closed (EOF) without attempting a giant
+        // pre-allocation — the `capacity_for` cap keeps with_capacity bounded by
+        // the remaining bytes, and the per-actor reads then hit EOF.
+        let mut hand = Vec::new();
+        hand.extend_from_slice(&MAGIC.to_le_bytes());
+        hand.extend_from_slice(&VERSION.to_le_bytes());
+        hand.extend_from_slice(&((MAX_ACTORS - 1) as u32).to_le_bytes());
+        // No actor bodies follow.
+        assert!(matches!(
+            decode_actors(&hand),
+            Err(DecodeError::UnexpectedEof)
         ));
     }
 
