@@ -32,9 +32,11 @@
 
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::fs;
-use std::io;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -77,6 +79,7 @@ impl Default for Args {
 }
 
 fn main() {
+    init_term();
     let mut it = std::env::args().skip(1);
     let sub = it.next().unwrap_or_default();
     match sub.as_str() {
@@ -129,6 +132,92 @@ fn fail(msg: &str) -> ! {
     std::process::exit(2);
 }
 
+// --- terminal styling (pure std, no deps) ----------------------------------
+
+/// Prepare the terminal: on Windows, enable ANSI escape processing so the colors
+/// and the in-place spinner render in classic consoles (Windows Terminal already
+/// supports them, but conhost needs the mode flag set explicitly).
+fn init_term() {
+    #[cfg(windows)]
+    enable_vt();
+}
+
+/// Whether to emit ANSI color/control codes. Disabled when output is redirected,
+/// when `NO_COLOR` is set, or for `TERM=dumb`. Computed once.
+fn color() -> bool {
+    static COLOR: OnceLock<bool> = OnceLock::new();
+    *COLOR.get_or_init(|| {
+        if std::env::var_os("NO_COLOR").is_some() {
+            return false;
+        }
+        if matches!(std::env::var("TERM").as_deref(), Ok("dumb")) {
+            return false;
+        }
+        std::io::stdout().is_terminal()
+    })
+}
+
+fn paint(code: &str, s: &str) -> String {
+    if color() {
+        format!("\x1b[{code}m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+fn bold(s: &str) -> String {
+    paint("1", s)
+}
+fn dim(s: &str) -> String {
+    paint("2", s)
+}
+fn red(s: &str) -> String {
+    paint("31", s)
+}
+fn green(s: &str) -> String {
+    paint("32", s)
+}
+fn yellow(s: &str) -> String {
+    paint("33", s)
+}
+fn cyan(s: &str) -> String {
+    paint("36", s)
+}
+
+/// Print an aligned `  label    value` line (label dimmed). An empty label emits
+/// the leading padding only, to hang a continuation under a previous label.
+fn kv(label: &str, value: &str) {
+    println!("  {} {value}", dim(&format!("{label:<9}")));
+}
+
+/// The `#N` reload counter badge.
+fn tag_label(tag: u32) -> String {
+    bold(&format!("#{tag}"))
+}
+
+#[cfg(windows)]
+fn enable_vt() {
+    use std::os::raw::c_void;
+    const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+    unsafe extern "system" {
+        fn GetStdHandle(n: u32) -> *mut c_void;
+        fn GetConsoleMode(h: *mut c_void, mode: *mut u32) -> i32;
+        fn SetConsoleMode(h: *mut c_void, mode: u32) -> i32;
+    }
+    unsafe {
+        let h = GetStdHandle(STD_OUTPUT_HANDLE);
+        if h.is_null() || h as isize == -1 {
+            return;
+        }
+        let mut mode = 0u32;
+        if GetConsoleMode(h, &mut mode) == 0 {
+            return;
+        }
+        SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+}
+
 fn run(a: Args) -> Result<(), String> {
     let root = match &a.root {
         Some(r) => r.clone(),
@@ -148,10 +237,14 @@ fn run(a: Args) -> Result<(), String> {
         ));
     }
 
-    println!("== deadsync hot-watch ==");
-    println!("  worktree : {}", root.display());
-    println!("  RUSTFLAGS: {}   (the HOST must use the SAME)", a.rustflags);
-    println!("  profile  : {}", a.profile);
+    println!();
+    println!("  {}", bold(&cyan("deadsync hot-watch")));
+    kv("workspace", &dim(&root.display().to_string()));
+    kv("profile", &cyan(&a.profile));
+    kv(
+        "rustflags",
+        &format!("{}   {}", yellow(&a.rustflags), dim("(the host must use the SAME)")),
+    );
 
     // 1. Capture cargo's exact rustc command for the cdylib (one cargo build).
     let mut cmd = capture_rustc_cmd(&root, &a, &crate_us, &render)?;
@@ -212,33 +305,43 @@ fn run(a: Args) -> Result<(), String> {
         match resolve_lld_link(&root) {
             Ok(lld) => {
                 cmd = format!("{cmd} -C linker={}", shell_quote(&lld.display().to_string()));
-                println!("  linker   : rust-lld ({})", lld.display());
+                kv("linker", &format!("rust-lld {}", dim(&format!("({})", lld.display()))));
             }
-            Err(e) => println!("  linker   : default (rust-lld unavailable: {e})"),
+            Err(e) => kv("linker", &dim(&format!("default (rust-lld unavailable: {e})"))),
         }
     } else {
-        println!("  linker   : default (from captured command / cargo config)");
+        kv("linker", &dim("default (from captured command / cargo config)"));
     }
 
     if let Some(p) = &rlib {
-        println!("  rlib     : {}", p.display());
+        kv("rlib", &dim(&p.display().to_string()));
     }
-    println!("  watching :");
+    let mut first = true;
     for p in &watch {
-        println!("             {}", p.display());
+        kv(if first { "watching" } else { "" }, &dim(&p.display().to_string()));
+        first = false;
     }
     println!();
-    println!("  Start the host in another terminal with the SAME RUSTFLAGS, e.g.:");
+    println!(
+        "  {}",
+        dim("Start the host in another terminal with the SAME RUSTFLAGS:")
+    );
     if cfg!(windows) {
-        println!("      $env:RUSTFLAGS = \"{}\"", a.rustflags);
+        println!("      {}", green(&format!("$env:RUSTFLAGS = \"{}\"", a.rustflags)));
         println!(
-            "      cargo run --profile {} --bin deadsync --features hot",
-            a.profile
+            "      {}",
+            green(&format!(
+                "cargo run --profile {} --bin deadsync --features hot",
+                a.profile
+            ))
         );
     } else {
         println!(
-            "      RUSTFLAGS=\"{}\" cargo run --profile {} --bin deadsync --features hot",
-            a.rustflags, a.profile
+            "      {}",
+            green(&format!(
+                "RUSTFLAGS=\"{}\" cargo run --profile {} --bin deadsync --features hot",
+                a.rustflags, a.profile
+            ))
         );
     }
     println!();
@@ -266,7 +369,7 @@ fn run(a: Args) -> Result<(), String> {
     // Robust polling watcher (no FileSystemWatcher event plumbing).
     let mut last: Vec<(PathBuf, Option<SystemTime>)> =
         watch.iter().map(|p| (p.clone(), mtime(p))).collect();
-    println!("Watching for edits (Ctrl-C to stop)...");
+    println!("  {}", dim("watching for edits — Ctrl-C to stop"));
     loop {
         sleep(Duration::from_millis(a.poll_ms));
         let mut changed = false;
@@ -311,32 +414,91 @@ impl Ctx {
         if let (Some(p), Some(snap)) = (&self.rlib, &self.rlib_snap) {
             if snapshot(p).as_ref() != Some(snap) {
                 println!(
-                    "  #{tag} ENGINE RLIB CHANGED -- stop & restart host + watcher (stale-host hazard)"
+                    "  {} {}",
+                    tag_label(tag),
+                    yellow("⚠ engine rlib changed — restart host + watcher (stale-host hazard)")
                 );
                 return;
             }
         }
 
         let start = Instant::now();
-        let result = self.run_captured();
+        let result = self.run_with_progress(tag);
         let dt = start.elapsed().as_secs_f64();
 
         match result {
             Ok((true, _)) => {
                 if let Err(e) = self.publish() {
-                    println!("  #{tag} relinked but PUBLISH FAILED ({dt:.2}s): {e}");
+                    println!(
+                        "  {} {} {}",
+                        tag_label(tag),
+                        red("✗ relinked but publish failed"),
+                        dim(&format!("({dt:.2}s): {e}"))
+                    );
                     return;
                 }
-                println!("  #{tag} reloaded in {dt:.2}s");
+                println!(
+                    "  {} {} {}",
+                    tag_label(tag),
+                    green("✓ reloaded"),
+                    dim(&format!("{dt:.2}s"))
+                );
             }
             Ok((false, output)) => {
-                println!("  #{tag} BUILD FAILED ({dt:.2}s)");
+                println!(
+                    "  {} {} {}",
+                    tag_label(tag),
+                    red("✗ build failed"),
+                    dim(&format!("({dt:.2}s)"))
+                );
                 for line in tail(&output, 30).lines() {
-                    println!("     {line}");
+                    println!("     {}", dim(line));
                 }
             }
-            Err(e) => println!("  #{tag} BUILD ERROR ({dt:.2}s): {e}"),
+            Err(e) => println!(
+                "  {} {} {}",
+                tag_label(tag),
+                red("✗ build error"),
+                dim(&format!("({dt:.2}s): {e}"))
+            ),
         }
+    }
+
+    /// Run the captured build while animating an in-place spinner with elapsed
+    /// time. When output is not a terminal, fall back to a single static line so
+    /// piped logs stay clean (no carriage-return churn).
+    fn run_with_progress(&self, tag: u32) -> io::Result<(bool, String)> {
+        if !color() {
+            println!("  {} building…", tag_label(tag));
+            return self.run_captured();
+        }
+        let done = AtomicBool::new(false);
+        let out = std::thread::scope(|s| {
+            s.spawn(|| {
+                const FRAMES: [&str; 10] =
+                    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                let start = Instant::now();
+                let mut i = 0usize;
+                while !done.load(Ordering::Relaxed) {
+                    print!(
+                        "\r  {} {} building {}",
+                        tag_label(tag),
+                        cyan(FRAMES[i % FRAMES.len()]),
+                        dim(&format!("{:.1}s", start.elapsed().as_secs_f64()))
+                    );
+                    let _ = io::stdout().flush();
+                    i += 1;
+                    sleep(Duration::from_millis(80));
+                }
+            });
+            let r = self.run_captured();
+            done.store(true, Ordering::Relaxed);
+            r
+        });
+        // Erase the spinner line so the result line starts clean.
+        print!("\r\x1b[2K");
+        let _ = io::stdout().flush();
+        out
     }
 
     /// Re-run the captured rustc command via the platform shell. Using a shell
