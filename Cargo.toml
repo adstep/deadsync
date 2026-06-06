@@ -272,6 +272,18 @@ panic = "abort"
 inherits = "release"
 lto = "thin"
 
+# Release-grade build that can still hot-reload the menu. Inherits `release`
+# (opt-level 3, lto = true) but overrides `panic = "unwind"` because the hot
+# boundary relies on `catch_unwind` inside the cdylib to contain a bad edit.
+# `lto` is legal here only because the menu boundary no longer needs
+# `-C prefer-dynamic` (Option A: nothing heap-owned crosses it) — prefer-dynamic
+# and lto are mutually exclusive, so this profile is the payoff of that work.
+# Build both the host (`--features hot`) and `deadsync-screens` with
+# `--profile release-hot` and NO `RUSTFLAGS=-C prefer-dynamic`.
+[profile.release-hot]
+inherits = "release"
+panic = "unwind"
+
 [lints.clippy]
 perf = { level = "warn", priority = -1 }
 
