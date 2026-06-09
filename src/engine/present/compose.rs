@@ -191,6 +191,14 @@ impl ComposeScratch {
         self.cameras = cameras;
     }
 
+    /// Invalidate the pointer-keyed texture lookup tables. Call on a hot-reload
+    /// generation swap so no cached texture dim/sheet/handle keyed by a key-string
+    /// address survives into the new generation. Cheap and rebuilt on demand the
+    /// same frame; intended for the dev-only hot path.
+    pub fn invalidate_pointer_caches(&mut self) {
+        self.texture_cache.clear_all();
+    }
+
     #[inline(always)]
     fn transient_text_mesh_scratch(
         &mut self,
@@ -447,6 +455,18 @@ impl TextureLookupCache {
             return;
         }
         self.generation = generation;
+        self.dims.clear();
+        self.sheets.clear();
+        self.handles.clear();
+    }
+
+    /// Drop every cached entry unconditionally. Used to invalidate the
+    /// pointer-keyed lookup tables across a hot-reload generation swap, where a
+    /// freshly mapped library may reuse a key-string address that a stale entry
+    /// still indexes. (Entries are fingerprint-guarded against silent reuse, but
+    /// flushing on swap keeps the cache free of any value derived from a
+    /// generation that is about to be retired.)
+    fn clear_all(&mut self) {
         self.dims.clear();
         self.sheets.clear();
         self.handles.clear();

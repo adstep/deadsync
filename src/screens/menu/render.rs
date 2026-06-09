@@ -8,15 +8,24 @@
 //! emits — the resulting `Vec<Actor>` is allocated here and dropped host-side,
 //! which is sound only under that shared allocator.
 //!
-//! KNOWN IMPURITY (intentionally deferred): the component builders called below
+//! BOUNDARY NORMALIZATION (host-owned keys): the component builders called below
 //! (`visual_style_bg`, `logo`, `menu_list`, `screen_bar`) and the `act!` text
-//! actors still resolve textures/fonts through engine globals
-//! (`assets::texture_registry_generation()`) and bake `&'static str`
-//! texture/font keys. In-process this is identical to today. Before the runtime
-//! can ever *unload* an old cdylib it must be addressed — favored approach:
-//! render emits actors carrying texture *keys* only and the host re-resolves
-//! handles after return (keeps asset lifetime, registry generation and
-//! `&'static` keys host-owned).
+//! actors still mint `&'static str` texture/font keys and `TextContent::Static`
+//! that point into *this cdylib's* rodata. That escape is now neutralized
+//! generically by the host: immediately after this render returns its
+//! `Vec<Actor>`, the host runs `deadsync::engine::present::actors::
+//! normalize_hot_actors`, which re-homes every such key into host-owned memory
+//! (host-interned `&'static` for fonts/backgrounds, heap `Arc<str>` for texture
+//! and text content). So nothing the host keeps references this library's image,
+//! and this contract applies to *every* hot surface, not just the menu — render
+//! code here need not thread host-owned keys by hand.
+//!
+//! Still deferred (separate, non-escape concern): these builders resolve texture
+//! *handles*/dimensions through engine globals (`assets::texture_registry_
+//! generation()`), reading the cdylib's *duplicated* copies. Those produce
+//! *values* consumed within the call, not escaping pointers; the boundary pass
+//! drops cdylib-resolved handles and forces host re-resolution from the key, so
+//! this is a purity nicety, not an unload blocker.
 
 use deadsync::act;
 use deadsync::engine::present::actors::{Actor, TextAlign};
@@ -51,8 +60,10 @@ fn status_text_actor(
     alpha: f32,
     align_text: TextAlign,
 ) -> Actor {
-    // TODO: `font("miso")` bakes a hot-owned `&'static str`; route through a
-    // lib-owned font-key value on `HostContext` before old cdylibs are unloaded.
+    // TODO: `font("miso")` bakes a hot-owned `&'static str`; the host's boundary
+    // `normalize_hot_actors` re-homes it to a host-interned key after return, so
+    // this no longer escapes — threading a lib-owned font key here would still be
+    // a purity improvement.
     let mut actor = act!(text:
         font("miso"):
         settext(text):
