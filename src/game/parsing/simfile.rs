@@ -273,6 +273,47 @@ pub(crate) fn parse_song_for_test(
     )
 }
 
+/// Parse a single simfile into song metadata for headless tools (e.g. the
+/// gameplay benchmark). Accepts either a direct simfile path (`.ssc`/`.sm`) or a
+/// song directory, in which case the first `.ssc` (preferred) or `.sm` inside it
+/// is used. Bypasses the on-disk song cache and global song registry.
+pub fn load_song_for_bench(path: &Path) -> Result<Arc<SongData>, String> {
+    let simfile_path = resolve_simfile_path(path)?;
+    let song = deadsync_simfile::song::parse_song_meta_file(
+        &simfile_path,
+        &parse_song_options(),
+        0.0,
+        compute_music_length_seconds,
+    )?;
+    Ok(Arc::new(song))
+}
+
+fn resolve_simfile_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_file() {
+        return Ok(path.to_path_buf());
+    }
+    if path.is_dir() {
+        let mut sm: Option<PathBuf> = None;
+        let entries = std::fs::read_dir(path)
+            .map_err(|e| format!("Could not read song directory {path:?}: {e}"))?;
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            match entry_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_ascii_lowercase())
+                .as_deref()
+            {
+                Some("ssc") => return Ok(entry_path),
+                Some("sm") if sm.is_none() => sm = Some(entry_path),
+                _ => {}
+            }
+        }
+        return sm.ok_or_else(|| format!("No .ssc or .sm simfile found in {path:?}"));
+    }
+    Err(format!("Path does not exist: {path:?}"))
+}
+
 fn bgchange_asset_roots(dirname: &str) -> Vec<PathBuf> {
     let dirs = dirs::app_dirs();
     let cwd = std::env::current_dir().ok();

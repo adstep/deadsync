@@ -3,6 +3,7 @@ pub mod compose_scenarios;
 pub mod density_graph_bench;
 pub mod density_graph_life_bench;
 pub mod gameplay_bench;
+pub mod gameplay_sim_bench;
 pub mod gameplay_stats_bench;
 pub mod gameplay_stats_double_bench;
 pub mod gameplay_stats_versus_bench;

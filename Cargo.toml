@@ -53,6 +53,10 @@ name = "draw_bench"
 path = "tests/draw/bench.rs"
 
 [[bin]]
+name = "gameplay_bench"
+path = "tests/gameplay/bench.rs"
+
+[[bin]]
 name = "input_bench"
 path = "tests/input/bench.rs"
 

@@ -118,7 +118,7 @@ pub use self::clock::{
 };
 use self::clock::{
     DisplayClockDiagRing, FrameStableDisplayClock, SongClockSnapshot, current_song_clock_snapshot,
-    frame_stable_display_music_time_ns, music_time_ns_from_song_clock,
+    frame_stable_display_music_time_ns, music_time_ns_from_song_clock, simulated_song_clock_snapshot,
 };
 pub use self::controls::{
     RawKeyAction, autosync_mode_status_line, handle_queued_raw_key, sync_queued_raw_modifiers,
@@ -8531,6 +8531,29 @@ fn settle_completion_rows(state: &mut State) -> bool {
 }
 
 pub fn update(state: &mut State, delta_time: f32) -> GameplayAction {
+    let song_clock = current_song_clock_snapshot(state);
+    update_with_clock(state, delta_time, song_clock)
+}
+
+/// Drives `update` with a caller-supplied, deterministic music time instead of
+/// reading the global audio device clock. Intended for headless benchmarks and
+/// tests; `music_time_ns` is the absolute song time for this frame and
+/// `seconds_per_second` is the playback rate (1.0 = real time).
+pub fn update_simulated_clock(
+    state: &mut State,
+    delta_time: f32,
+    music_time_ns: SongTimeNs,
+    seconds_per_second: f32,
+) -> GameplayAction {
+    let song_clock = simulated_song_clock_snapshot(music_time_ns, seconds_per_second);
+    update_with_clock(state, delta_time, song_clock)
+}
+
+fn update_with_clock(
+    state: &mut State,
+    delta_time: f32,
+    song_clock: SongClockSnapshot,
+) -> GameplayAction {
     if let Some(exit) = state.exit_transition {
         state.total_elapsed_in_screen += delta_time;
         if exit.started_at.elapsed().as_secs_f32() >= exit_total_seconds(exit.kind) {
@@ -8556,7 +8579,6 @@ pub fn update(state: &mut State, delta_time: f32) -> GameplayAction {
 
     // Music time driven directly by the audio device clock, interpolated
     // between callbacks for smooth, continuous motion.
-    let song_clock = current_song_clock_snapshot(state);
     let lead_in = state.audio_lead_in_seconds.max(0.0);
     let previous_music_time_ns = state.current_music_time_ns;
     let mut music_time_ns = song_clock.song_time_ns;

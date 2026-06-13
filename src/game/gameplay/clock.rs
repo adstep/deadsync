@@ -188,6 +188,28 @@ pub fn collect_display_clock_stutter_diag_events(
 }
 
 #[inline(always)]
+/// Builds a deterministic clock snapshot from a caller-supplied music time.
+///
+/// Used by headless benchmarks/tests to drive `update` without a real audio
+/// device. `valid_at_host_nanos` is `0` so no host-time interpolation is applied
+/// and `song_time_ns` is consumed verbatim.
+pub(crate) fn simulated_song_clock_snapshot(
+    music_time_ns: SongTimeNs,
+    seconds_per_second: f32,
+) -> SongClockSnapshot {
+    SongClockSnapshot {
+        song_time_ns: music_time_ns,
+        seconds_per_second: if seconds_per_second.is_finite() && seconds_per_second > 0.0 {
+            seconds_per_second
+        } else {
+            1.0
+        },
+        mapped_audio: true,
+        valid_at: Instant::now(),
+        valid_at_host_nanos: 0,
+    }
+}
+
 pub(crate) fn current_song_clock_snapshot(state: &State) -> SongClockSnapshot {
     let stream_clock = audio::get_music_stream_clock_snapshot();
     let fallback_rate = if state.music_rate.is_finite() && state.music_rate > 0.0 {
