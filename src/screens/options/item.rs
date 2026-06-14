@@ -133,6 +133,7 @@ pub enum ItemId {
     SndMusicVolume,
     SndMineSounds,
     SndGlobalOffset,
+    SndCalibrateLatency,
     SndRateModPitch,
     SndReplayGain,
 

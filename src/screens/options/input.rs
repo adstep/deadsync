@@ -1353,6 +1353,17 @@ pub(super) fn activate_current_selection(
                     audio::play_sfx("assets/sounds/start.ogg");
                     return ScreenAction::Navigate(Screen::OverscanAdjustment);
                 }
+            } else if matches!(kind, SubmenuKind::Sound) {
+                let rows = submenu_rows(kind);
+                let Some(row_idx) = submenu_visible_row_to_actual(state, kind, selected_row) else {
+                    return ScreenAction::None;
+                };
+                if let Some(row) = rows.get(row_idx)
+                    && row.id == SubRowId::CalibrateLatency
+                {
+                    audio::play_sfx("assets/sounds/start.ogg");
+                    return ScreenAction::Navigate(Screen::CalibrateLatency);
+                }
             } else if matches!(kind, SubmenuKind::Folders) {
                 let rows = submenu_rows(kind);
                 let Some(row_idx) = submenu_visible_row_to_actual(state, kind, selected_row) else {

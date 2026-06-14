@@ -10,6 +10,7 @@ pub mod groovestats_login;
 pub mod init;
 pub mod initials;
 pub mod input;
+pub mod latency_calibration;
 pub mod manage_local_profiles;
 pub mod mappings;
 pub mod menu;
@@ -148,6 +149,7 @@ pub enum Screen {
     OverscanAdjustment,
     ConfigurePads,
     SmxAssignPads,
+    CalibrateLatency,
 }
 
 impl Screen {
@@ -182,6 +184,7 @@ impl Screen {
             Self::OverscanAdjustment => "ScreenOverscanConfig",
             Self::ConfigurePads => "ScreenConfigurePads",
             Self::SmxAssignPads => "ScreenSmxAssignPads",
+            Self::CalibrateLatency => "ScreenCalibrateLatency",
         }
     }
 }

@@ -25,8 +25,8 @@ use crate::game::{profile, scores, stage_stats};
 use crate::screens::{
     DensityGraphSlot, DensityGraphSource, Screen as CurrentScreen, ScreenAction,
     SongOffsetSyncChange, credits, evaluation, evaluation_summary, gameover, gameplay, init,
-    initials, input as input_screen, manage_local_profiles, mappings, menu, options,
-    overscan_adjustment, player_options, practice, profile_load, sandbox, select_color,
+    initials, input as input_screen, latency_calibration, manage_local_profiles, mappings, menu,
+    options, overscan_adjustment, player_options, practice, profile_load, sandbox, select_color,
     select_course, select_mode, select_music, select_profile, select_style, test_lights,
 };
 use deadsync_platform::dirs;
@@ -708,7 +708,9 @@ const fn light_mode_for_screen(screen: CurrentScreen) -> LightMode {
         CurrentScreen::Init => LightMode::Attract,
         CurrentScreen::Gameplay | CurrentScreen::Practice => LightMode::Gameplay,
         CurrentScreen::TestLights => LightMode::TestAutoCycle,
-        CurrentScreen::OverscanAdjustment => LightMode::MenuStartAndDirections,
+        CurrentScreen::OverscanAdjustment | CurrentScreen::CalibrateLatency => {
+            LightMode::MenuStartAndDirections
+        }
         CurrentScreen::Evaluation | CurrentScreen::EvaluationSummary | CurrentScreen::Initials => {
             LightMode::Cleared
         }
@@ -1625,6 +1627,7 @@ pub struct ScreensState {
     pad_config_state: crate::screens::pad_config::State,
     test_lights_state: test_lights::State,
     overscan_adjustment_state: overscan_adjustment::State,
+    latency_calibration_state: latency_calibration::State,
     smx_assign_state: crate::screens::smx_assign::State,
     /// Latched while a same-jumper SMX conflict is being auto-prompted, so the
     /// assignment screen is only opened once per conflict episode (cleared when
@@ -3593,6 +3596,9 @@ impl ScreensState {
         let mut overscan_adjustment_state = overscan_adjustment::init();
         overscan_adjustment_state.active_color_index = color_index;
 
+        let mut latency_calibration_state = latency_calibration::init();
+        latency_calibration_state.active_color_index = color_index;
+
         let mut smx_assign_state = crate::screens::smx_assign::init();
         smx_assign_state.active_color_index = color_index;
 
@@ -3628,6 +3634,7 @@ impl ScreensState {
             },
             test_lights_state,
             overscan_adjustment_state,
+            latency_calibration_state,
             smx_assign_state,
             smx_autoprompt_latched: false,
             smx_options_lights_active: false,
@@ -3701,6 +3708,10 @@ impl ScreensState {
             ),
             CurrentScreen::OverscanAdjustment => (
                 overscan_adjustment::update(&mut self.overscan_adjustment_state, delta_time),
+                false,
+            ),
+            CurrentScreen::CalibrateLatency => (
+                latency_calibration::update(&mut self.latency_calibration_state, delta_time),
                 false,
             ),
             CurrentScreen::SmxAssignPads => (
@@ -6613,6 +6624,10 @@ impl App {
                 &mut self.state.screens.overscan_adjustment_state,
                 &ev,
             ),
+            CurrentScreen::CalibrateLatency => crate::screens::latency_calibration::handle_input(
+                &mut self.state.screens.latency_calibration_state,
+                &ev,
+            ),
             CurrentScreen::SmxAssignPads => crate::screens::smx_assign::handle_input(
                 &mut self.state.screens.smx_assign_state,
                 &ev,
@@ -7015,6 +7030,11 @@ impl App {
             CurrentScreen::OverscanAdjustment => overscan_adjustment::push_actors(
                 &mut actors,
                 &self.state.screens.overscan_adjustment_state,
+                screen_alpha_multiplier,
+            ),
+            CurrentScreen::CalibrateLatency => latency_calibration::push_actors(
+                &mut actors,
+                &self.state.screens.latency_calibration_state,
                 screen_alpha_multiplier,
             ),
             CurrentScreen::SmxAssignPads => crate::screens::smx_assign::push_actors(
@@ -8527,6 +8547,14 @@ impl App {
                 .overscan_adjustment_state
                 .active_color_index = color_index;
             overscan_adjustment::on_enter(&mut self.state.screens.overscan_adjustment_state);
+        } else if target == CurrentScreen::CalibrateLatency {
+            let color_index = self.state.screens.options_state.active_color_index;
+            self.state.screens.latency_calibration_state = latency_calibration::init();
+            self.state
+                .screens
+                .latency_calibration_state
+                .active_color_index = color_index;
+            latency_calibration::on_enter(&mut self.state.screens.latency_calibration_state);
         } else if target == CurrentScreen::SmxAssignPads {
             let color_index = self.state.screens.options_state.active_color_index;
             self.state.screens.smx_assign_state = crate::screens::smx_assign::init();

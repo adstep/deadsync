@@ -79,6 +79,12 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ROWS: &[SubRow] = &[
         inline: false,
     },
     SubRow {
+        id: SubRowId::CalibrateLatency,
+        label: lookup_key("OptionsSound", "CalibrateLatency"),
+        choices: &[localized_choice("Common", "Open")],
+        inline: false,
+    },
+    SubRow {
         id: SubRowId::RateModPreservesPitch,
         label: lookup_key("OptionsSound", "RateModPreservesPitch"),
         choices: &[
@@ -187,6 +193,14 @@ pub(in crate::screens::options) const SOUND_OPTIONS_ITEMS: &[Item] = &[
         help: &[HelpEntry::Paragraph(lookup_key(
             "OptionsSoundHelp",
             "GlobalOffsetHelp",
+        ))],
+    },
+    Item {
+        id: ItemId::SndCalibrateLatency,
+        name: lookup_key("OptionsSound", "CalibrateLatency"),
+        help: &[HelpEntry::Paragraph(lookup_key(
+            "OptionsSoundHelp",
+            "CalibrateLatencyHelp",
         ))],
     },
     Item {

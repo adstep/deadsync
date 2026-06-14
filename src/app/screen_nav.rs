@@ -147,6 +147,7 @@ impl App {
                 | CurrentScreen::Input
                 | CurrentScreen::TestLights
                 | CurrentScreen::OverscanAdjustment
+                | CurrentScreen::CalibrateLatency
                 | CurrentScreen::SmxAssignPads
         )
     }
@@ -280,6 +281,17 @@ impl App {
                 .overscan_adjustment_state
                 .active_color_index = color_index;
             overscan_adjustment::on_enter(&mut self.state.screens.overscan_adjustment_state);
+        } else if target_screen == CurrentScreen::CalibrateLatency {
+            let color_index = self.state.screens.options_state.active_color_index;
+            self.state.screens.latency_calibration_state =
+                crate::screens::latency_calibration::init();
+            self.state
+                .screens
+                .latency_calibration_state
+                .active_color_index = color_index;
+            crate::screens::latency_calibration::on_enter(
+                &mut self.state.screens.latency_calibration_state,
+            );
         } else if target_screen == CurrentScreen::SmxAssignPads {
             let color_index = self.state.screens.options_state.active_color_index;
             self.state.screens.smx_assign_state = crate::screens::smx_assign::init();
@@ -436,6 +448,8 @@ impl App {
             || (from == CurrentScreen::TestLights && to == CurrentScreen::Options)
             || (from == CurrentScreen::Options && to == CurrentScreen::OverscanAdjustment)
             || (from == CurrentScreen::OverscanAdjustment && to == CurrentScreen::Options)
+            || (from == CurrentScreen::Options && to == CurrentScreen::CalibrateLatency)
+            || (from == CurrentScreen::CalibrateLatency && to == CurrentScreen::Options)
             || (from == CurrentScreen::Options && to == CurrentScreen::SmxAssignPads)
             || (from == CurrentScreen::SmxAssignPads && to == CurrentScreen::Options)
             || (from == CurrentScreen::Options && to == CurrentScreen::ManageLocalProfiles)
@@ -575,6 +589,9 @@ impl App {
             CurrentScreen::Mappings => mappings::out_transition(),
             CurrentScreen::TestLights => test_lights::out_transition(),
             CurrentScreen::OverscanAdjustment => overscan_adjustment::out_transition(),
+            CurrentScreen::CalibrateLatency => {
+                crate::screens::latency_calibration::out_transition()
+            }
             CurrentScreen::PlayerOptions => player_options::out_transition(),
             CurrentScreen::SelectProfile => select_profile::out_transition(),
             CurrentScreen::SelectColor => select_color::out_transition(),
@@ -620,6 +637,7 @@ impl App {
             CurrentScreen::Mappings => mappings::in_transition(),
             CurrentScreen::TestLights => test_lights::in_transition(),
             CurrentScreen::OverscanAdjustment => overscan_adjustment::in_transition(),
+            CurrentScreen::CalibrateLatency => crate::screens::latency_calibration::in_transition(),
             CurrentScreen::PlayerOptions => player_options::in_transition(),
             CurrentScreen::SelectProfile => select_profile::in_transition(),
             CurrentScreen::SelectColor => select_color::in_transition(),
