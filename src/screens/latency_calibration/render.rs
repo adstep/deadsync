@@ -260,5 +260,11 @@ fn push_results(
         ));
     }
 
+    // Anticipatory metronome tapping captures hardware/output latency but not
+    // the player's full read-the-arrows latency, so these are starting
+    // estimates; AutoSync: Machine derives the exact judgment offset from real
+    // gameplay hits.
+    lines.push((tr(SECTION, "ResultsHint").to_string(), 0.7));
+
     push_lines(actors, &lines, screen_w, screen_h * 0.42, 42.0, alpha_mul);
 }
