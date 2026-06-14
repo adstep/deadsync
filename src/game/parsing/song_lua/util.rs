@@ -4,6 +4,8 @@ use std::ffi::c_void;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::config::Color;
+
 use super::types::{SongLuaEaseWindow, SongLuaMessageEvent, SongLuaModWindow, SongLuaSpanMode};
 use super::{LUA_PLAYERS, SONG_LUA_SOUND_PATHS_KEY};
 
@@ -344,7 +346,8 @@ pub(super) fn create_bool_array(lua: &Lua, values: &[bool]) -> mlua::Result<Tabl
 }
 
 #[inline(always)]
-pub(super) fn make_color_table(lua: &Lua, rgba: [f32; 4]) -> mlua::Result<Table> {
+pub(super) fn make_color_table(lua: &Lua, color: impl Into<Color>) -> mlua::Result<Table> {
+    let rgba = color.into().to_array();
     let table = lua.create_table()?;
     table.raw_set(1, rgba[0])?;
     table.raw_set(2, rgba[1])?;
@@ -381,7 +384,7 @@ pub(super) fn create_color_constants_table(lua: &Lua) -> mlua::Result<Table> {
     ] {
         table.set(
             name,
-            make_color_table(lua, parse_color_text(text).unwrap_or([1.0, 1.0, 1.0, 1.0]))?,
+            make_color_table(lua, parse_color_text(text).unwrap_or(Color::WHITE))?,
         )?;
     }
     table.set(
@@ -424,7 +427,7 @@ fn table_color(table: &Table) -> Option<[f32; 4]> {
     ])
 }
 
-pub(super) fn parse_color_text(text: &str) -> Option<[f32; 4]> {
+pub(super) fn parse_color_text(text: &str) -> Option<Color> {
     let text = text.trim();
     if text.is_empty() {
         return None;
@@ -432,9 +435,9 @@ pub(super) fn parse_color_text(text: &str) -> Option<[f32; 4]> {
     if let Some(color) = text
         .strip_prefix('#')
         .filter(|hex| matches!(hex.len(), 6 | 8))
-        .and_then(crate::config::Color::from_rgba_hex)
+        .and_then(Color::from_rgba_hex)
     {
-        return Some(color.to_array());
+        return Some(color);
     }
     let parts = text
         .split(',')
@@ -442,18 +445,18 @@ pub(super) fn parse_color_text(text: &str) -> Option<[f32; 4]> {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>();
     match parts.as_slice() {
-        [r, g, b] => Some([
+        [r, g, b] => Some(Color::new(
             r.parse::<f32>().ok()?,
             g.parse::<f32>().ok()?,
             b.parse::<f32>().ok()?,
             1.0,
-        ]),
-        [r, g, b, a] => Some([
+        )),
+        [r, g, b, a] => Some(Color::new(
             r.parse::<f32>().ok()?,
             g.parse::<f32>().ok()?,
             b.parse::<f32>().ok()?,
             a.parse::<f32>().ok()?,
-        ]),
+        )),
         _ => None,
     }
 }
@@ -462,7 +465,9 @@ pub(super) fn parse_color_text(text: &str) -> Option<[f32; 4]> {
 pub(super) fn read_color_value(value: Value) -> Option<[f32; 4]> {
     match value {
         Value::Table(table) => table_color(&table),
-        Value::String(text) => Some(parse_color_text(&text.to_str().ok()?).unwrap_or([1.0; 4])),
+        Value::String(text) => {
+            Some(parse_color_text(&text.to_str().ok()?).unwrap_or(Color::WHITE).to_array())
+        }
         _ => None,
     }
 }

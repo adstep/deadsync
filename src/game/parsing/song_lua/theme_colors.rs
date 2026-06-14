@@ -1,5 +1,7 @@
 use mlua::{Lua, MultiValue, Table, Value};
 
+use crate::config::Color;
+
 use super::util::{
     make_color_table, parse_color_text, player_index_from_value, read_boolish, read_color_value,
     read_f32, read_string,
@@ -32,7 +34,7 @@ pub(super) fn create_color_array(lua: &Lua, values: &[&str]) -> mlua::Result<Tab
     for (index, value) in values.iter().enumerate() {
         table.raw_set(
             index + 1,
-            make_color_table(lua, parse_color_text(value).unwrap_or([1.0, 1.0, 1.0, 1.0]))?,
+            make_color_table(lua, parse_color_text(value).unwrap_or(Color::WHITE))?,
         )?;
     }
     Ok(table)
@@ -128,9 +130,9 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
         "PlayerDarkColor",
         lua.create_function(|lua, args: MultiValue| {
             let color = match args.get(0).and_then(player_index_from_value) {
-                Some(0) => parse_color_text("#da4453").unwrap_or([1.0, 1.0, 1.0, 1.0]),
-                Some(1) => parse_color_text("#4a89dc").unwrap_or([1.0, 1.0, 1.0, 1.0]),
-                _ => [1.0, 1.0, 1.0, 1.0],
+                Some(0) => parse_color_text("#da4453").unwrap_or(Color::WHITE),
+                Some(1) => parse_color_text("#4a89dc").unwrap_or(Color::WHITE),
+                _ => Color::WHITE,
             };
             make_color_table(lua, color)
         })?,
@@ -140,10 +142,10 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
         lua.create_function(|lua, args: MultiValue| {
             let Some(difficulty) = args.get(0).cloned().and_then(difficulty_index_from_value)
             else {
-                return make_color_table(lua, parse_color_text("#B4B7BA").unwrap_or([1.0; 4]));
+                return make_color_table(lua, parse_color_text("#B4B7BA").unwrap_or(Color::WHITE));
             };
             if difficulty == 5 {
-                return make_color_table(lua, parse_color_text("#B4B7BA").unwrap_or([1.0; 4]));
+                return make_color_table(lua, parse_color_text("#B4B7BA").unwrap_or(Color::WHITE));
             }
             let decorative = args.get(1).cloned().and_then(read_boolish).unwrap_or(false);
             make_color_table(
@@ -166,7 +168,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .get(0)
                 .cloned()
                 .and_then(custom_difficulty_color)
-                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                .unwrap_or(Color::WHITE);
             make_color_table(lua, color)
         })?,
     )?;
@@ -178,7 +180,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(custom_difficulty_color)
                 .map(|color| tone_color(color, 0.5))
-                .unwrap_or([0.5, 0.5, 0.5, 1.0]);
+                .unwrap_or(Color::new(0.5, 0.5, 0.5, 1.0));
             make_color_table(lua, color)
         })?,
     )?;
@@ -190,14 +192,14 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(custom_difficulty_color)
                 .map(|color| {
-                    [
-                        light_color_component(color[0]),
-                        light_color_component(color[1]),
-                        light_color_component(color[2]),
-                        color[3],
-                    ]
+                    Color::new(
+                        light_color_component(color.r()),
+                        light_color_component(color.g()),
+                        light_color_component(color.b()),
+                        color.a(),
+                    )
                 })
-                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                .unwrap_or(Color::WHITE);
             make_color_table(lua, color)
         })?,
     )?;
@@ -208,7 +210,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .get(0)
                 .cloned()
                 .and_then(steps_or_trail_color)
-                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                .unwrap_or(Color::WHITE);
             make_color_table(lua, color)
         })?,
     )?;
@@ -219,7 +221,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .get(0)
                 .cloned()
                 .and_then(stage_color)
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                .unwrap_or(Color::BLACK);
             make_color_table(lua, color)
         })?,
     )?;
@@ -231,7 +233,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(stage_color)
                 .map(|color| tone_color(color, 0.5))
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                .unwrap_or(Color::BLACK);
             make_color_table(lua, color)
         })?,
     )?;
@@ -243,7 +245,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(judgment_line_color)
                 .map(|color| tone_color(color, 0.5))
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                .unwrap_or(Color::BLACK);
             make_color_table(lua, color)
         })?,
     )?;
@@ -254,7 +256,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .get(0)
                 .cloned()
                 .and_then(judgment_line_color)
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                .unwrap_or(Color::BLACK);
             make_color_table(lua, color)
         })?,
     )?;
@@ -272,7 +274,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                     .cloned()
                     .and_then(read_color_value)
                     .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                make_color_table(lua, tone_color(color, factor))
+                make_color_table(lua, tone_color(color.into(), factor))
             })?,
         )?;
     }
@@ -295,7 +297,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(read_color_value)
                 .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            Ok(color_to_hex(color))
+            Ok(color_to_hex(color.into()))
         })?,
     )?;
     globals.set(
@@ -307,7 +309,7 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .and_then(read_color_value)
                 .unwrap_or([1.0, 1.0, 1.0, 1.0]);
             let boost = args.get(1).cloned().and_then(read_f32).unwrap_or(1.0);
-            make_color_table(lua, tone_color(color, boost))
+            make_color_table(lua, tone_color(color.into(), boost))
         })?,
     )?;
     globals.set(
@@ -323,18 +325,18 @@ pub(super) fn install_theme_color_helpers(lua: &Lua, globals: &Table) -> mlua::R
                 .cloned()
                 .and_then(read_color_value)
                 .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            make_color_table(lua, blend_color(first, second))
+            make_color_table(lua, blend_color(first.into(), second.into()))
         })?,
     )?;
     Ok(())
 }
 
-fn palette_color(index: i64, palette: &[&str]) -> [f32; 4] {
+fn palette_color(index: i64, palette: &[&str]) -> Color {
     if palette.is_empty() {
-        return [1.0, 1.0, 1.0, 1.0];
+        return Color::WHITE;
     }
     let wrapped = (index - 1).rem_euclid(palette.len() as i64) as usize;
-    parse_color_text(palette[wrapped]).unwrap_or([1.0, 1.0, 1.0, 1.0])
+    parse_color_text(palette[wrapped]).unwrap_or(Color::WHITE)
 }
 
 fn difficulty_index_from_value(value: Value) -> Option<i64> {
@@ -354,7 +356,7 @@ fn difficulty_index_from_value(value: Value) -> Option<i64> {
     }
 }
 
-fn custom_difficulty_color(value: Value) -> Option<[f32; 4]> {
+fn custom_difficulty_color(value: Value) -> Option<Color> {
     let name = read_string(value)?;
     let hex = match name.as_str() {
         "Beginner" | "Difficulty_Beginner" => "#ff32f8",
@@ -370,7 +372,7 @@ fn custom_difficulty_color(value: Value) -> Option<[f32; 4]> {
     parse_color_text(hex)
 }
 
-fn steps_or_trail_color(value: Value) -> Option<[f32; 4]> {
+fn steps_or_trail_color(value: Value) -> Option<Color> {
     if let Some(color) = custom_difficulty_color(value.clone()) {
         return Some(color);
     }
@@ -384,7 +386,7 @@ fn steps_or_trail_color(value: Value) -> Option<[f32; 4]> {
     custom_difficulty_color(get_difficulty.call::<Value>(table).ok()?)
 }
 
-fn stage_color(value: Value) -> Option<[f32; 4]> {
+fn stage_color(value: Value) -> Option<Color> {
     let name = read_string(value)?;
     let hex = match name.as_str() {
         "Stage_1st" => "#00ffc7",
@@ -402,7 +404,7 @@ fn stage_color(value: Value) -> Option<[f32; 4]> {
     parse_color_text(hex)
 }
 
-fn judgment_line_color(value: Value) -> Option<[f32; 4]> {
+fn judgment_line_color(value: Value) -> Option<Color> {
     let name = read_string(value)?;
     let hex = match name.as_str() {
         "JudgmentLine_W1" => "#bfeaff",
@@ -422,31 +424,31 @@ fn light_color_component(value: f32) -> f32 {
     value * 0.5 + 0.5
 }
 
-fn tone_color(color: [f32; 4], factor: f32) -> [f32; 4] {
-    [
-        color[0] * factor,
-        color[1] * factor,
-        color[2] * factor,
-        color[3],
-    ]
+fn tone_color(color: Color, factor: f32) -> Color {
+    Color::new(
+        color.r() * factor,
+        color.g() * factor,
+        color.b() * factor,
+        color.a(),
+    )
 }
 
-fn blend_color(first: [f32; 4], second: [f32; 4]) -> [f32; 4] {
-    [
-        0.5 * (first[0] + second[0]),
-        0.5 * (first[1] + second[1]),
-        0.5 * (first[2] + second[2]),
-        0.5 * (first[3] + second[3]),
-    ]
+fn blend_color(first: Color, second: Color) -> Color {
+    Color::new(
+        0.5 * (first.r() + second.r()),
+        0.5 * (first.g() + second.g()),
+        0.5 * (first.b() + second.b()),
+        0.5 * (first.a() + second.a()),
+    )
 }
 
-fn color_to_hex(color: [f32; 4]) -> String {
+fn color_to_hex(color: Color) -> String {
     let component = |value: f32| (value.clamp(0.0, 1.0) * 255.0) as u8;
     format!(
         "{:02X}{:02X}{:02X}{:02X}",
-        component(color[0]),
-        component(color[1]),
-        component(color[2]),
-        component(color[3])
+        component(color.r()),
+        component(color.g()),
+        component(color.b()),
+        component(color.a())
     )
 }
