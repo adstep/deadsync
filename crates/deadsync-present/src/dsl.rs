@@ -662,7 +662,7 @@ mod tests {
         };
         assert_eq!(align, [0.0, 1.0]);
         assert_eq!(offset, [100.0, 50.0]);
-        assert_eq!(tint, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(tint, Color::from([0.1, 0.2, 0.3, 0.4]));
         assert_eq!(blend, deadsync_render::BlendMode::Add);
 
         crate::space::set_current_metrics(crate::space::metrics_for_window(854, 480));
@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(offset, [12.0, 34.0]);
         assert!(matches!(size[0], crate::actors::SizeSpec::Px(56.0)));
         assert!(matches!(size[1], crate::actors::SizeSpec::Px(78.0)));
-        assert_eq!(tint, [0.2, 0.3, 0.4, 0.5]);
+        assert_eq!(tint, Color::from([0.2, 0.3, 0.4, 0.5]));
     }
 
     #[test]
@@ -1525,8 +1525,8 @@ impl SpriteBuilder {
             world_z: 0.0,
             size: [SizeSpec::Px(self.w), SizeSpec::Px(self.h)],
             source: self.source,
-            tint: self.tint,
-            glow: self.glow,
+            tint: self.tint.into(),
+            glow: self.glow.into(),
             z: self.z,
             cell: self.cell,
             grid: self.grid,
@@ -1555,7 +1555,7 @@ impl SpriteBuilder {
             state_delay: self.state_delay,
             scale: scale_carry,
             shadow_len: [self.shx, self.shy],
-            shadow_color: self.shc,
+            shadow_color: self.shc.into(),
             effect: self.effect,
         }
     }
@@ -2001,9 +2001,9 @@ impl TextBuilder {
             align: [self.hx, self.vy],
             offset: [self.x, self.y],
             local_transform: Matrix4::IDENTITY,
-            color: self.color,
-            stroke_color: self.stroke_color,
-            glow: self.glow,
+            color: self.color.into(),
+            stroke_color: self.stroke_color.map(Into::into),
+            glow: self.glow.into(),
             font: self.font,
             content: self.content,
             attributes: Vec::new(),
@@ -2024,7 +2024,7 @@ impl TextBuilder {
             mask_dest: false,
             blend: self.blend,
             shadow_len: [self.shx, self.shy],
-            shadow_color: self.shc,
+            shadow_color: self.shc.into(),
             effect: self.effect,
         }
     }

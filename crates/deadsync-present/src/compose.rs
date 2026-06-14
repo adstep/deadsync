@@ -2268,7 +2268,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                 }
             }
 
-            let mut effect_tint = *tint;
+            let mut effect_tint = tint.to_array();
             let mut effect_scale = *scale;
             let mut effect_rot = [*rot_x_deg, *rot_y_deg, *rot_z_deg];
             apply_effect_to_sprite(
@@ -2373,7 +2373,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                     before,
                     end,
                     *shadow_len,
-                    mul_rgba(*shadow_color, style.tint),
+                    mul_rgba(shadow_color.to_array(), style.tint),
                 );
             }
             if glow[3] > 0.0001 {
@@ -2388,7 +2388,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                     is_solid,
                     texture_name,
                     texture_key_ptr,
-                    mul_rgba(*glow, style.tint),
+                    mul_rgba(glow.to_array(), style.tint),
                     *uv_rect,
                     chosen_cell,
                     chosen_grid,
@@ -2522,7 +2522,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                 object_type: renderer::ObjectType::TexturedMesh {
                     instance: renderer::TexturedMeshInstanceRaw::new(
                         transform,
-                        mul_rgba(*tint, style.tint),
+                        mul_rgba(tint.to_array(), style.tint),
                         *uv_scale,
                         *uv_offset,
                         *uv_tex_shift,
@@ -2554,7 +2554,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                     object_type: renderer::ObjectType::TexturedMesh {
                         instance: renderer::TexturedMeshInstanceRaw::new(
                             transform,
-                            mul_rgba(*glow, style.tint),
+                            mul_rgba(glow.to_array(), style.tint),
                             *uv_scale,
                             *uv_offset,
                             *uv_tex_shift,
@@ -2611,7 +2611,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                     start,
                     end,
                     *len,
-                    mul_rgba(*color, style.tint),
+                    mul_rgba(color.to_array(), style.tint),
                 );
             }
         }
@@ -2684,12 +2684,12 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                 if layout.lines.is_empty() {
                     return;
                 }
-                let mut effect_color = *color;
+                let mut effect_color = color.to_array();
                 let mut effect_scale = *scale;
                 apply_effect_to_text(*effect, total_elapsed, &mut effect_color, &mut effect_scale);
                 effect_color = mul_rgba(effect_color, style.tint);
                 let mut stroke_rgba = stroke_color
-                    .map(|color| mul_rgba(color, style.tint))
+                    .map(|color| mul_rgba(color.to_array(), style.tint))
                     .unwrap_or(fm.default_stroke_color);
                 stroke_rgba[3] *= effect_color[3];
                 let actor_blend = style.blend.unwrap_or(*blend);
@@ -2906,7 +2906,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                         before,
                         end,
                         *shadow_len,
-                        mul_rgba(*shadow_color, style.tint),
+                        mul_rgba(shadow_color.to_array(), style.tint),
                     );
                 }
             }
@@ -2936,7 +2936,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                             true,
                             "__white",
                             str_ptr("__white"),
-                            *c,
+                            c.to_array(),
                             None,
                             None,
                             None,
@@ -3071,7 +3071,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                             true,
                             "__white",
                             str_ptr("__white"),
-                            *c,
+                            c.to_array(),
                             None,
                             None,
                             None,
@@ -3159,7 +3159,7 @@ fn build_actor_recursive<'a, T: TextureContext + ?Sized>(
                 }
             }
 
-            let child_style = style.child(*tint, *blend);
+            let child_style = style.child(tint.to_array(), *blend);
             build_actor_list(
                 children,
                 rect,
@@ -4608,15 +4608,15 @@ mod tests {
         let vertices: Arc<[MeshVertex]> = Arc::from([
             MeshVertex {
                 pos: [0.0, 0.0],
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 0.0, 0.0, 1.0].into(),
             },
             MeshVertex {
                 pos: [12.0, 0.0],
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
             },
             MeshVertex {
                 pos: [0.0, 9.0],
-                color: [0.0, 0.0, 1.0, 1.0],
+                color: [0.0, 0.0, 1.0, 1.0].into(),
             },
         ]);
         let mesh = Actor::Mesh {
@@ -4844,21 +4844,21 @@ mod tests {
             TextAttribute {
                 start: 2,
                 length: 4,
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 0.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
             TextAttribute {
                 start: 3,
                 length: 2,
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
             TextAttribute {
                 start: 2,
                 length: 1,
-                color: [0.0, 0.0, 1.0, 1.0],
+                color: [0.0, 0.0, 1.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
@@ -4878,14 +4878,14 @@ mod tests {
             TextAttribute {
                 start: 5,
                 length: 1,
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
             TextAttribute {
                 start: 0,
                 length: 10,
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 0.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
@@ -4901,21 +4901,21 @@ mod tests {
             TextAttribute {
                 start: 1,
                 length: 1,
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 0.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
             TextAttribute {
                 start: 2,
                 length: 3,
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
             TextAttribute {
                 start: 5,
                 length: 2,
-                color: [0.0, 0.0, 1.0, 1.0],
+                color: [0.0, 0.0, 1.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             },
@@ -4933,7 +4933,7 @@ mod tests {
             center: [0.0, 0.0, 0.0, 0.0],
             size: [10.0, 10.0],
             rot_sin_cos: [0.0, 1.0],
-            tint: [1.0; 4],
+            tint: [1.0; 4].into(),
             uv_scale: [1.0, 1.0],
             uv_offset: [0.0, 0.0],
             local_offset: [0.0, 0.0],
@@ -4985,7 +4985,7 @@ mod tests {
             center: [0.0, 0.0, 0.0, 0.0],
             size: [10.0, 10.0],
             rot_sin_cos: [45.0_f32.to_radians().sin(), 45.0_f32.to_radians().cos()],
-            tint: [0.25, 0.5, 0.75, 1.0],
+            tint: [0.25, 0.5, 0.75, 1.0].into(),
             uv_scale: [1.0, 1.0],
             uv_offset: [0.0, 0.0],
             local_offset: [0.0, 0.0],
@@ -5326,8 +5326,8 @@ mod tests {
             size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
             local_transform: Matrix4::IDENTITY,
             texture: Arc::from("mesh"),
-            tint: [0.25, 0.5, 0.75, 0.8],
-            glow: [1.0, 1.0, 1.0, 0.0],
+            tint: [0.25, 0.5, 0.75, 0.8].into(),
+            glow: [1.0, 1.0, 1.0, 0.0].into(),
             vertices: Arc::from(vec![TexturedMeshVertex::default(); 3]),
             geom_cache_key: CACHE_KEY,
             uv_scale: [1.0, 1.0],
@@ -5340,7 +5340,7 @@ mod tests {
         };
         let actors = [Actor::Shadow {
             len: [4.0, 3.0],
-            color: [0.5, 0.25, 0.75, 0.5],
+            color: [0.5, 0.25, 0.75, 0.5].into(),
             child: Box::new(mesh),
         }];
         let fonts = HashMap::new();
@@ -5395,7 +5395,7 @@ mod tests {
             size: [SizeSpec::Px(1.0), SizeSpec::Px(1.0)],
             vertices: Arc::from(vec![MeshVertex {
                 pos: [0.0, 0.0],
-                color: [0.8, 0.6, 0.4, 0.5],
+                color: [0.8, 0.6, 0.4, 0.5].into(),
             }]),
             visible: true,
             blend: BlendMode::Alpha,
@@ -5408,7 +5408,7 @@ mod tests {
             children: Arc::from(vec![mesh]),
             background: None,
             z: 0,
-            tint: [0.5, 0.25, 0.1, 0.5],
+            tint: [0.5, 0.25, 0.1, 0.5].into(),
             blend: None,
         }];
         let fonts = HashMap::new();
@@ -5435,8 +5435,8 @@ mod tests {
             size: [SizeSpec::Px(1.0), SizeSpec::Px(1.0)],
             local_transform: Matrix4::IDENTITY,
             texture: Arc::from("mesh"),
-            tint: [0.8, 0.6, 0.4, 0.5],
-            glow: [0.5, 0.25, 1.0, 0.4],
+            tint: [0.8, 0.6, 0.4, 0.5].into(),
+            glow: [0.5, 0.25, 1.0, 0.4].into(),
             vertices: Arc::from(vec![TexturedMeshVertex::default(); 3]),
             geom_cache_key: INVALID_TMESH_CACHE_KEY,
             uv_scale: [1.0, 1.0],
@@ -5454,7 +5454,7 @@ mod tests {
             children: Arc::from(vec![mesh]),
             background: None,
             z: 0,
-            tint: [0.5, 0.25, 0.1, 0.5],
+            tint: [0.5, 0.25, 0.1, 0.5].into(),
             blend: None,
         }];
         let fonts = HashMap::new();
@@ -5485,8 +5485,8 @@ mod tests {
             world_z: 0.0,
             size: [SizeSpec::Px(10.0), SizeSpec::Px(10.0)],
             source: SpriteSource::Solid,
-            tint: [0.8, 0.6, 0.4, 0.5],
-            glow: [0.5, 0.25, 1.0, 0.4],
+            tint: [0.8, 0.6, 0.4, 0.5].into(),
+            glow: [0.5, 0.25, 1.0, 0.4].into(),
             z: 0,
             cell: None,
             grid: None,
@@ -5515,7 +5515,7 @@ mod tests {
             state_delay: 0.0,
             scale: [1.0, 1.0],
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.0],
+            shadow_color: [0.0, 0.0, 0.0, 0.0].into(),
             effect: Default::default(),
         };
         let actors = [Actor::SharedFrame {
@@ -5525,7 +5525,7 @@ mod tests {
             children: Arc::from(vec![sprite]),
             background: None,
             z: 0,
-            tint: [0.5, 0.25, 0.1, 0.5],
+            tint: [0.5, 0.25, 0.1, 0.5].into(),
             blend: None,
         }];
         let fonts = HashMap::new();
@@ -5553,9 +5553,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [0.5, 0.75, 1.0, 1.0],
+            color: [0.5, 0.75, 1.0, 1.0].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: Vec::new(),
@@ -5576,7 +5576,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5610,9 +5610,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: Vec::new(),
@@ -5633,7 +5633,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5665,9 +5665,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: Vec::new(),
@@ -5688,7 +5688,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5715,9 +5715,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: Vec::new(),
@@ -5738,7 +5738,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5770,15 +5770,15 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: vec![TextAttribute {
                 start: 1,
                 length: 1,
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             }],
@@ -5799,7 +5799,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5839,9 +5839,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("A"),
             attributes: vec![TextAttribute {
@@ -5868,7 +5868,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font())]);
@@ -5897,9 +5897,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("A"),
             attributes: Vec::new(),
@@ -5920,7 +5920,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         };
         let fonts = HashMap::from([("test", test_font())]);
@@ -5962,9 +5962,9 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("A"),
             attributes: Vec::new(),
@@ -5985,7 +5985,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         };
         let fonts = HashMap::from([("test", test_font())]);
@@ -6032,15 +6032,15 @@ mod tests {
             align: [0.0, 0.0],
             offset: [10.0, 20.0],
             local_transform: Matrix4::IDENTITY,
-            color: [1.0; 4],
+            color: [1.0; 4].into(),
             stroke_color: None,
-            glow: [0.0; 4],
+            glow: [0.0; 4].into(),
             font: "test",
             content: TextContent::static_str("AB"),
             attributes: vec![TextAttribute {
                 start: 1,
                 length: 1,
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [0.0, 1.0, 0.0, 1.0].into(),
                 vertex_colors: None,
                 glow: None,
             }],
@@ -6061,7 +6061,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         }];
         let fonts = HashMap::from([("test", test_font_split_pages())]);

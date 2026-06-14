@@ -87,12 +87,12 @@ fn bar_background(transparent: bool, context: ScreenBarContext) -> Option<Backgr
     let cfg = config::get();
     match cfg.machine_bar_color.resolve(cfg.visual_style) {
         MachineBarColor::Default if transparent => None,
-        MachineBarColor::Default => Some(Background::Color(color::rgba_hex("#a6a6a6"))),
-        MachineBarColor::Colored => {
-            Some(Background::Color(color::srpg9_rgba(cfg.simply_love_color)))
-        }
+        MachineBarColor::Default => Some(Background::Color(color::rgba_hex("#a6a6a6").into())),
+        MachineBarColor::Colored => Some(Background::Color(
+            color::srpg9_rgba(cfg.simply_love_color).into(),
+        )),
         MachineBarColor::Transparent if matches!(context, ScreenBarContext::SelectMusic) => {
-            Some(Background::Color([0.0, 0.0, 0.0, 0.5]))
+            Some(Background::Color([0.0, 0.0, 0.0, 0.5].into()))
         }
         MachineBarColor::Transparent => None,
     }

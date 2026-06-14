@@ -931,8 +931,8 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             offset: *offset,
             size: size.map(SizeSpecSnapshot::from),
             source: SpriteSourceSnapshot::from(source),
-            tint: *tint,
-            glow: *glow,
+            tint: (*tint).into(),
+            glow: (*glow).into(),
             z: *z,
             cell: *cell,
             grid: *grid,
@@ -993,9 +993,9 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
         } => ActorSnapshot::Text {
             align: *align,
             offset: *offset,
-            color: *color,
-            stroke_color: *stroke_color,
-            glow: *glow,
+            color: (*color).into(),
+            stroke_color: stroke_color.map(Into::into),
+            glow: (*glow).into(),
             font: (*font).to_string(),
             content: content.as_str().to_string(),
             align_text: TextAlignSnapshot::from(*align_text),
@@ -1049,7 +1049,7 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             offset: *offset,
             size: size.map(SizeSpecSnapshot::from),
             texture: texture.to_string(),
-            tint: *tint,
+            tint: (*tint).into(),
             vertices: vertices.to_vec(),
             uv_scale: *uv_scale,
             uv_offset: *uv_offset,
@@ -1090,7 +1090,7 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
             children: children.iter().map(actor_snapshot).collect(),
             background: background.as_ref().map(BackgroundSnapshot::from),
             z: *z,
-            tint: *tint,
+            tint: (*tint).into(),
             blend: blend.map(BlendModeSnapshot::from),
         },
         Actor::Camera {
@@ -1106,7 +1106,7 @@ fn actor_snapshot(actor: &Actor) -> ActorSnapshot {
         Actor::CameraPop => ActorSnapshot::CameraPop,
         Actor::Shadow { len, color, child } => ActorSnapshot::Shadow {
             len: *len,
-            color: *color,
+            color: (*color).into(),
             child: Box::new(actor_snapshot(child)),
         },
     }
@@ -1155,8 +1155,8 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             world_z: 0.0,
             size: size.map(SizeSpec::from),
             source: SpriteSource::from(source),
-            tint: *tint,
-            glow: *glow,
+            tint: (*tint).into(),
+            glow: (*glow).into(),
             z: *z,
             cell: *cell,
             grid: *grid,
@@ -1185,7 +1185,7 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             state_delay: *state_delay,
             scale: *scale,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: EffectState::from(*effect),
         },
         ActorSnapshot::Text {
@@ -1213,9 +1213,9 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             align: *align,
             offset: *offset,
             local_transform: glam::Mat4::IDENTITY,
-            color: *color,
-            stroke_color: *stroke_color,
-            glow: *glow,
+            color: (*color).into(),
+            stroke_color: stroke_color.map(Into::into),
+            glow: (*glow).into(),
             font: name_map
                 .get(font)
                 .unwrap_or_else(|| panic!("missing font mapping for '{font}'")),
@@ -1238,7 +1238,7 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             mask_dest: false,
             blend: BlendMode::from(*blend),
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: EffectState::from(*effect),
         },
         ActorSnapshot::Mesh {
@@ -1279,8 +1279,8 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             size: size.map(SizeSpec::from),
             local_transform: glam::Mat4::IDENTITY,
             texture: Arc::from(texture.as_str()),
-            tint: *tint,
-            glow: [1.0, 1.0, 1.0, 0.0],
+            tint: (*tint).into(),
+            glow: [1.0, 1.0, 1.0, 0.0].into(),
             vertices: Arc::from(vertices.clone()),
             geom_cache_key: deadsync_render::INVALID_TMESH_CACHE_KEY,
             uv_scale: *uv_scale,
@@ -1330,7 +1330,7 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
             ),
             background: background.as_ref().map(Background::from),
             z: *z,
-            tint: *tint,
+            tint: (*tint).into(),
             blend: blend.map(BlendMode::from),
         },
         ActorSnapshot::Camera {
@@ -1349,7 +1349,7 @@ fn actor_runtime(actor: &ActorSnapshot, name_map: &HashMap<String, &'static str>
         ActorSnapshot::CameraPop => Actor::CameraPop,
         ActorSnapshot::Shadow { len, color, child } => Actor::Shadow {
             len: *len,
-            color: *color,
+            color: (*color).into(),
             child: Box::new(actor_runtime(child, name_map)),
         },
     }
@@ -1394,7 +1394,7 @@ fn render_object_snapshot(
                 }
             }
             ObjectType::Mesh { tint, vertices, .. } => RenderObjectTypeSnapshot::Mesh {
-                tint: *tint,
+                tint: (*tint).into(),
                 vertices: vertices.to_vec(),
             },
             ObjectType::TexturedMesh {
@@ -1462,7 +1462,7 @@ fn render_object_runtime(
                     center,
                     size,
                     rot_sin_cos,
-                    tint: *tint,
+                    tint: (*tint).into(),
                     uv_scale: *uv_scale,
                     uv_offset: *uv_offset,
                     local_offset: *local_offset,
@@ -1474,7 +1474,7 @@ fn render_object_runtime(
             }
             RenderObjectTypeSnapshot::Mesh { tint, vertices } => ObjectType::Mesh {
                 transform: snapshot_transform,
-                tint: *tint,
+                tint: (*tint).into(),
                 vertices: Arc::from(vertices.clone()),
             },
             RenderObjectTypeSnapshot::TexturedMesh {
@@ -1616,7 +1616,7 @@ impl From<&SpriteSourceSnapshot> for SpriteSource {
 impl From<&Background> for BackgroundSnapshot {
     fn from(value: &Background) -> Self {
         match value {
-            Background::Color(c) => Self::Color(*c),
+            Background::Color(c) => Self::Color(c.to_array()),
             Background::Texture(tex) => Self::Texture((*tex).to_string()),
         }
     }
@@ -1625,7 +1625,7 @@ impl From<&Background> for BackgroundSnapshot {
 impl From<&BackgroundSnapshot> for Background {
     fn from(value: &BackgroundSnapshot) -> Self {
         match value {
-            BackgroundSnapshot::Color(c) => Self::Color(*c),
+            BackgroundSnapshot::Color(c) => Self::Color((*c).into()),
             BackgroundSnapshot::Texture(tex) => Self::Texture(leak_str(tex)),
         }
     }

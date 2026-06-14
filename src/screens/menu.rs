@@ -550,7 +550,9 @@ pub fn push_actors(actors: &mut Vec<Actor>, state: &State, alpha_multiplier: f32
             );
             if let Actor::Text { color, .. } = &mut actor {
                 // Amber warning (alpha already applied by status_text_actor).
-                color[..3].copy_from_slice(&deadsync_smx::CONFLICT_WARNING_RGB);
+                let mut rgba = color.to_array();
+                rgba[..3].copy_from_slice(&deadsync_smx::CONFLICT_WARNING_RGB);
+                *color = rgba.into();
             }
             actors.push(actor);
         }

@@ -1215,7 +1215,7 @@ fn share_hud_range(hud_actors: &mut Vec<Actor>, start: usize) -> Option<Vec<Arc<
         children: Arc::clone(&children),
         background: None,
         z: 0,
-        tint: [1.0; 4],
+        tint: [1.0; 4].into(),
         blend: None,
     });
     Some(vec![children])
@@ -2018,8 +2018,8 @@ fn hold_strip_actor(
         size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
         local_transform: Matrix4::IDENTITY,
         texture,
-        tint: [1.0; 4],
-        glow: [1.0, 1.0, 1.0, 0.0],
+        tint: [1.0; 4].into(),
+        glow: [1.0, 1.0, 1.0, 0.0].into(),
         vertices,
         geom_cache_key: deadsync_render::INVALID_TMESH_CACHE_KEY,
         uv_scale: [1.0, 1.0],
@@ -2046,8 +2046,8 @@ fn hold_strip_glow_actor(
         size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
         local_transform: Matrix4::IDENTITY,
         texture,
-        tint: [1.0, 1.0, 1.0, 0.0],
-        glow: [1.0, 1.0, 1.0, 1.0],
+        tint: [1.0, 1.0, 1.0, 0.0].into(),
+        glow: [1.0, 1.0, 1.0, 1.0].into(),
         vertices,
         geom_cache_key: deadsync_render::INVALID_TMESH_CACHE_KEY,
         uv_scale: [1.0, 1.0],
@@ -2214,7 +2214,7 @@ fn push_note_glow_actor(
     {
         let mut glow_actor = glow_actor;
         if let Actor::TexturedMesh { glow, .. } = &mut glow_actor {
-            *glow = [1.0, 1.0, 1.0, glow_alpha];
+            *glow = [1.0, 1.0, 1.0, glow_alpha].into();
         }
         actors.push(actor_with_world_z(glow_actor, spec.world_z));
         return;
@@ -9562,7 +9562,7 @@ pub fn build_bundles(
             children: Arc::clone(&children),
             background: None,
             z: 0,
-            tint: [1.0; 4],
+            tint: [1.0; 4].into(),
             blend: None,
         });
         vec![children]
@@ -10716,15 +10716,18 @@ mod tests {
             true,
             Z_HOLD_GLOW as i16,
         );
-        assert!(matches!(
-            actor,
-            Actor::TexturedMesh {
-                tint: [1.0, 1.0, 1.0, 0.0],
-                glow: [1.0, 1.0, 1.0, 1.0],
-                depth_test: true,
-                ..
-            }
-        ));
+        let Actor::TexturedMesh {
+            tint,
+            glow,
+            depth_test,
+            ..
+        } = actor
+        else {
+            panic!("expected textured mesh actor");
+        };
+        assert_eq!(tint.to_array(), [1.0, 1.0, 1.0, 0.0]);
+        assert_eq!(glow.to_array(), [1.0, 1.0, 1.0, 1.0]);
+        assert!(depth_test);
     }
 
     #[test]

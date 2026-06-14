@@ -5304,8 +5304,8 @@ fn build_null_or_die_overlay(
             world_z: 0.0,
             size: [SizeSpec::Px(graph_w), SizeSpec::Px(graph_h)],
             source: SpriteSource::TextureStatic(SYNC_HEAT_TEXTURE_KEY),
-            tint: [1.0, 1.0, 1.0, SYNC_HEAT_ALPHA],
-            glow: [0.0, 0.0, 0.0, 0.0],
+            tint: [1.0, 1.0, 1.0, SYNC_HEAT_ALPHA].into(),
+            glow: [0.0, 0.0, 0.0, 0.0].into(),
             z: SYNC_OVERLAY_Z + 4,
             cell: None,
             grid: None,
@@ -5334,7 +5334,7 @@ fn build_null_or_die_overlay(
             state_delay: 0.0,
             scale: [1.0, 1.0],
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
             effect: Default::default(),
         });
     }

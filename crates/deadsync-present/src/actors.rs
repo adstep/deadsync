@@ -1,11 +1,12 @@
 use crate::anim;
+use crate::color::Color;
 use deadsync_render::{BlendMode, MeshVertex, TMeshCacheKey, TextureHandle, TexturedMeshVertex};
 use glam::Mat4 as Matrix4;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub enum Background {
-    Color([f32; 4]),
+    Color(Color),
     #[allow(dead_code)]
     Texture(&'static str),
 }
@@ -141,9 +142,9 @@ pub enum Actor {
         world_z: f32,
         size: [SizeSpec; 2],
         source: SpriteSource,
-        tint: [f32; 4],
+        tint: Color,
         #[allow(dead_code)]
-        glow: [f32; 4],
+        glow: Color,
         z: i16,
         cell: Option<(u32, u32)>,
         grid: Option<(u32, u32)>,
@@ -172,7 +173,7 @@ pub enum Actor {
         state_delay: f32,
         scale: [f32; 2],
         shadow_len: [f32; 2],
-        shadow_color: [f32; 4],
+        shadow_color: Color,
         effect: anim::EffectState,
     },
 
@@ -181,10 +182,10 @@ pub enum Actor {
         align: [f32; 2],  // halign/valign pivot inside line box
         offset: [f32; 2], // parent top-left space
         local_transform: Matrix4,
-        color: [f32; 4],
-        stroke_color: Option<[f32; 4]>,
+        color: Color,
+        stroke_color: Option<Color>,
         #[allow(dead_code)]
-        glow: [f32; 4],
+        glow: Color,
         font: &'static str,
         content: TextContent,
         attributes: Vec<TextAttribute>,
@@ -206,7 +207,7 @@ pub enum Actor {
         mask_dest: bool,
         blend: BlendMode,
         shadow_len: [f32; 2],
-        shadow_color: [f32; 4],
+        shadow_color: Color,
         effect: anim::EffectState,
     },
 
@@ -229,8 +230,8 @@ pub enum Actor {
         size: [SizeSpec; 2],
         local_transform: Matrix4,
         texture: Arc<str>,
-        tint: [f32; 4],
-        glow: [f32; 4],
+        tint: Color,
+        glow: Color,
         vertices: Arc<[TexturedMeshVertex]>,
         geom_cache_key: TMeshCacheKey,
         uv_scale: [f32; 2],
@@ -260,7 +261,7 @@ pub enum Actor {
         children: Arc<[Self]>,
         background: Option<Background>,
         z: i16,
-        tint: [f32; 4],
+        tint: Color,
         blend: Option<BlendMode>,
     },
 
@@ -281,7 +282,7 @@ pub enum Actor {
     /// matching `StepMania`'s `shadowlength*` and `shadowcolor` behavior.
     Shadow {
         len: [f32; 2],    // (x, y) shadow length in screen units
-        color: [f32; 4],  // shadow color; alpha multiplies the child's alpha
+        color: Color,     // shadow color; alpha multiplies the child's alpha
         child: Box<Self>, // wrapped actor
     },
 }
@@ -440,14 +441,14 @@ mod tests {
         assert!((lhs - rhs).abs() < 1e-6, "expected {rhs}, got {lhs}");
     }
 
-    fn text(color: [f32; 4]) -> Actor {
+    fn text(color: Color) -> Actor {
         Actor::Text {
             align: [0.0, 0.0],
             offset: [0.0, 0.0],
             local_transform: Matrix4::IDENTITY,
             color,
             stroke_color: None,
-            glow: [0.0, 0.0, 0.0, 0.0],
+            glow: Color::new(0.0, 0.0, 0.0, 0.0),
             font: "test",
             content: TextContent::Static("x"),
             attributes: Vec::new(),
@@ -468,7 +469,7 @@ mod tests {
             mask_dest: false,
             blend: BlendMode::Alpha,
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            shadow_color: Color::new(0.0, 0.0, 0.0, 0.5),
             effect: anim::EffectState::default(),
         }
     }
@@ -481,10 +482,10 @@ mod tests {
             size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
             children: vec![Actor::Shadow {
                 len: [0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 0.8],
-                child: Box::new(text([1.0, 1.0, 1.0, 0.6])),
+                color: Color::new(1.0, 1.0, 1.0, 0.8),
+                child: Box::new(text(Color::new(1.0, 1.0, 1.0, 0.6))),
             }],
-            background: Some(Background::Color([0.0, 0.0, 0.0, 0.4])),
+            background: Some(Background::Color(Color::new(0.0, 0.0, 0.0, 0.4))),
             z: 0,
         };
 

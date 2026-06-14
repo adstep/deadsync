@@ -2968,7 +2968,11 @@ fn score_info_is_nice(si: &ScoreInfo) -> bool {
     if buf.has_fixed2(si.score_percent * 100.0) {
         return true;
     }
-    if si.judgment_counts.iter().any(|count| buf.has_display(count)) {
+    if si
+        .judgment_counts
+        .iter()
+        .any(|count| buf.has_display(count))
+    {
         return true;
     }
     let radar_values = [
@@ -4025,7 +4029,7 @@ pub fn push_actors(actors: &mut Vec<Actor>, state: &State, asset_manager: &Asset
             z: 50,
             background: None,
             children: title_children,
-            tint: [1.0; 4],
+            tint: [1.0; 4].into(),
             blend: None,
         });
 
@@ -4090,7 +4094,7 @@ pub fn push_actors(actors: &mut Vec<Actor>, state: &State, asset_manager: &Asset
             z: 50,
             background: None,
             children: song_features_children,
-            tint: [1.0; 4],
+            tint: [1.0; 4].into(),
             blend: None,
         });
     }
@@ -5169,8 +5173,7 @@ pub fn push_actors(actors: &mut Vec<Actor>, state: &State, asset_manager: &Asset
                     },
                 ];
                 let arc: Arc<[Actor]> = Arc::from(graph_children_vec);
-                *state.graph_cache[player_idx].borrow_mut() =
-                    Some((graph_key, Arc::clone(&arc)));
+                *state.graph_cache[player_idx].borrow_mut() = Some((graph_key, Arc::clone(&arc)));
                 arc
             };
             let graph_frame = Actor::SharedFrame {
@@ -5180,7 +5183,7 @@ pub fn push_actors(actors: &mut Vec<Actor>, state: &State, asset_manager: &Asset
                 z: 101,
                 background: None,
                 children: graph_children,
-                tint: [1.0; 4],
+                tint: [1.0; 4].into(),
                 blend: None,
             };
             actors.push(graph_frame);

@@ -793,7 +793,9 @@ mod tests {
 
     fn first_tint(actors: &[Actor], key: &str) -> Option<[f32; 4]> {
         actors.iter().find_map(|actor| match actor {
-            Actor::Sprite { source, tint, .. } if source.texture_key() == Some(key) => Some(*tint),
+            Actor::Sprite { source, tint, .. } if source.texture_key() == Some(key) => {
+                Some(tint.to_array())
+            }
             _ => None,
         })
     }

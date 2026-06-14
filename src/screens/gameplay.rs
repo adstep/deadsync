@@ -1298,7 +1298,7 @@ fn push_background(
     let mut base =
         shared_banner::cover_sprite(Arc::<str>::from("__white"), cx, cy, sw, sh, 1.0, -101);
     if let Actor::Sprite { tint, .. } = &mut base {
-        *tint = base_color.to_rgba();
+        *tint = base_color.to_rgba().into();
     }
     actors.push(base);
 
@@ -1343,7 +1343,7 @@ fn background_media_sprite(
         ..
     } = &mut actor
     {
-        *actor_tint = tint;
+        *actor_tint = tint.into();
         *actor_blend = blend;
     }
     actor
@@ -2786,7 +2786,7 @@ fn song_lua_capture_new_actors(
         children,
         background: None,
         z: 0,
-        tint: [1.0; 4],
+        tint: [1.0; 4].into(),
         blend: None,
     });
 }
@@ -2821,7 +2821,7 @@ fn song_lua_share_actor_source_in_place(actors: &mut Vec<Actor>) -> Option<Vec<A
         children: Arc::clone(&children),
         background: None,
         z: 0,
-        tint: [1.0; 4],
+        tint: [1.0; 4].into(),
         blend: None,
     });
     Some(vec![children])
@@ -2837,7 +2837,7 @@ fn song_lua_shared_segment_actors(segments: Vec<Arc<[Actor]>>) -> Vec<Actor> {
             children: segment,
             background: None,
             z: 0,
-            tint: [1.0; 4],
+            tint: [1.0; 4].into(),
             blend: None,
         });
     }
@@ -3031,7 +3031,7 @@ fn song_lua_build_proxy_actor(
             children: song_lua_proxy_source_segment(segment),
             background: None,
             z: 0,
-            tint: state.diffuse,
+            tint: state.diffuse.into(),
             blend,
         });
     }
@@ -3871,8 +3871,8 @@ fn song_lua_style_capture_actor(
             world_z,
             size,
             source,
-            tint: song_lua_capture_tint(actor_tint, capture_tint),
-            glow: song_lua_capture_tint(glow, capture_tint),
+            tint: song_lua_capture_tint(actor_tint.to_array(), capture_tint).into(),
+            glow: song_lua_capture_tint(glow.to_array(), capture_tint).into(),
             z: song_lua_add_z(z, z_shift),
             cell,
             grid,
@@ -3901,7 +3901,7 @@ fn song_lua_style_capture_actor(
             state_delay,
             scale,
             shadow_len,
-            shadow_color: song_lua_capture_tint(shadow_color, capture_tint),
+            shadow_color: song_lua_capture_tint(shadow_color.to_array(), capture_tint).into(),
             effect,
         },
         Actor::Text {
@@ -3937,9 +3937,10 @@ fn song_lua_style_capture_actor(
             align,
             offset,
             local_transform,
-            color: song_lua_capture_tint(color, capture_tint),
-            stroke_color: stroke_color.map(|color| song_lua_capture_tint(color, capture_tint)),
-            glow: song_lua_capture_tint(glow, capture_tint),
+            color: song_lua_capture_tint(color.to_array(), capture_tint).into(),
+            stroke_color: stroke_color
+                .map(|color| song_lua_capture_tint(color.to_array(), capture_tint).into()),
+            glow: song_lua_capture_tint(glow.to_array(), capture_tint).into(),
             font,
             content,
             attributes,
@@ -3960,7 +3961,7 @@ fn song_lua_style_capture_actor(
             mask_dest,
             blend: blend.unwrap_or(actor_blend),
             shadow_len,
-            shadow_color: song_lua_capture_tint(shadow_color, capture_tint),
+            shadow_color: song_lua_capture_tint(shadow_color.to_array(), capture_tint).into(),
             effect,
         },
         Actor::Mesh {
@@ -4022,8 +4023,8 @@ fn song_lua_style_capture_actor(
             size,
             local_transform,
             texture,
-            tint: song_lua_capture_tint(actor_tint, capture_tint),
-            glow: song_lua_capture_tint(glow, capture_tint),
+            tint: song_lua_capture_tint(actor_tint.to_array(), capture_tint).into(),
+            glow: song_lua_capture_tint(glow.to_array(), capture_tint).into(),
             vertices,
             geom_cache_key,
             uv_scale,
@@ -4068,7 +4069,7 @@ fn song_lua_style_capture_actor(
             children,
             background,
             z: song_lua_add_z(z, z_shift),
-            tint: song_lua_capture_tint(actor_tint, capture_tint),
+            tint: song_lua_capture_tint(actor_tint.to_array(), capture_tint).into(),
             blend: blend.or(actor_blend),
         },
         Actor::Camera {
@@ -4085,7 +4086,7 @@ fn song_lua_style_capture_actor(
         Actor::CameraPop => Actor::CameraPop,
         Actor::Shadow { len, color, child } => Actor::Shadow {
             len,
-            color: song_lua_capture_tint(color, capture_tint),
+            color: song_lua_capture_tint(color.to_array(), capture_tint).into(),
             child: Box::new(song_lua_style_capture_actor(
                 *child,
                 capture_tint,
@@ -4756,8 +4757,8 @@ fn song_lua_model_actor(
                 [state.skew_x, state.skew_y],
             ),
             texture: Arc::clone(&layer.texture_key),
-            tint: song_lua_capture_tint(layer.draw.tint, tint),
-            glow: [1.0, 1.0, 1.0, 0.0],
+            tint: song_lua_capture_tint(layer.draw.tint, tint).into(),
+            glow: [1.0, 1.0, 1.0, 0.0].into(),
             vertices: Arc::clone(&layer.vertices),
             geom_cache_key: INVALID_TMESH_CACHE_KEY,
             uv_scale: layer.uv_scale,
@@ -4954,8 +4955,9 @@ fn song_lua_noteskin_sprite_actor(
             tint[1] * draw.tint[1],
             tint[2] * draw.tint[2],
             tint[3] * draw.tint[3],
-        ],
-        glow: [1.0, 1.0, 1.0, 0.0],
+        ]
+        .into(),
+        glow: [1.0, 1.0, 1.0, 0.0].into(),
         z,
         cell: None,
         grid: None,
@@ -4988,7 +4990,7 @@ fn song_lua_noteskin_sprite_actor(
         state_delay: 0.1,
         scale: [1.0, 1.0],
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState::default(),
     })
 }
@@ -5645,8 +5647,8 @@ fn song_lua_flat_skewed_overlay_actor(
         size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
         local_transform: Matrix4::IDENTITY,
         texture,
-        tint,
-        glow: [1.0, 1.0, 1.0, 0.0],
+        tint: tint.into(),
+        glow: [1.0, 1.0, 1.0, 0.0].into(),
         vertices: Arc::from(vertices.into_boxed_slice()),
         geom_cache_key: INVALID_TMESH_CACHE_KEY,
         uv_scale: [1.0, 1.0],
@@ -5730,8 +5732,8 @@ fn song_lua_projected_overlay_actor(
         size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
         local_transform: Matrix4::IDENTITY,
         texture,
-        tint,
-        glow: [1.0, 1.0, 1.0, 0.0],
+        tint: tint.into(),
+        glow: [1.0, 1.0, 1.0, 0.0].into(),
         vertices: Arc::from(vertices.into_boxed_slice()),
         geom_cache_key: INVALID_TMESH_CACHE_KEY,
         uv_scale: [1.0, 1.0],
@@ -5963,8 +5965,8 @@ fn build_song_lua_overlay_actor(
                     &mut effect_scale,
                     &mut effect_rot,
                 );
-                *tint = effect_tint;
-                *glow = effect_glow;
+                *tint = effect_tint.into();
+                *glow = effect_glow.into();
                 *cropleft = state.cropleft.clamp(0.0, 1.0);
                 *cropright = state.cropright.clamp(0.0, 1.0);
                 *croptop = state.croptop.clamp(0.0, 1.0);
@@ -5992,7 +5994,7 @@ fn build_song_lua_overlay_actor(
                 *visible = state.visible;
             }
             let glow = if let Actor::Sprite { glow, .. } = &actor {
-                *glow
+                glow.to_array()
             } else {
                 state.glow
             };
@@ -6056,9 +6058,9 @@ fn build_song_lua_overlay_actor(
                         state.skew_x,
                         state.skew_y,
                     ),
-                    color,
-                    stroke_color: *stroke_color,
-                    glow,
+                    color: color.into(),
+                    stroke_color: stroke_color.map(Into::into),
+                    glow: glow.into(),
                     font,
                     content,
                     attributes: text_attributes,
@@ -6086,7 +6088,7 @@ fn build_song_lua_overlay_actor(
                     mask_dest: state.mask_dest,
                     blend: overlay_blend,
                     shadow_len: [0.0, 0.0],
-                    shadow_color: [0.0, 0.0, 0.0, 0.5],
+                    shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
                     effect: EffectState::default(),
                 },
                 glow,
@@ -6138,8 +6140,8 @@ fn build_song_lua_overlay_actor(
                         size: [SizeSpec::Px(0.0), SizeSpec::Px(0.0)],
                         local_transform: Matrix4::IDENTITY,
                         texture: Arc::clone(texture_key),
-                        tint,
-                        glow: [1.0, 1.0, 1.0, 0.0],
+                        tint: tint.into(),
+                        glow: [1.0, 1.0, 1.0, 0.0].into(),
                         vertices: mesh,
                         geom_cache_key: INVALID_TMESH_CACHE_KEY,
                         uv_scale: [1.0, 1.0],
@@ -6459,8 +6461,8 @@ fn build_song_lua_overlay_actor(
                     &mut effect_scale,
                     &mut effect_rot,
                 );
-                *tint = effect_tint;
-                *glow = effect_glow;
+                *tint = effect_tint.into();
+                *glow = effect_glow.into();
                 *cropleft = state.cropleft.clamp(0.0, 1.0);
                 *cropright = state.cropright.clamp(0.0, 1.0);
                 *croptop = state.croptop.clamp(0.0, 1.0);
@@ -6486,7 +6488,7 @@ fn build_song_lua_overlay_actor(
                 *visible = state.visible;
             }
             let glow = if let Actor::Sprite { glow, .. } = &actor {
-                *glow
+                glow.to_array()
             } else {
                 state.glow
             };
@@ -6517,12 +6519,12 @@ fn song_lua_wrap_overlay_shadow(
             ..
         } if shadow_len[0].abs() <= f32::EPSILON && shadow_len[1].abs() <= f32::EPSILON => {
             *shadow_len = len;
-            *shadow_color = state.shadow_color;
+            *shadow_color = state.shadow_color.into();
             actor
         }
         _ => Actor::Shadow {
             len,
-            color: state.shadow_color,
+            color: state.shadow_color.into(),
             child: Box::new(actor),
         },
     }
@@ -6581,8 +6583,8 @@ fn song_lua_overlay_glow_actor(
                 world_z: *world_z,
                 size: *size,
                 source: source.clone(),
-                tint: glow,
-                glow: [0.0, 0.0, 0.0, 0.0],
+                tint: glow.into(),
+                glow: [0.0, 0.0, 0.0, 0.0].into(),
                 z: *z,
                 cell: *cell,
                 grid: *grid,
@@ -6611,7 +6613,7 @@ fn song_lua_overlay_glow_actor(
                 state_delay: *state_delay,
                 scale: *scale,
                 shadow_len: [0.0, 0.0],
-                shadow_color: [0.0, 0.0, 0.0, 0.5],
+                shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
                 effect: *effect,
             })
         }
@@ -6670,9 +6672,9 @@ fn song_lua_overlay_glow_actor(
                 align: *align,
                 offset: *offset,
                 local_transform: *local_transform,
-                color,
-                stroke_color,
-                glow: [0.0, 0.0, 0.0, 0.0],
+                color: color.into(),
+                stroke_color: stroke_color.map(Into::into),
+                glow: [0.0, 0.0, 0.0, 0.0].into(),
                 font: *font,
                 content: content.clone(),
                 attributes,
@@ -6693,7 +6695,7 @@ fn song_lua_overlay_glow_actor(
                 mask_dest: *mask_dest,
                 blend: BlendMode::Add,
                 shadow_len: [0.0, 0.0],
-                shadow_color: [0.0, 0.0, 0.0, 0.5],
+                shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
                 effect: *effect,
             })
         }
@@ -6727,8 +6729,8 @@ fn song_lua_overlay_glow_actor(
                 size: *size,
                 local_transform: *local_transform,
                 texture: texture.clone(),
-                tint: [1.0, 1.0, 1.0, 0.0],
-                glow,
+                tint: [1.0, 1.0, 1.0, 0.0].into(),
+                glow: glow.into(),
                 vertices: Arc::from(glow_vertices.into_boxed_slice()),
                 geom_cache_key: INVALID_TMESH_CACHE_KEY,
                 uv_scale: *uv_scale,
@@ -9174,7 +9176,7 @@ mod tests {
         assert_eq!(*align, [0.0, 0.0]);
         assert_eq!(*offset, [0.0, 0.0]);
         assert!(matches!(source, SpriteSource::Solid));
-        assert_eq!(*tint, color.to_rgba());
+        assert_eq!(tint.to_array(), color.to_rgba());
         assert_eq!(*z, -99);
         match size {
             [SizeSpec::Px(w), SizeSpec::Px(h)] => {
@@ -9963,8 +9965,8 @@ mod tests {
             world_z: 0.0,
             size: [SizeSpec::Px(16.0), SizeSpec::Px(16.0)],
             source: SpriteSource::Solid,
-            tint: [0.8, 0.6, 0.4, 0.5],
-            glow: [0.5, 0.25, 1.0, 0.4],
+            tint: [0.8, 0.6, 0.4, 0.5].into(),
+            glow: [0.5, 0.25, 1.0, 0.4].into(),
             z: 2,
             cell: None,
             grid: None,
@@ -9993,7 +9995,7 @@ mod tests {
             state_delay: 0.0,
             scale: [1.0, 1.0],
             shadow_len: [0.0, 0.0],
-            shadow_color: [0.2, 0.4, 0.6, 0.5],
+            shadow_color: [0.2, 0.4, 0.6, 0.5].into(),
             effect: EffectState::default(),
         };
 
@@ -10011,9 +10013,9 @@ mod tests {
         else {
             panic!("expected sprite actor");
         };
-        assert_eq!(tint, [0.4, 0.15, 0.040000003, 0.25]);
-        assert_eq!(glow, [0.25, 0.0625, 0.1, 0.2]);
-        assert_eq!(shadow_color, [0.1, 0.1, 0.060000002, 0.25]);
+        assert_eq!(tint.to_array(), [0.4, 0.15, 0.040000003, 0.25]);
+        assert_eq!(glow.to_array(), [0.25, 0.0625, 0.1, 0.2]);
+        assert_eq!(shadow_color.to_array(), [0.1, 0.1, 0.060000002, 0.25]);
         assert_eq!(blend, BlendMode::Add);
         assert_eq!(z, 9);
     }
@@ -10055,8 +10057,8 @@ mod tests {
             size: [SizeSpec::Px(1.0), SizeSpec::Px(1.0)],
             local_transform: Matrix4::IDENTITY,
             texture: Arc::from("mesh"),
-            tint: [0.8, 0.6, 0.4, 0.5],
-            glow: [0.5, 0.25, 1.0, 0.4],
+            tint: [0.8, 0.6, 0.4, 0.5].into(),
+            glow: [0.5, 0.25, 1.0, 0.4].into(),
             vertices: Arc::from(vec![TexturedMeshVertex::default(); 3]),
             geom_cache_key: INVALID_TMESH_CACHE_KEY,
             uv_scale: [1.0, 1.0],
@@ -10080,8 +10082,8 @@ mod tests {
         else {
             panic!("expected textured mesh actor");
         };
-        assert_eq!(tint, [0.4, 0.15, 0.040000003, 0.25]);
-        assert_eq!(glow, [0.25, 0.0625, 0.1, 0.2]);
+        assert_eq!(tint.to_array(), [0.4, 0.15, 0.040000003, 0.25]);
+        assert_eq!(glow.to_array(), [0.25, 0.0625, 0.1, 0.2]);
         assert_eq!(blend, BlendMode::Alpha);
         assert_eq!(z, 7);
     }
@@ -10146,7 +10148,7 @@ mod tests {
             panic!("expected captured source frame");
         };
         assert_eq!(*blend, Some(BlendMode::Alpha));
-        assert_eq!(*tint, [1.0; 4]);
+        assert_eq!(tint.to_array(), [1.0; 4]);
     }
 
     #[test]
@@ -10533,7 +10535,7 @@ mod tests {
         };
         assert_eq!(offset, [12.0, 24.0]);
         assert_eq!(texture.as_ref(), texture_key.as_str());
-        assert_eq!(tint, [0.5, 0.25, 0.75, 0.5]);
+        assert_eq!(tint.to_array(), [0.5, 0.25, 0.75, 0.5]);
         assert_eq!(z, 322);
         assert_eq!(blend, BlendMode::Alpha);
         assert_eq!(vertices.len(), 3);
@@ -10632,7 +10634,7 @@ mod tests {
         };
         assert_eq!(*offset, [12.0, 24.0]);
         assert_eq!(texture.as_ref(), texture_key.as_str());
-        assert_eq!(*tint, [0.5, 0.125, 0.1875, 0.375]);
+        assert_eq!(tint.to_array(), [0.5, 0.125, 0.1875, 0.375]);
         assert_eq!(*z, 323);
         assert_eq!(*blend, BlendMode::Alpha);
         assert_eq!(*uv_offset, [0.375, -0.375]);
@@ -10756,7 +10758,7 @@ mod tests {
             } => {
                 assert_eq!(offset, [270.0, 20.0]);
                 assert_eq!(scale, [25.0, 18.0]);
-                assert_eq!(tint, [0.5, 0.0, 0.0, 0.8]);
+                assert_eq!(tint.to_array(), [0.5, 0.0, 0.0, 0.8]);
                 assert_eq!(z, 323);
                 assert!(visible);
             }
@@ -11068,7 +11070,7 @@ mod tests {
         match actor {
             Actor::Sprite { tint, z, .. } => {
                 assert_eq!(z, 779);
-                assert_eq!(tint, [0.0, 1.0, 1.0, 1.0]);
+                assert_eq!(tint.to_array(), [0.0, 1.0, 1.0, 1.0]);
             }
             other => panic!("expected rainbow sprite-backed quad, got {other:?}"),
         }
@@ -11166,8 +11168,8 @@ mod tests {
                     ..
                 },
             ] => {
-                assert_eq!(color, &[1.0, 1.0, 1.0, 1.0]);
-                assert_eq!(stroke_color, &Some([0.2, 0.3, 0.4, 0.5]));
+                assert_eq!(color.to_array(), [1.0, 1.0, 1.0, 1.0]);
+                assert_eq!(stroke_color.as_ref().map(|c| c.to_array()), Some([0.2, 0.3, 0.4, 0.5]));
                 assert_eq!(blend, &BlendMode::Add);
                 assert_eq!(attributes.len(), 1);
                 assert_eq!(attributes[0].color, [1.0, 1.0, 1.0, 0.0]);
@@ -11226,7 +11228,7 @@ mod tests {
                     ..
                 },
             ] => {
-                assert_eq!(color, &[1.0, 1.0, 1.0, 1.0]);
+                assert_eq!(color.to_array(), [1.0, 1.0, 1.0, 1.0]);
                 assert_eq!(stroke_color, &None);
                 assert_eq!(blend, &BlendMode::Add);
                 assert_eq!(attributes.len(), 1);
@@ -11781,7 +11783,7 @@ mod tests {
             } => {
                 assert_eq!(z, 787);
                 assert_eq!(shadow_len, [3.0, -4.0]);
-                assert_eq!(shadow_color, [0.1, 0.2, 0.3, 0.4]);
+                assert_eq!(shadow_color.to_array(), [0.1, 0.2, 0.3, 0.4]);
             }
             other => panic!("expected shadowed quad sprite, got {other:?}"),
         }
@@ -11907,7 +11909,7 @@ mod tests {
             ] => {
                 assert_eq!(blend, &BlendMode::Alpha);
                 assert_eq!(z, &790);
-                assert_eq!(tint, &[0.1, 0.2, 0.3, 0.4]);
+                assert_eq!(tint.to_array(), [0.1, 0.2, 0.3, 0.4]);
                 assert_eq!(glow_blend, &BlendMode::Add);
                 assert_eq!(glow_z, &790);
             }
@@ -11947,7 +11949,7 @@ mod tests {
 
         match quad_actors.as_slice() {
             [_, Actor::Sprite { tint, blend, .. }] => {
-                assert_eq!(tint, &[0.3, 0.4, 0.5, 0.6]);
+                assert_eq!(tint.to_array(), [0.3, 0.4, 0.5, 0.6]);
                 assert_eq!(blend, &BlendMode::Add);
             }
             other => panic!("expected base quad plus glowshift sprite actors, got {other:?}"),
@@ -11996,7 +11998,7 @@ mod tests {
                 tint, vertices, z, ..
             } => {
                 assert_eq!(z, 792);
-                assert_eq!(tint, [0.8, 0.7, 0.6, 0.5]);
+                assert_eq!(tint.to_array(), [0.8, 0.7, 0.6, 0.5]);
                 assert_eq!(vertices.len(), 18);
                 assert!(vertices.iter().all(|vertex| {
                     (vertex.color[0] - 1.0).abs() <= 0.000_1
@@ -12227,7 +12229,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(z, 792);
-                assert_eq!(color, [1.0, 1.0, 1.0, 1.0]);
+                assert_eq!(color.to_array(), [1.0, 1.0, 1.0, 1.0]);
                 assert_eq!(attributes.len(), 2);
                 assert_eq!(attributes[0].start, 0);
                 assert_eq!(attributes[0].length, 4);

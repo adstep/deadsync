@@ -157,7 +157,7 @@ fn density_graph_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) 
     ComposeScenario {
         name: density_graph_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.01, 0.02, 0.03, 1.0],
+        clear_color: [0.01, 0.02, 0.03, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -172,7 +172,7 @@ fn density_graph_life_scenario(
     ComposeScenario {
         name: density_graph_life_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.01, 0.02, 0.03, 1.0],
+        clear_color: [0.01, 0.02, 0.03, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -187,7 +187,7 @@ fn gameplay_stats_scenario(
     ComposeScenario {
         name: gameplay_stats_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -202,7 +202,7 @@ fn gameplay_stats_double_scenario(
     ComposeScenario {
         name: gameplay_stats_double_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -217,7 +217,7 @@ fn gameplay_stats_versus_scenario(
     ComposeScenario {
         name: gameplay_stats_versus_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -229,7 +229,7 @@ fn gameplay_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Co
     ComposeScenario {
         name: gameplay_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -241,7 +241,7 @@ fn gs_scorebox_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) ->
     ComposeScenario {
         name: gs_scorebox_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -256,7 +256,7 @@ fn visual_style_bg_scenario(
     ComposeScenario {
         name: visual_style_bg_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -268,7 +268,7 @@ fn init_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
     ComposeScenario {
         name: init_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -280,7 +280,7 @@ fn menu_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
     ComposeScenario {
         name: menu_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -292,7 +292,7 @@ fn notefield_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> C
     ComposeScenario {
         name: notefield_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -307,7 +307,7 @@ fn player_options_scenario(
     ComposeScenario {
         name: player_options_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -319,7 +319,7 @@ fn options_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Com
     ComposeScenario {
         name: options_bench::SCENARIO_NAME,
         actors: fixture.build(true),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.0,
@@ -421,7 +421,7 @@ fn bench_font() -> Font {
         fallback_font_name: None,
         cache_tag: 0,
         chain_key: 0,
-        default_stroke_color: [0.05, 0.05, 0.05, 1.0],
+        default_stroke_color: [0.05, 0.05, 0.05, 1.0].into(),
         stroke_texture_map,
         texture_hints_map: HashMap::new(),
     }
@@ -454,7 +454,7 @@ fn hud_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compose
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.06, 0.07, 0.09, 1.0])),
+        background: Some(Background::Color([0.06, 0.07, 0.09, 1.0].into())),
         z: -20,
     });
 
@@ -481,7 +481,7 @@ fn hud_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compose
     ComposeScenario {
         name: "hud",
         actors,
-        clear_color: [0.02, 0.03, 0.05, 1.0],
+        clear_color: [0.02, 0.03, 0.05, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 12.5,
@@ -493,7 +493,7 @@ fn pane_stats_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
     ComposeScenario {
         name: pane_stats_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.03, 0.04, 0.05, 1.0],
+        clear_color: [0.03, 0.04, 0.05, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.41,
@@ -505,7 +505,7 @@ fn evaluation_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
     ComposeScenario {
         name: evaluation_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.41,
@@ -520,7 +520,7 @@ fn evaluation_versus_scenario(
     ComposeScenario {
         name: evaluation_bench::SCENARIO_NAME_VERSUS,
         actors: fixture.build(),
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 0.41,
@@ -533,7 +533,7 @@ fn panel_frame(x: f32, y: f32, label: &'static str) -> Actor {
         align: [0.5, 0.5],
         offset: [x, y],
         size: [SizeSpec::Px(196.0), SizeSpec::Px(154.0)],
-        background: Some(Background::Color([0.11, 0.13, 0.17, 0.95])),
+        background: Some(Background::Color([0.11, 0.13, 0.17, 0.95].into())),
         z: 0,
         children: vec![
             sprite_actor(BANNER_TEX, [0.5, 0.0], [0.0, 8.0], [180.0, 36.0], 1),
@@ -565,7 +565,7 @@ fn text_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.04, 0.02, 0.02, 1.0])),
+        background: Some(Background::Color([0.04, 0.02, 0.02, 1.0].into())),
         z: -20,
     });
 
@@ -590,7 +590,7 @@ fn text_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
     ComposeScenario {
         name: "text",
         actors,
-        clear_color: [0.02, 0.01, 0.01, 1.0],
+        clear_color: [0.02, 0.01, 0.01, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 24.0,
@@ -640,7 +640,7 @@ fn perf_text_scenario(
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.01, 0.01, 0.012, 1.0])),
+        background: Some(Background::Color([0.01, 0.01, 0.012, 1.0].into())),
         z: -20,
     });
 
@@ -655,7 +655,7 @@ fn perf_text_scenario(
     ComposeScenario {
         name: mode.name(),
         actors,
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 9.25,
@@ -687,9 +687,9 @@ fn perf_text_actor(mode: PerfTextMode, row: usize, col: usize, offset: [f32; 2])
         align: [0.0, 0.0],
         offset,
         local_transform: glam::Mat4::IDENTITY,
-        color: [0.9, 0.92, 0.96, 1.0],
+        color: [0.9, 0.92, 0.96, 1.0].into(),
         stroke_color: None,
-        glow: [0.0; 4],
+        glow: [0.0; 4].into(),
         font: BENCH_FONT,
         content,
         attributes,
@@ -710,7 +710,7 @@ fn perf_text_actor(mode: PerfTextMode, row: usize, col: usize, offset: [f32; 2])
         mask_dest: false,
         blend: BlendMode::Alpha,
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState::default(),
     }
 }
@@ -741,7 +741,7 @@ fn perf_shadow_text_scenario(
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.015, 0.012, 0.01, 1.0])),
+        background: Some(Background::Color([0.015, 0.012, 0.01, 1.0].into())),
         z: -20,
     });
     for row in 0..rows {
@@ -754,7 +754,7 @@ fn perf_shadow_text_scenario(
             );
             actors.push(Actor::Shadow {
                 len: [2.0, -2.0],
-                color: [0.0, 0.0, 0.0, 0.65],
+                color: [0.0, 0.0, 0.0, 0.65].into(),
                 child: Box::new(child),
             });
         }
@@ -763,7 +763,7 @@ fn perf_shadow_text_scenario(
     ComposeScenario {
         name: "perf-shadow-text",
         actors,
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 9.25,
@@ -784,7 +784,8 @@ fn perf_sort_z_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) ->
                 0.6 + ((idx * 7) % 32) as f32 / 96.0,
                 0.85,
                 0.75,
-            ];
+            ]
+            .into();
         }
         actors.push(actor);
     }
@@ -792,7 +793,7 @@ fn perf_sort_z_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) ->
     ComposeScenario {
         name: "perf-sort-z",
         actors,
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 1.0,
@@ -817,7 +818,7 @@ fn perf_texture_lookup_scenario(
         );
         if let Actor::Sprite { source, tint, .. } = &mut actor {
             *source = SpriteSource::Texture(Arc::<str>::from(perf_texture_key(idx)));
-            *tint = [0.7, 0.8, 1.0, 0.9];
+            *tint = [0.7, 0.8, 1.0, 0.9].into();
         }
         actors.push(actor);
     }
@@ -825,7 +826,7 @@ fn perf_texture_lookup_scenario(
     ComposeScenario {
         name: "perf-texture-lookup",
         actors,
-        clear_color: [0.0, 0.0, 0.0, 1.0],
+        clear_color: [0.0, 0.0, 0.0, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 1.0,
@@ -839,7 +840,7 @@ fn resolve_ci_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.03, 0.03, 0.04, 1.0])),
+        background: Some(Background::Color([0.03, 0.03, 0.04, 1.0].into())),
         z: -20,
     });
 
@@ -856,8 +857,8 @@ fn resolve_ci_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
                 source: SpriteSource::Texture(Arc::<str>::from(mixed_case_texture_key(
                     &casefold_tex_key(idx),
                 ))),
-                tint: [0.85, 0.9, 1.0, 0.9],
-                glow: [0.0; 4],
+                tint: [0.85, 0.9, 1.0, 0.9].into(),
+                glow: [0.0; 4].into(),
                 z: 1,
                 cell: None,
                 grid: None,
@@ -886,7 +887,7 @@ fn resolve_ci_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
                 state_delay: 0.0,
                 scale: [1.0, 1.0],
                 shadow_len: [0.0, 0.0],
-                shadow_color: [0.0, 0.0, 0.0, 0.5],
+                shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
                 effect: EffectState::default(),
             });
         }
@@ -895,7 +896,7 @@ fn resolve_ci_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> 
     ComposeScenario {
         name: "resolve-ci",
         actors,
-        clear_color: [0.02, 0.02, 0.03, 1.0],
+        clear_color: [0.02, 0.02, 0.03, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 5.0,
@@ -909,9 +910,9 @@ fn stroked_text_actor(text: &'static str, x: f32, y: f32, row: usize) -> Actor {
         align: [0.0, 0.0],
         offset: [x, y],
         local_transform: glam::Mat4::IDENTITY,
-        color: [0.92, 0.94, 0.98, 0.96],
-        stroke_color: Some([0.05, 0.08, 0.12, 0.9]),
-        glow: [0.0; 4],
+        color: [0.92, 0.94, 0.98, 0.96].into(),
+        stroke_color: Some([0.05, 0.08, 0.12, 0.9].into()),
+        glow: [0.0; 4].into(),
         font: BENCH_FONT,
         content: TextContent::Shared(Arc::<str>::from(text)),
         attributes: Vec::new(),
@@ -936,7 +937,7 @@ fn stroked_text_actor(text: &'static str, x: f32, y: f32, row: usize) -> Actor {
         mask_dest: false,
         blend: BlendMode::Alpha,
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState {
             mode: EffectMode::Pulse,
             magnitude: [0.98, 1.02, 1.0],
@@ -952,7 +953,7 @@ fn mask_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
         offset: [0.0, 0.0],
         size: [SizeSpec::Fill, SizeSpec::Fill],
         children: Vec::new(),
-        background: Some(Background::Color([0.01, 0.03, 0.05, 1.0])),
+        background: Some(Background::Color([0.01, 0.03, 0.05, 1.0].into())),
         z: -20,
     });
     actors.push(mask_source_actor());
@@ -973,7 +974,7 @@ fn mask_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) -> Compos
     ComposeScenario {
         name: "mask",
         actors,
-        clear_color: [0.0, 0.02, 0.04, 1.0],
+        clear_color: [0.0, 0.02, 0.04, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 37.0,
@@ -985,7 +986,7 @@ fn music_wheel_scenario(metrics: Metrics, fonts: HashMap<&'static str, Font>) ->
     ComposeScenario {
         name: music_wheel_bench::SCENARIO_NAME,
         actors: fixture.build(),
-        clear_color: [0.02, 0.03, 0.05, 1.0],
+        clear_color: [0.02, 0.03, 0.05, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 18.0,
@@ -1000,7 +1001,7 @@ fn music_wheel_loaded_scenario(
     ComposeScenario {
         name: music_wheel_bench::SCENARIO_NAME_LOADED,
         actors: fixture.build(),
-        clear_color: [0.02, 0.03, 0.05, 1.0],
+        clear_color: [0.02, 0.03, 0.05, 1.0].into(),
         metrics,
         fonts,
         total_elapsed: 18.0,
@@ -1015,8 +1016,8 @@ fn mask_source_actor() -> Actor {
         world_z: 0.0,
         size: [SizeSpec::Px(680.0), SizeSpec::Px(300.0)],
         source: SpriteSource::Solid,
-        tint: [1.0; 4],
-        glow: [0.0; 4],
+        tint: [1.0; 4].into(),
+        glow: [0.0; 4].into(),
         z: 0,
         cell: None,
         grid: None,
@@ -1045,7 +1046,7 @@ fn mask_source_actor() -> Actor {
         state_delay: 0.0,
         scale: [1.0, 1.0],
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState::default(),
     }
 }
@@ -1058,8 +1059,8 @@ fn masked_rotating_sprite(x: f32, y: f32, rot_z_deg: f32) -> Actor {
         world_z: 0.0,
         size: [SizeSpec::Px(116.0), SizeSpec::Px(64.0)],
         source: SpriteSource::Texture(Arc::<str>::from(PANEL_TEX)),
-        tint: [0.82, 0.93, 1.0, 0.95],
-        glow: [0.0; 4],
+        tint: [0.82, 0.93, 1.0, 0.95].into(),
+        glow: [0.0; 4].into(),
         z: 1,
         cell: None,
         grid: None,
@@ -1088,7 +1089,7 @@ fn masked_rotating_sprite(x: f32, y: f32, rot_z_deg: f32) -> Actor {
         state_delay: 0.0,
         scale: [1.0, 1.0],
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState {
             mode: EffectMode::DiffuseShift,
             color1: [1.0, 1.0, 1.0, 1.0],
@@ -1102,7 +1103,7 @@ fn shadowed_sprite(x: f32, y: f32) -> Actor {
     let [x, y] = screen_pos(x, y);
     Actor::Shadow {
         len: [7.0, -7.0],
-        color: [0.0, 0.0, 0.0, 0.55],
+        color: [0.0, 0.0, 0.0, 0.55].into(),
         child: Box::new(sprite_actor(ICON_TEX, [0.5, 0.5], [x, y], [80.0, 80.0], 2)),
     }
 }
@@ -1111,15 +1112,15 @@ fn colored_mesh() -> Actor {
     let verts = Arc::<[MeshVertex]>::from(vec![
         MeshVertex {
             pos: [-70.0, -30.0],
-            color: [0.95, 0.25, 0.25, 0.8],
+            color: [0.95, 0.25, 0.25, 0.8].into(),
         },
         MeshVertex {
             pos: [70.0, -20.0],
-            color: [0.25, 0.9, 0.55, 0.8],
+            color: [0.25, 0.9, 0.55, 0.8].into(),
         },
         MeshVertex {
             pos: [0.0, 48.0],
-            color: [0.25, 0.45, 0.98, 0.8],
+            color: [0.25, 0.45, 0.98, 0.8].into(),
         },
     ]);
     Actor::Mesh {
@@ -1149,8 +1150,8 @@ fn textured_mesh() -> Actor {
         size: [SizeSpec::Px(120.0), SizeSpec::Px(80.0)],
         local_transform: glam::Mat4::IDENTITY,
         texture: Arc::<str>::from(MESH_TEX),
-        tint: [1.0; 4],
-        glow: [1.0, 1.0, 1.0, 0.0],
+        tint: [1.0; 4].into(),
+        glow: [1.0, 1.0, 1.0, 0.0].into(),
         vertices: verts,
         geom_cache_key: deadsync_render::INVALID_TMESH_CACHE_KEY,
         uv_scale: [1.0, 1.0],
@@ -1168,7 +1169,7 @@ fn textured_vertex(pos: [f32; 2], uv: [f32; 2]) -> TexturedMeshVertex {
         pos: [pos[0], pos[1], 0.0],
         uv,
         tex_matrix_scale: [1.0, 1.0],
-        color: [1.0; 4],
+        color: [1.0; 4].into(),
     }
 }
 
@@ -1185,8 +1186,8 @@ fn sprite_actor(
         world_z: 0.0,
         size: [SizeSpec::Px(size[0]), SizeSpec::Px(size[1])],
         source: SpriteSource::Texture(Arc::<str>::from(texture)),
-        tint: [1.0; 4],
-        glow: [0.0; 4],
+        tint: [1.0; 4].into(),
+        glow: [0.0; 4].into(),
         z,
         cell: None,
         grid: None,
@@ -1215,7 +1216,7 @@ fn sprite_actor(
         state_delay: 0.0,
         scale: [1.0, 1.0],
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState::default(),
     }
 }
@@ -1227,8 +1228,8 @@ fn animated_sheet(align: [f32; 2], offset: [f32; 2], size: [f32; 2], z: i16) -> 
         world_z: 0.0,
         size: [SizeSpec::Px(size[0]), SizeSpec::Px(size[1])],
         source: SpriteSource::Texture(Arc::<str>::from(SHEET_TEX)),
-        tint: [0.9, 0.95, 1.0, 0.95],
-        glow: [0.0; 4],
+        tint: [0.9, 0.95, 1.0, 0.95].into(),
+        glow: [0.0; 4].into(),
         z,
         cell: Some((0, u32::MAX)),
         grid: Some((4, 4)),
@@ -1257,7 +1258,7 @@ fn animated_sheet(align: [f32; 2], offset: [f32; 2], size: [f32; 2], z: i16) -> 
         state_delay: 0.08,
         scale: [1.0, 1.0],
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState {
             mode: EffectMode::Spin,
             magnitude: [0.0, 0.0, 32.0],
@@ -1277,9 +1278,9 @@ fn text_actor(
         align,
         offset,
         local_transform: glam::Mat4::IDENTITY,
-        color,
+        color: color.into(),
         stroke_color: None,
-        glow: [0.0; 4],
+        glow: [0.0; 4].into(),
         font: BENCH_FONT,
         content: TextContent::Shared(Arc::<str>::from(text)),
         attributes: Vec::new(),
@@ -1300,7 +1301,7 @@ fn text_actor(
         mask_dest: false,
         blend: BlendMode::Alpha,
         shadow_len: [0.0, 0.0],
-        shadow_color: [0.0, 0.0, 0.0, 0.5],
+        shadow_color: [0.0, 0.0, 0.0, 0.5].into(),
         effect: EffectState::default(),
     }
 }

@@ -643,7 +643,7 @@ mod tests {
             panic!("loading bar should have border, background, fill, and text actors");
         };
         let sprite_tint = |actor: &Actor| match actor {
-            Actor::Sprite { tint, .. } => *tint,
+            Actor::Sprite { tint, .. } => tint.to_array(),
             _ => panic!("expected loading bar sprite child"),
         };
         let Actor::Text { color, .. } = text else {
@@ -657,7 +657,7 @@ mod tests {
             sprite_tint(fill),
             [expected_fill[0], expected_fill[1], expected_fill[2], 1.0],
         );
-        assert_eq!(*color, [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(color.to_array(), [1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]
