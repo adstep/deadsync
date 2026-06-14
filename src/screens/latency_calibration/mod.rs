@@ -33,8 +33,6 @@ const CLICK_PATH: &str = "assets/sounds/assist_tick.ogg";
 /// Offset clamp (matches the Sound/Graphics submenu bounds: +/-1000 ms).
 const OFFSET_CLAMP_MS: i32 = 1000;
 
-/// How far ahead of "now" a metronome beat must be before we schedule it.
-const SCHEDULE_LEAD_NS: i128 = 300_000_000;
 /// Lead-in before the first beat so the player can settle after the fade.
 const PREP_NS: i128 = 1_000_000_000;
 /// Half-width of the visual flash envelope around a beat.
@@ -57,15 +55,17 @@ pub(super) enum Phase {
 }
 
 /// A single metronome measurement pass (audio clicks or visual flashes).
+///
+/// Everything runs on a single `Instant` timeline anchored at the run start, so
+/// it works even with no song playing (the music stream clock is pinned at zero
+/// outside gameplay). Audio clicks are emitted immediately as each beat arrives
+/// via the assist-tick SFX lane; the player taps to the perceived stimulus and
+/// the mean error vs the grid is the perceptual offset.
 struct WizardRun {
     epoch_instant: Instant,
-    epoch_host_nanos: u64,
-    epoch_stream_seconds: f64,
-    use_host: bool,
-    sample_rate_hz: u32,
     period_ns: i128,
-    /// Next metronome beat index to schedule (audio only).
-    next_schedule_k: i64,
+    /// Next metronome beat index to emit.
+    next_emit_k: i64,
     /// Raw nearest-beat errors, in timeline nanoseconds.
     samples: Vec<i128>,
     audio: bool,
@@ -91,13 +91,8 @@ struct Stimulus {
 /// Reaction-test pass for the certifier.
 struct CertRun {
     epoch_instant: Instant,
-    epoch_host_nanos: u64,
-    epoch_stream_seconds: f64,
-    use_host: bool,
-    sample_rate_hz: u32,
     rng: u64,
     pending: Option<Stimulus>,
-    audio_scheduled: bool,
     next_stimulus_at_ns: i128,
     next_is_audio: bool,
     audio_samples: Vec<i128>,
@@ -235,21 +230,14 @@ fn is_pad_tap(action: VirtualAction) -> bool {
 }
 
 fn start_wizard(state: &mut State, audio_mode: bool) {
-    let snap = audio::get_music_stream_clock_snapshot();
-    let timing = audio::get_output_timing_snapshot();
-    let use_host = snap.valid_at_host_nanos != 0;
     let period_ns = measure::seconds_to_ns(measure::WIZARD_PERIOD_SECONDS);
     // First beat at least PREP_NS in the future, aligned to the grid origin
-    // (the snapshot moment = timeline zero).
+    // (the run start = timeline zero).
     let first_k = (PREP_NS / period_ns) + 1;
     state.wizard = Some(WizardRun {
-        epoch_instant: snap.valid_at,
-        epoch_host_nanos: snap.valid_at_host_nanos,
-        epoch_stream_seconds: snap.stream_seconds as f64,
-        use_host,
-        sample_rate_hz: timing.sample_rate_hz,
+        epoch_instant: Instant::now(),
         period_ns,
-        next_schedule_k: first_k as i64,
+        next_emit_k: first_k as i64,
         samples: Vec::with_capacity(measure::WIZARD_SAMPLE_COUNT),
         audio: audio_mode,
     });
@@ -260,7 +248,7 @@ fn update_wizard(state: &mut State) {
         return;
     };
     if run.audio {
-        schedule_audio_beats(run);
+        emit_due_audio_beats(run);
     }
     if run.samples.len() >= measure::WIZARD_SAMPLE_COUNT {
         let result = finish_wizard(run);
@@ -278,21 +266,19 @@ fn update_wizard(state: &mut State) {
     }
 }
 
-/// Schedule any metronome clicks whose beat has entered the lead window.
-fn schedule_audio_beats(run: &mut WizardRun) {
-    if run.sample_rate_hz == 0 {
-        return;
-    }
+/// Emit any metronome clicks whose beat time has arrived. Clicks play
+/// immediately on the assist-tick lane; the player hears them
+/// `output_delay` later, and that delay is exactly what the mean tap error
+/// captures.
+fn emit_due_audio_beats(run: &mut WizardRun) {
     let now = now_ns(run.epoch_instant);
     loop {
-        let beat_ns = run.next_schedule_k as i128 * run.period_ns;
-        if beat_ns - now > SCHEDULE_LEAD_NS {
+        let beat_ns = run.next_emit_k as i128 * run.period_ns;
+        if beat_ns > now {
             break;
         }
-        if let Some(frame) = beat_stream_frame(run, beat_ns) {
-            audio::play_scheduled_assist_tick(CLICK_PATH, frame);
-        }
-        run.next_schedule_k += 1;
+        audio::play_preloaded_assist_tick(CLICK_PATH);
+        run.next_emit_k += 1;
     }
 }
 
@@ -303,7 +289,7 @@ fn record_wizard_tap(state: &mut State, ev: &InputEvent) {
     if run.samples.len() >= measure::WIZARD_SAMPLE_COUNT {
         return;
     }
-    let tap = tap_ns(run.epoch_instant, run.epoch_host_nanos, run.use_host, ev);
+    let tap = tap_ns(run.epoch_instant, ev);
     let err = measure::nearest_beat_error_ns(tap, run.period_ns);
     if err.abs() * 2 <= run.period_ns {
         run.samples.push(err);
@@ -328,29 +314,20 @@ fn finish_wizard(run: &WizardRun) -> WizardResult {
 // ---------------------------------------------------------------------------
 
 fn start_certifier(state: &mut State) {
-    let snap = audio::get_music_stream_clock_snapshot();
-    let timing = audio::get_output_timing_snapshot();
-    let use_host = snap.valid_at_host_nanos != 0;
-    let seed = snap
-        .valid_at_host_nanos
-        .max(snap.stream_seconds as u64 + 0x9E37_79B9)
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
         | 1;
-    let mut cert = CertRun {
-        epoch_instant: snap.valid_at,
-        epoch_host_nanos: snap.valid_at_host_nanos,
-        epoch_stream_seconds: snap.stream_seconds as f64,
-        use_host,
-        sample_rate_hz: timing.sample_rate_hz,
+    state.cert = Some(CertRun {
+        epoch_instant: Instant::now(),
         rng: seed,
         pending: None,
-        audio_scheduled: false,
         next_stimulus_at_ns: PREP_NS,
         next_is_audio: true,
         audio_samples: Vec::with_capacity(measure::CERTIFIER_SAMPLE_COUNT),
         visual_samples: Vec::with_capacity(measure::CERTIFIER_SAMPLE_COUNT),
-    };
-    cert.next_stimulus_at_ns = PREP_NS;
-    state.cert = Some(cert);
+    });
 }
 
 fn update_certifier(state: &mut State) {
@@ -371,20 +348,14 @@ fn update_certifier(state: &mut State) {
     }
 
     let now = now_ns(cert.epoch_instant);
-    // Promote the next scheduled stimulus to "pending" once its time arrives.
-    if cert.pending.is_none() && now >= cert.next_stimulus_at_ns - SCHEDULE_LEAD_NS {
-        let at = cert.next_stimulus_at_ns;
+    // Fire the next stimulus the moment its time arrives. Audio plays
+    // immediately on the assist-tick lane; the visual flash is rendered from
+    // `pending`. Onset time = `now`, so reaction = tap - onset.
+    if cert.pending.is_none() && now >= cert.next_stimulus_at_ns {
         let audio_stim = cert.next_is_audio;
-        cert.pending = Some(Stimulus { at_ns: at, audio: audio_stim });
-        cert.audio_scheduled = false;
-    }
-    // Pre-schedule the audio click so it is audible exactly at the stimulus time.
-    if let Some(stim) = cert.pending {
-        if stim.audio && !cert.audio_scheduled && cert.sample_rate_hz != 0 {
-            if let Some(frame) = cert_stream_frame(cert, stim.at_ns) {
-                audio::play_scheduled_assist_tick(CLICK_PATH, frame);
-            }
-            cert.audio_scheduled = true;
+        cert.pending = Some(Stimulus { at_ns: now, audio: audio_stim });
+        if audio_stim {
+            audio::play_preloaded_assist_tick(CLICK_PATH);
         }
     }
 }
@@ -396,7 +367,7 @@ fn record_cert_tap(state: &mut State, ev: &InputEvent) {
     let Some(stim) = cert.pending else {
         return;
     };
-    let tap = tap_ns(cert.epoch_instant, cert.epoch_host_nanos, cert.use_host, ev);
+    let tap = tap_ns(cert.epoch_instant, ev);
     let reaction = tap - stim.at_ns;
     if reaction >= CERT_MIN_REACTION_NS && reaction <= CERT_MAX_REACTION_NS {
         if stim.audio {
@@ -407,7 +378,6 @@ fn record_cert_tap(state: &mut State, ev: &InputEvent) {
     }
     // Whether hit, false-started, or missed-window, advance to the next stimulus.
     cert.pending = None;
-    cert.audio_scheduled = false;
     let gap = CERT_MIN_GAP_NS + (next_rand(&mut cert.rng) % (CERT_MAX_GAP_NS - CERT_MIN_GAP_NS) as u64) as i128;
     cert.next_stimulus_at_ns = tap.max(stim.at_ns) + gap;
     cert.next_is_audio = !stim.audio;
@@ -446,40 +416,12 @@ fn now_ns(epoch_instant: Instant) -> i128 {
     Instant::now().saturating_duration_since(epoch_instant).as_nanos() as i128
 }
 
-/// Convert an input event to run-timeline nanoseconds, preferring the host/QPC
-/// stamp (same window the music clock uses) and falling back to `Instant`.
+/// Convert an input event to run-timeline nanoseconds via its `Instant` stamp.
 #[inline(always)]
-fn tap_ns(epoch_instant: Instant, epoch_host_nanos: u64, use_host: bool, ev: &InputEvent) -> i128 {
-    if use_host && ev.timestamp_host_nanos != 0 {
-        ev.timestamp_host_nanos as i128 - epoch_host_nanos as i128
-    } else {
-        ev.timestamp
-            .saturating_duration_since(epoch_instant)
-            .as_nanos() as i128
-    }
-}
-
-/// Absolute stream frame for a beat on this run's timeline.
-#[inline(always)]
-fn beat_stream_frame(run: &WizardRun, beat_ns: i128) -> Option<u64> {
-    stream_frame(run.epoch_stream_seconds, run.sample_rate_hz, beat_ns)
-}
-
-#[inline(always)]
-fn cert_stream_frame(cert: &CertRun, at_ns: i128) -> Option<u64> {
-    stream_frame(cert.epoch_stream_seconds, cert.sample_rate_hz, at_ns)
-}
-
-#[inline(always)]
-fn stream_frame(epoch_stream_seconds: f64, sample_rate_hz: u32, at_ns: i128) -> Option<u64> {
-    if sample_rate_hz == 0 {
-        return None;
-    }
-    let stream_seconds = epoch_stream_seconds + measure::ns_to_seconds(at_ns);
-    if stream_seconds <= 0.0 {
-        return None;
-    }
-    Some((stream_seconds * sample_rate_hz as f64).round() as u64)
+fn tap_ns(epoch_instant: Instant, ev: &InputEvent) -> i128 {
+    ev.timestamp
+        .saturating_duration_since(epoch_instant)
+        .as_nanos() as i128
 }
 
 /// xorshift64 PRNG (no external crates).
