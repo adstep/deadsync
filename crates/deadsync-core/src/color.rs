@@ -92,6 +92,27 @@ impl Color {
         Self([self.0[0], self.0[1], self.0[2], a])
     }
 
+    /// Parse a hex color string in the web RGBA convention (case-insensitive,
+    /// trimmed, optional leading `#`). Accepts both 6-digit `RRGGBB` (opaque)
+    /// and 8-digit `RRGGBBAA` forms. Returns `None` for malformed input so the
+    /// caller can fall back to a default.
+    ///
+    /// This is the fallible counterpart to the `const`, panicking [`Color::hex`]
+    /// and shares its channel order (unlike the ARGB [`Color::from_argb_hex`]).
+    pub fn from_rgba_hex(raw: &str) -> Option<Self> {
+        let hex = raw.trim().trim_start_matches('#');
+        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let byte = |idx: usize| u8::from_str_radix(&hex[idx..idx + 2], 16).ok();
+        let chan = |idx: usize| Some(byte(idx)? as f32 / 255.0);
+        match hex.len() {
+            6 => Some(Self([chan(0)?, chan(2)?, chan(4)?, 1.0])),
+            8 => Some(Self([chan(0)?, chan(2)?, chan(4)?, chan(6)?])),
+            _ => None,
+        }
+    }
+
     /// Parse a hex color string using the StepMania ARGB convention
     /// (case-insensitive, trimmed, optional leading `#`). Accepts both 6-digit
     /// `RRGGBB` (opaque) and 8-digit `AARRGGBB` forms. Returns `None` for
@@ -237,6 +258,22 @@ mod tests {
             assert!((ch - expected).abs() < f32::EPSILON);
         }
         assert_eq!(gray.a(), 1.0);
+    }
+
+    #[test]
+    fn rgba_hex_parses_web_order_and_alpha() {
+        assert_eq!(Color::from_rgba_hex("#000000"), Some(Color::BLACK));
+        assert_eq!(
+            Color::from_rgba_hex("FFFFFF"),
+            Some(Color::rgb(1.0, 1.0, 1.0))
+        );
+        let c = Color::from_rgba_hex("#01FE7F80").unwrap();
+        assert!((c.r() - 1.0 / 255.0).abs() < f32::EPSILON);
+        assert!((c.g() - 254.0 / 255.0).abs() < f32::EPSILON);
+        assert!((c.b() - 127.0 / 255.0).abs() < f32::EPSILON);
+        assert!((c.a() - 128.0 / 255.0).abs() < f32::EPSILON);
+        assert_eq!(Color::from_rgba_hex("#FFF"), None);
+        assert_eq!(Color::from_rgba_hex("#GGGGGG"), None);
     }
 
     #[test]

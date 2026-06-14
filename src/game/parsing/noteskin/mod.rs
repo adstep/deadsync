@@ -4162,17 +4162,7 @@ fn parse_script_hex_color(raw: &str) -> Option<[f32; 4]> {
     if hex.len() != 6 && hex.len() != 8 {
         return None;
     }
-    let byte = |idx: usize| u8::from_str_radix(&hex[idx..idx + 2], 16).ok();
-    Some([
-        byte(0)? as f32 / 255.0,
-        byte(2)? as f32 / 255.0,
-        byte(4)? as f32 / 255.0,
-        if hex.len() == 8 {
-            byte(6)? as f32 / 255.0
-        } else {
-            1.0
-        },
-    ])
+    crate::config::Color::from_rgba_hex(hex).map(|c| c.to_array())
 }
 
 #[inline(always)]

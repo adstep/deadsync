@@ -88,18 +88,12 @@ pub fn parse_bgchange_color(field: &str) -> Option<[f32; 4]> {
     if field.is_empty() {
         return None;
     }
-    if let Some(hex) = field.strip_prefix('#')
-        && matches!(hex.len(), 6 | 8)
+    if let Some(color) = field
+        .strip_prefix('#')
+        .filter(|hex| matches!(hex.len(), 6 | 8))
+        .and_then(deadsync_core::Color::from_rgba_hex)
     {
-        let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-        let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-        let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-        let a = if hex.len() == 8 {
-            u8::from_str_radix(&hex[6..8], 16).ok()? as f32 / 255.0
-        } else {
-            1.0
-        };
-        return Some([r, g, b, a]);
+        return Some(color.to_array());
     }
     let parts = field
         .split(',')
