@@ -146,6 +146,24 @@ impl Color {
     }
 }
 
+impl core::ops::Index<usize> for Color {
+    type Output = f32;
+
+    /// Access a channel by index: `0 = r`, `1 = g`, `2 = b`, `3 = a`.
+    #[inline(always)]
+    fn index(&self, index: usize) -> &f32 {
+        &self.0[index]
+    }
+}
+
+impl core::ops::IndexMut<usize> for Color {
+    /// Mutably access a channel by index: `0 = r`, `1 = g`, `2 = b`, `3 = a`.
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut f32 {
+        &mut self.0[index]
+    }
+}
+
 impl From<[f32; 4]> for Color {
     #[inline(always)]
     fn from(rgba: [f32; 4]) -> Self {
@@ -226,6 +244,18 @@ pub const fn rgba_hex(s: &str) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_indexing_reads_and_writes() {
+        let mut c = Color::new(0.1, 0.2, 0.3, 0.4);
+        assert_eq!(c[0], 0.1);
+        assert_eq!(c[1], 0.2);
+        assert_eq!(c[2], 0.3);
+        assert_eq!(c[3], 0.4);
+        c[3] *= 0.5;
+        assert_eq!(c[3], 0.2);
+        assert_eq!(c, Color::new(0.1, 0.2, 0.3, 0.2));
+    }
 
     #[test]
     fn round_trips_with_array() {
