@@ -1,4 +1,5 @@
 use crate::actors::{Actor, IntoTextureKey, SizeSpec, SpriteSource, TextAlign, TextContent};
+use crate::color::Color;
 use crate::texture::{TextureContext, cached_static_texture_source};
 use crate::{anim, font, runtime};
 use deadsync_render::BlendMode;
@@ -1112,8 +1113,8 @@ impl SpriteBuilder {
     }
 
     #[inline(always)]
-    pub fn diffuse(&mut self, rgba: [f32; 4]) {
-        self.tint = rgba;
+    pub fn diffuse(&mut self, rgba: impl Into<Color>) {
+        self.tint = rgba.into().to_array();
     }
 
     #[inline(always)]
@@ -1122,8 +1123,8 @@ impl SpriteBuilder {
     }
 
     #[inline(always)]
-    pub fn glow(&mut self, rgba: [f32; 4]) {
-        self.glow = rgba;
+    pub fn glow(&mut self, rgba: impl Into<Color>) {
+        self.glow = rgba.into().to_array();
     }
 
     #[inline(always)]
@@ -1342,8 +1343,8 @@ impl SpriteBuilder {
     }
 
     #[inline(always)]
-    pub fn shadowcolor(&mut self, c: [f32; 4]) {
-        self.shc = c;
+    pub fn shadowcolor(&mut self, c: impl Into<Color>) {
+        self.shc = c.into().to_array();
     }
 
     #[inline(always)]
@@ -1357,13 +1358,13 @@ impl SpriteBuilder {
     }
 
     #[inline(always)]
-    pub fn effectcolor1(&mut self, color: [f32; 4]) {
-        self.effect.color1 = color;
+    pub fn effectcolor1(&mut self, color: impl Into<Color>) {
+        self.effect.color1 = color.into().to_array();
     }
 
     #[inline(always)]
-    pub fn effectcolor2(&mut self, color: [f32; 4]) {
-        self.effect.color2 = color;
+    pub fn effectcolor2(&mut self, color: impl Into<Color>) {
+        self.effect.color2 = color.into().to_array();
     }
 
     #[inline(always)]
@@ -1401,7 +1402,7 @@ impl SpriteBuilder {
     }
 
     #[inline(always)]
-    pub fn strokecolor(&mut self, _rgba: [f32; 4]) {}
+    pub fn strokecolor(&mut self, _rgba: impl Into<Color>) {}
 
     #[inline(always)]
     pub fn font(&mut self, _font: &'static str) {}
@@ -1697,8 +1698,8 @@ impl TextBuilder {
     }
 
     #[inline(always)]
-    pub fn diffuse(&mut self, rgba: [f32; 4]) {
-        self.color = rgba;
+    pub fn diffuse(&mut self, rgba: impl Into<Color>) {
+        self.color = rgba.into().to_array();
     }
 
     #[inline(always)]
@@ -1707,13 +1708,13 @@ impl TextBuilder {
     }
 
     #[inline(always)]
-    pub fn glow(&mut self, rgba: [f32; 4]) {
-        self.glow = rgba;
+    pub fn glow(&mut self, rgba: impl Into<Color>) {
+        self.glow = rgba.into().to_array();
     }
 
     #[inline(always)]
-    pub fn strokecolor(&mut self, rgba: [f32; 4]) {
-        self.stroke_color = Some(rgba);
+    pub fn strokecolor(&mut self, rgba: impl Into<Color>) {
+        self.stroke_color = Some(rgba.into().to_array());
     }
 
     #[inline(always)]
@@ -1839,8 +1840,8 @@ impl TextBuilder {
     }
 
     #[inline(always)]
-    pub fn shadowcolor(&mut self, c: [f32; 4]) {
-        self.shc = c;
+    pub fn shadowcolor(&mut self, c: impl Into<Color>) {
+        self.shc = c.into().to_array();
     }
 
     #[inline(always)]
@@ -1854,13 +1855,13 @@ impl TextBuilder {
     }
 
     #[inline(always)]
-    pub fn effectcolor1(&mut self, color: [f32; 4]) {
-        self.effect.color1 = color;
+    pub fn effectcolor1(&mut self, color: impl Into<Color>) {
+        self.effect.color1 = color.into().to_array();
     }
 
     #[inline(always)]
-    pub fn effectcolor2(&mut self, color: [f32; 4]) {
-        self.effect.color2 = color;
+    pub fn effectcolor2(&mut self, color: impl Into<Color>) {
+        self.effect.color2 = color.into().to_array();
     }
 
     #[inline(always)]

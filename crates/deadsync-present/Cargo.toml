@@ -5,6 +5,7 @@ edition = "2024"
 license = "GPL-3.0"
 
 [dependencies]
+deadsync-core = { path = "../deadsync-core" }
 deadsync-render = { path = "../deadsync-render" }
 glam = "0.33.1"
 image = "0.25.10"

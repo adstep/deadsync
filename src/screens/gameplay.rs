@@ -9153,7 +9153,7 @@ mod tests {
     #[test]
     fn custom_gameplay_backdrop_covers_full_screen_under_song_ui() {
         let mut actors = Vec::new();
-        let color = crate::config::Color::from_hex("#0c0c0c").unwrap();
+        let color = crate::config::Color::from_argb_hex("#0c0c0c").unwrap();
 
         push_custom_gameplay_backdrop(&mut actors, color);
 
@@ -9200,7 +9200,7 @@ mod tests {
 
     #[test]
     fn custom_gameplay_backdrop_tints_header() {
-        let color = crate::config::Color::from_hex("#0c0c0c").unwrap();
+        let color = crate::config::Color::from_argb_hex("#0c0c0c").unwrap();
 
         assert_eq!(gameplay_header_rgba(color), color.to_rgba());
     }
