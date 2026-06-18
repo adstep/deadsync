@@ -2688,6 +2688,34 @@ fn normalize_graphic_key(
     Ok(format!("{folder}/{basename}"))
 }
 
+/// Like [`normalize_graphic_key`] but **only** resolves names DeadSync actually
+/// ships: a recognized stock alias or `"None"`. Returns `None` for unknown or
+/// custom graphic names instead of fabricating a `folder/basename` path that
+/// would point at a missing texture. Used by the ITGmania importer, where a
+/// Simply Love profile may reference a theme graphic DeadSync doesn't have.
+fn recognized_stock_key(raw: &str, stock_aliases: &[(&str, &str)]) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.eq_ignore_ascii_case("none") {
+        return Some("None".to_string());
+    }
+    let basename = Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(trimmed)
+        .trim();
+    if basename.eq_ignore_ascii_case("none") {
+        return Some("None".to_string());
+    }
+    let normalized = basename.to_ascii_lowercase();
+    stock_aliases
+        .iter()
+        .find(|(alias, _)| alias.eq_ignore_ascii_case(&normalized))
+        .map(|(_, key)| (*key).to_string())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HoldJudgmentGraphic(String);
 
@@ -2727,6 +2755,14 @@ impl HoldJudgmentGraphic {
             normalize_graphic_key(raw, "hold_judgements", Self::STOCK_ALIASES)
                 .unwrap_or_else(|_| Self::DEFAULT_KEY.to_string()),
         )
+    }
+
+    /// Parse `raw` only if it names a graphic DeadSync ships (a recognized stock
+    /// alias or `"None"`), returning `None` for unknown/custom names. Use this
+    /// when importing external settings to avoid pointing at a missing texture.
+    #[inline(always)]
+    pub fn from_stock_name(raw: &str) -> Option<Self> {
+        recognized_stock_key(raw, Self::STOCK_ALIASES).map(Self)
     }
 
     #[inline(always)]
@@ -2785,6 +2821,14 @@ impl HeldMissGraphic {
             normalize_graphic_key(raw, "held_miss", Self::STOCK_ALIASES)
                 .unwrap_or_else(|_| Self::DEFAULT_KEY.to_string()),
         )
+    }
+
+    /// Parse `raw` only if it names a graphic DeadSync ships (a recognized stock
+    /// alias or `"None"`), returning `None` for unknown/custom names. Use this
+    /// when importing external settings to avoid pointing at a missing texture.
+    #[inline(always)]
+    pub fn from_stock_name(raw: &str) -> Option<Self> {
+        recognized_stock_key(raw, Self::STOCK_ALIASES).map(Self)
     }
 
     #[inline(always)]
@@ -3027,6 +3071,14 @@ impl JudgmentGraphic {
             normalize_graphic_key(raw, "judgements", Self::STOCK_ALIASES)
                 .unwrap_or_else(|_| Self::DEFAULT_KEY.to_string()),
         )
+    }
+
+    /// Parse `raw` only if it names a graphic DeadSync ships (a recognized stock
+    /// alias or `"None"`), returning `None` for unknown/custom names. Use this
+    /// when importing external settings to avoid pointing at a missing texture.
+    #[inline(always)]
+    pub fn from_stock_name(raw: &str) -> Option<Self> {
+        recognized_stock_key(raw, Self::STOCK_ALIASES).map(Self)
     }
 
     #[inline(always)]
