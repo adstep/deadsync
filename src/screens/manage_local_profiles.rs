@@ -1835,8 +1835,12 @@ fn push_delete_confirm_overlay(ui: &mut Vec<Actor>, state: &State) {
     let cx = w * 0.5;
     let cy = h * 0.5;
 
-    push_overlay_backdrop(ui, w, h);
-    push_overlay_box(ui, cx, cy, box_w, box_h);
+    let top = cy - box_h * 0.5;
+
+    push_popup_backdrop(ui, w, h);
+    push_popup_box(ui, cx, cy, box_w, box_h);
+
+    push_popup_title(ui, tr("Profiles", "DeleteConfirmTitle").to_string(), cx, top, box_w - 40.0);
 
     let prompt = tr_fmt(
         "Profiles",
@@ -1845,19 +1849,20 @@ fn push_delete_confirm_overlay(ui: &mut Vec<Actor>, state: &State) {
     );
     ui.push(act!(text:
         align(0.5, 0.0):
-        xy(cx, cy - box_h * 0.5 + 16.0):
+        xy(cx, top + 62.0):
         font("miso"):
-        zoom(1.0):
+        zoom(0.9):
         maxwidth(box_w - 40.0):
         settext(prompt):
         diffuse(1.0, 1.0, 1.0, 1.0):
         z(1002):
         horizalign(center)
     ));
+
     let cannot_be_undone = tr("Profiles", "CannotBeUndone");
     ui.push(act!(text:
         align(0.5, 0.0):
-        xy(cx, cy - box_h * 0.5 + 58.0):
+        xy(cx, top + 92.0):
         font("miso"):
         zoom(0.9):
         settext(cannot_be_undone):
@@ -1865,39 +1870,15 @@ fn push_delete_confirm_overlay(ui: &mut Vec<Actor>, state: &State) {
         z(1002):
         horizalign(center)
     ));
-    let yes_no = tr("Profiles", "YesNoPrompt");
-    ui.push(act!(text:
-        align(0.5, 1.0):
-        xy(cx, cy + box_h * 0.5 - 10.0):
-        font("miso"):
-        zoom(0.9):
-        settext(yes_no):
-        diffuse(1.0, 1.0, 1.0, 1.0):
-        z(1002):
-        horizalign(center)
-    ));
+
+    push_popup_footer(
+        ui,
+        tr("Profiles", "YesNoPrompt").to_string(),
+        cx,
+        cy + box_h * 0.5 - 12.0,
+    );
 
     push_overlay_error(ui, confirm.error.as_ref(), cx, cy, box_w, box_h);
-}
-
-fn push_overlay_backdrop(ui: &mut Vec<Actor>, w: f32, h: f32) {
-    ui.push(act!(quad:
-        align(0.0, 0.0):
-        xy(0.0, 0.0):
-        zoomto(w, h):
-        diffuse(0.0, 0.0, 0.0, 0.65):
-        z(1000)
-    ));
-}
-
-fn push_overlay_box(ui: &mut Vec<Actor>, cx: f32, cy: f32, w: f32, h: f32) {
-    ui.push(act!(quad:
-        align(0.5, 0.5):
-        xy(cx, cy):
-        zoomto(w, h):
-        diffuse(0.2, 0.2, 0.2, 1.0):
-        z(1001)
-    ));
 }
 
 /// Backdrop + box matching the app's standard popup look (e.g. the Score Import
